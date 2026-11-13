@@ -18,10 +18,7 @@ export default defineConfig(({ mode }) => {
       vueJsx(),
       AutoImport({
         // 自动导入的目录（可指定普通类所在的文件夹）
-        dirs: [
-          'src/utils/**',
-          'src/views/dts/**' // 业务类目录
-        ],
+        dirs: ['src/utils/**'],
         imports: ['vue', 'vue-router', 'pinia'],
         resolvers: [
           ElementPlusResolver(),
@@ -41,7 +38,7 @@ export default defineConfig(({ mode }) => {
         }
       }),
       Components({
-        dirs: ['src/views', 'src/layout', 'src/components', 'src/template'],
+        dirs: ['src/views', 'src/components'],
         extensions: ['vue'],
         resolvers: [
           ElementPlusResolver(),
@@ -75,22 +72,7 @@ export default defineConfig(({ mode }) => {
       host: "0.0.0.0",
       port: 8666, // 端口号
       // 不监听 SVN 元数据：提交时 .svn/tmp 的临时文件被锁，监听会 EBUSY 直接把 dev 服务器带崩
-      watch: { ignored: ['**/.svn/**'] },
-      proxy: {
-        '/admin': {
-          target: 'http://www.ab.com',
-          changeOrigin: true //          
-        },
-        '/manage': {
-          target: 'http://172.16.190.216:9090',
-          changeOrigin: true, //
-          rewrite: path => path.replace(/^\/manage/, '/manage'),
-        },
-        '/finite_element': {
-          target: 'http://172.16.190.216:9090',
-          changeOrigin: true
-        }
-      }
+      watch: { ignored: ['**/.svn/**'] }
     }
   }
 })

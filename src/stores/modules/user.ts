@@ -9,7 +9,7 @@ export const userStore = defineStore('userStore', {
   // 当手动从控制台中删除Storage时可能存在问题
   persist: {
     storage: sessionStorage,
-    paths: ['userInfo'],
+    pick: ['userInfo'],
     debug: false
   },
   actions: {

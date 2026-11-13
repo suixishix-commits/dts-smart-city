@@ -9,7 +9,7 @@ export default class RandomUtil {
 	 */
 	static getUUID(len = 32): string {
 		const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'.split('')
-		const uuid = []
+		const uuid: string[] = []
 		let cLen = chars.length
 		for (let i = 0; i < len; i++) {
 			let r = this.getRandomSeed(0, cLen - 1)

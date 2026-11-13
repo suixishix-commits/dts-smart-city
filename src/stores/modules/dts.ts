@@ -19,7 +19,7 @@ export const dtsStore = defineStore('dtsStore', {
   }),
   persist: {
     storage: sessionStorage,
-    paths: ['infoTree', 'infoTreeMap', 'twinPlayerVisible'],
+    pick: ['infoTree', 'infoTreeMap', 'twinPlayerVisible'],
     debug: false
   },
   getters: {},

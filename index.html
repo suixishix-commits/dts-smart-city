@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" href="/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Dts Master</title>
+    <title>智慧城市数字孪生平台</title>
     <script>
       // 根字号适配（照搬 usecase）：1920 → 10px（1rem = 10px，与 postcss-pxtorem rootValue 一致），
       // 4K(≥3840) 固定 2 倍、2K(≥2560) 固定 1.25 倍、≤768 下限 0.75 倍，其余按宽度等比
@@ -19,7 +19,6 @@
       })(document, window)
     </script>
     <!--      监控视频js文件-->
-    <script type="module" src="/static/haikuang/h5player.min.js"></script>
   </head>
   <body>
     <div id="app"></div>
@@ -27,9 +26,8 @@
     <script src="/config/global.js"></script>
     <!--环境变量配置-->
     <script src="%VITE_VARIABLE_FILE%"></script>
-    <!--DTS ac_min.js配置-->+
+    <!--DTS ac_min.js配置-->
     <script src="http://%VITE_DTS_SERVER_URL%/libac"></script>
     <script type="module" src="/src/main.ts"></script>
-    <script src="./DhPlugin/videoPlayer.js"></script>
   </body>
 </html>

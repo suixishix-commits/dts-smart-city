@@ -13,6 +13,8 @@
     "moduleResolution": "Bundler",
     // "strict": true,
     "noImplicitAny": false, // 是否允许隐式的any类型
+    "noImplicitThis": false,
+    "noUncheckedIndexedAccess": false,
     "paths": {
       "@/*": ["./src/*"]
     }

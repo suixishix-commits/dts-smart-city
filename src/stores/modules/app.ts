@@ -14,7 +14,7 @@ export const appStore = defineStore('appStore', {
   }),
   persist: {
     storage: localStorage,
-    paths: ['language', 'componentSize'],
+    pick: ['language', 'componentSize'],
     debug: false
   },
   getters: {},

@@ -5,9 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "fd": "vite --mode fd",
     "dev:prod": "vite --mode production",
-    "build:demo": "vite build --mode fd",
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",
     "test:unit": "vitest run",
