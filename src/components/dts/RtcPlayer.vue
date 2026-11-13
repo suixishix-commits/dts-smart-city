@@ -52,8 +52,17 @@ const onResize = () => {
   }
 }
 
-//DTS初始化
+//DTS初始化。任何一步失败都要把 sceneState 置为 failed，否则等待场景就绪的页面会一直等下去
 const initDts = async () => {
+  try {
+    await connectDts()
+  } catch (e) {
+    console.error('DTS 初始化失败：', e)
+    store.dtsStore.sceneState = 'failed'
+  }
+}
+
+const connectDts = async () => {
   if (typeof DigitalTwinPlayer === 'undefined') {
     console.error('DTS SDK 未加载，场景不可用。请确认 DTS Cloud 已启动：', gVar?.dtsCloud?.player)
     store.dtsStore.sceneState = 'failed'
@@ -83,6 +92,7 @@ const initDts = async () => {
       iid = resultObj.data.id
     } else {
       ElMessage.error('无可用DTS实例,请联系管理员！')
+      store.dtsStore.sceneState = 'failed'
       return
     }
   }
@@ -138,12 +148,12 @@ let _onReady = async (e: any) => {
   console.log('RtcPlayer onReady:', e, props)
   e.playerId = props?.playerVariable || '__xapi'
 
-  // 仅当第一个场景初始化时获取图层树
-  if (props.playerVariable == '__xapi') {
+  // 仅当第一个场景初始化时获取图层树；sceneState 只反映主场景
+  if (props.playerVariable === '__xapi') {
     await DtsFacade.getLayerTree()
+    store.dtsStore.sceneState = 'ready'
   }
 
-  store.dtsStore.sceneState = 'ready'
   EventDispatcher.onReady(e, context)
 }
 

@@ -50,7 +50,8 @@ const activeCamera = ref<string | null>(null)
 const activeTools = ref<string[]>([])
 
 let scene: OverviewScene | null = null
-let left = false
+/** 卸载时 abort，结束对场景就绪的等待 */
+const unmounting = new AbortController()
 
 const sortedHotspots = computed(() => (data.value ? [...data.value.hotspots].sort((a, b) => b.heat - a.heat) : []))
 const activeHotspotData = computed(() => sortedHotspots.value.find(h => h.id === activeHotspot.value) ?? null)
@@ -117,18 +118,20 @@ onMounted(async () => {
   emitter.on('sc_hotspot', onHotspotClick)
   emitter.on('sc_camera', onCameraClick)
 
-  const ready = await whenSceneReady()
-  if (!ready || left) return
+  const ready = await whenSceneReady(unmounting.signal)
+  if (!ready || unmounting.signal.aborted) return
   scene = new OverviewScene(new DtsSceneApi(), {
     cameraView: gVar?.smartCity?.cameras?.overview ?? null,
     heatmapZ: gVar?.smartCity?.heatmapZ ?? [-50, 300]
   })
   scene.setData(loaded, hour.value)
+  // 场景就绪前用户可能已经关掉了某些图层
+  for (const l of LAYERS) scene.setLayerVisible(l.key, layers.value.includes(l.key))
   await scene.enter()
 })
 
 onBeforeUnmount(async () => {
-  left = true
+  unmounting.abort()
   emitter.off('sc_hotspot', onHotspotClick)
   emitter.off('sc_camera', onCameraClick)
   await scene?.leave()
