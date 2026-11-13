@@ -2,7 +2,7 @@ import { getGeoData } from '@/api/geo'
 import { DtsSceneApi } from './DtsSceneApi'
 import { applyAmbience, mountEffectsPak } from './effects'
 import { buildCityGeo, type CityGeo } from './geo'
-import { COLOR, flowLine, plainLine, prepareFlowLines } from './kit'
+import { COLOR, plainLine } from './kit'
 import { whenSceneReady } from './sceneReady'
 
 const CLEARABLE = ['marker', 'marker3d', 'polygon', 'polygon3d', 'polyline', 'odline', 'beam', 'radiationPoint', 'heatmap', 'customObject'] as const
@@ -44,11 +44,10 @@ class CityBase {
   /** 路网：主干路是带脉冲的粒子流，次干路和支路是更细更暗的粒子流；外加一圈海岸线 */
   private async drawRoads(api: DtsSceneApi): Promise<void> {
     const geo = this.geo as CityGeo
-    if (this.pak) await prepareFlowLines()
+    // 底座路网只是城市骨架，要比各模块自己的图层暗一档、细一档
     const roads = geo.roads.map(r => {
       const main = r.level === 1
-      const o = { id: ROAD_PREFIX + r.id, groupId: 'sc_base', path: r.line, color: main ? COLOR.accentLight : COLOR.accent, width: main ? 70 : 36, brightness: main ? 3 : 1.6 }
-      return this.pak ? flowLine({ ...o, style: main ? 'pulse' : 'particles', spacing: main ? 160 : 120, speed: main ? 0.3 : 0.22 }) : plainLine({ ...o, flow: true })
+      return plainLine({ id: ROAD_PREFIX + r.id, groupId: 'sc_base', path: r.line, color: main ? COLOR.accentLight : COLOR.accent, width: main ? 30 : 16, brightness: main ? 1.3 : 0.9, alpha: main ? 0.8 : 0.6 })
     })
     this.roadIds = roads.map(r => r.id)
     await api.add('polyline', [...roads, plainLine({ id: COAST_ID, groupId: 'sc_base', path: [...geo.island, geo.island[0]], color: COLOR.ice, width: 18, brightness: 1.2, alpha: 0.55, height: 4 })])
