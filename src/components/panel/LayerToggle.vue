@@ -9,7 +9,7 @@
       :aria-pressed="modelValue.includes(l.key) ? 'true' : 'false'"
       @click="toggle(l.key)"
     >
-      {{ l.name }}
+      <i class="dot" aria-hidden="true"></i>{{ l.name }}
     </button>
   </div>
 </template>
@@ -36,6 +36,9 @@ function toggle(key: string) {
   border-radius: $radius;
 }
 .item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   height: 44px;
   padding: 0 14px;
   border: 0;
@@ -45,9 +48,19 @@ function toggle(key: string) {
   color: $text-muted;
   background: transparent;
   cursor: pointer;
+  .dot {
+    width: 8px;
+    height: 8px;
+    box-sizing: border-box;
+    border-radius: 50%;
+    border: 1.5px solid #6b7685;
+  }
   &.on {
     color: $text-strong;
-    background: $accent-soft;
+    .dot {
+      border-color: $accent;
+      background: $accent;
+    }
   }
 }
 </style>

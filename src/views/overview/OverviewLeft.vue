@@ -129,8 +129,10 @@ const chartOption = computed(() => {
   gap: 16px;
 }
 .rows {
+  flex-grow: 1;
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
   gap: 14px;
 }
 .legend {

@@ -15,7 +15,7 @@ const emit = defineEmits<{ (e: 'select', id: string): void }>()
 <style lang="scss" scoped>
 .camera-tile {
   position: relative;
-  height: 108px;
+  height: 92px;
   padding: 0;
   border-radius: 4px;
   font-family: inherit;

@@ -77,7 +77,7 @@ function heatClass(heat: number): string {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 52px;
+  min-height: 48px;
   padding: 6px 8px;
   margin: 0 -8px;
   border: 0;
