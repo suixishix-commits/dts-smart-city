@@ -11,10 +11,10 @@
     <TimeAxis class="axis" :model-value="hour" :peak-hour="peak.hour" @update:model-value="onHour" />
 
     <SceneLegend class="legend">
-      <span class="legend-item"><b>人口密度</b>低<i class="ramp"></i>高</span>
-      <span class="legend-item"><i class="pin">1</i>热点事件</span>
+      <span class="legend-item"><b>片区人口密度</b>低<i class="steps"><i v-for="c in RAMP" :key="c" :style="{ background: c }"></i></i>高</span>
+      <span class="legend-item"><i class="ring"></i>热点事件</span>
       <span class="legend-item"><i class="dot"></i>摄像头</span>
-      <span class="legend-item"><i class="line"></i>片区（按密度着色）</span>
+      <span class="legend-item"><i class="line"></i>路网</span>
     </SceneLegend>
 
     <LayerToggle v-model="layers" class="layers" :layers="LAYERS" @change="onLayer" />
@@ -25,6 +25,7 @@
 import { populationPeak } from '@/api/mock/population'
 import { getOverviewData } from '@/api/overview'
 import { useSceneTools } from '@/composables/useSceneTools'
+import { RAMP } from '@/scene/kit'
 import { DtsSceneApi } from '@/scene/DtsSceneApi'
 import { cityBase } from '@/scene/CityBase'
 import store from '@/stores'
@@ -171,11 +172,21 @@ $scene-right: $scene-left;
     display: inline-block;
     font-style: normal;
   }
-  .ramp {
-    width: 96px;
-    height: 8px;
+  .steps {
+    display: inline-flex;
+    overflow: hidden;
     border-radius: 4px;
-    background: linear-gradient(to right, $heat-low, $level-2, $level-1);
+    i {
+      width: 16px;
+      height: 8px;
+    }
+  }
+  .ring {
+    width: 10px;
+    height: 10px;
+    box-sizing: border-box;
+    border: 2px solid $level-2;
+    border-radius: 50%;
   }
   .pin {
     width: 14px;
@@ -196,7 +207,7 @@ $scene-right: $scene-left;
   }
   .line {
     width: 16px;
-    border-top: 2px dashed #c9d1dc;
+    border-top: 2px solid $accent-light;
   }
 }
 .layers {

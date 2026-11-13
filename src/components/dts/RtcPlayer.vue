@@ -40,8 +40,28 @@ onUnmounted(() => {
   window.removeEventListener('beforeunload', _windowsCloseHandler)
 })
 
+/** 渲染分辨率长边上限：4K 屏不按原始像素渲染，避免显卡吃紧 */
+const MAX_RENDER_SIDE = 2560
+let resolutionTimer: ReturnType<typeof setTimeout> | undefined
+
+/**
+ * 让渲染分辨率跟随容器的宽高比。视频默认按 16:9 输出，窗口不是 16:9 时上下或左右会留黑边；
+ * 把渲染分辨率设成容器的尺寸后画面正好铺满。拖动窗口时会连续触发，所以延迟到停下来再设置。
+ */
+const syncResolution = () => {
+  clearTimeout(resolutionTimer)
+  resolutionTimer = setTimeout(() => {
+    const el = document.getElementById(props.playerVariable)
+    const api = (window as any)[props.playerVariable]
+    if (!el || !el.clientWidth || !el.clientHeight || !api?.misc?.setWindowResolution) return
+    const scale = Math.min(1, MAX_RENDER_SIDE / Math.max(el.clientWidth, el.clientHeight))
+    // 不等待返回：这条指令在渲染端切换分辨率期间不一定回包
+    api.misc.setWindowResolution(Math.round(el.clientWidth * scale), Math.round(el.clientHeight * scale))
+  }, 400)
+}
+
 const onResize = () => {
-  console.log('场景onResize', digitalTwinPlayer.value)
+  syncResolution()
   if (digitalTwinApi.value?.isReady) {
     digitalTwinPlayer.value.ui_onResize && digitalTwinPlayer.value.ui_onResize()
     digitalTwinPlayer.value.resize && digitalTwinPlayer.value.resize()
@@ -153,6 +173,7 @@ let _onReady = async (e: any) => {
     await DtsFacade.getLayerTree()
     store.dtsStore.sceneState = 'ready'
   }
+  syncResolution()
 
   EventDispatcher.onReady(e, context)
 }

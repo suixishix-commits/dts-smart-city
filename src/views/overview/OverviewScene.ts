@@ -134,7 +134,7 @@ export class OverviewScene extends ModuleScene {
 
   private buildHeatmap(data: OverviewData) {
     const hotspots = data.hotspots.map(h => ({ id: h.id, heat: h.heat, xy: this.hotspotXY.get(h.id) as number[] }))
-    return heatmap({ id: 'population-heat', groupId: 'sc_heat', points: heatGridAt(this.hour, this.grid, this.geo.districts, hotspots, HEAT_STEP), range: [0, 6], z: this.options.heatmapZ })
+    return heatmap({ id: 'population-heat', groupId: 'sc_heat', points: heatGridAt(this.hour, this.grid, this.geo.districts, hotspots, HEAT_STEP), range: [0, 3.4], z: this.options.heatmapZ })
   }
 
   /** 热点事件图层的开关同时控制标注和波纹 */
