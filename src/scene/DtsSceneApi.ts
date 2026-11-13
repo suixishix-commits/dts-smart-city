@@ -13,6 +13,10 @@ function check(res: unknown, operation: string, ids: string[]): void {
 /** SceneApi 的 DTS 实现，直接调用 __xapi。只在场景就绪后使用。 */
 export class DtsSceneApi implements SceneApi {
   async add(type: SceneObjectType, objects: { id: string }[]): Promise<void> {
+    if (objects.length === 0) return
+    // 场景对象存在云渲染实例里，页面刷新后不会消失；同 id 再 add 会失败，所以先删。
+    // 对象不存在时删除会返回非 0，属正常情况，不检查结果。
+    await __xapi[type].delete(objects.map(o => o.id))
     if (type === 'heatmap') {
       for (const o of objects) check(await __xapi.heatmap.addByHeatPoints(o), 'heatmap.addByHeatPoints', [o.id])
       return

@@ -134,6 +134,8 @@ const chartOption = computed(() => {
   flex-direction: column;
   justify-content: space-between;
   gap: 14px;
+  // 窗口比 16:9 更高时面板会变长，限制行距不让列表被拉散
+  max-height: 320px;
 }
 .legend {
   display: flex;

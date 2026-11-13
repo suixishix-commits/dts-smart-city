@@ -83,6 +83,25 @@ function sizePatch(value: unknown, ratio: number): unknown {
   return Object.keys(patch).length ? patch : undefined
 }
 
+/** grid 等容器上按像素算的定位字段 */
+const BOX_KEYS = new Set(['left', 'right', 'top', 'bottom'])
+
+/**
+ * 按设计稿 px 写的 ECharts option → 当前视口的 option：复制一份，把尺寸字段乘上缩放倍数。
+ * 函数（formatter）、数据原样保留。组件里统一用设计 px 写 option，交给它换算。
+ */
+export function scaleOptionSizes<T>(option: T, ratio = getReViewportScale(), inGrid = false): T {
+  if (Array.isArray(option)) return option.map(item => scaleOptionSizes(item, ratio, inGrid)) as unknown as T
+  if (!isPlainObject(option)) return option
+  const out: Record<string, unknown> = {}
+  for (const [key, child] of Object.entries(option)) {
+    if (key === 'data') out[key] = child
+    else if (SIZE_KEYS.has(key) || (inGrid && BOX_KEYS.has(key))) out[key] = scaleSize(child, ratio) ?? scaleOptionSizes(child, ratio)
+    else out[key] = scaleOptionSizes(child, ratio, key === 'grid')
+  }
+  return out as T
+}
+
 interface ScalableChart {
   setOption: (option: any, notMerge?: boolean) => void
   resize: () => void
