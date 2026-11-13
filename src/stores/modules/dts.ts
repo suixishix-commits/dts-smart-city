@@ -15,7 +15,9 @@ export const dtsStore = defineStore('dtsStore', {
     hiddenLayer: [], //隐藏的图层，但清空时，又要显示的图层
     displayLayer: [], //显示的图层，但清空时，又要隐藏的图层
     /** 是否处于 TileLayer 信息拾取状态（为 true 时 EventDispatcher 会派发 TileLayer_LeftClick） */
-    inPickUpInfoState: false
+    inPickUpInfoState: false,
+    /** 场景连接状态：connecting 连接中 / ready 就绪 / failed 连接失败 */
+    sceneState: 'connecting' as 'connecting' | 'ready' | 'failed'
   }),
   persist: {
     storage: sessionStorage,

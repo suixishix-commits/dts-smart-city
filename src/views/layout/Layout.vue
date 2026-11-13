@@ -1,6 +1,7 @@
 <template>
   <TwinPlayer></TwinPlayer>
   <div id="layout-container">
+    <AppHeader></AppHeader>
     <router-view />
   </div>
 </template>

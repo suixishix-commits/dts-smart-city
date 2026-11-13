@@ -54,6 +54,11 @@ const onResize = () => {
 
 //DTS初始化
 const initDts = async () => {
+  if (typeof DigitalTwinPlayer === 'undefined') {
+    console.error('DTS SDK 未加载，场景不可用。请确认 DTS Cloud 已启动：', gVar?.dtsCloud?.player)
+    store.dtsStore.sceneState = 'failed'
+    return
+  }
   console.log('---DtsPlayer初始化---')
   //AirCloud云渲染服务器地址和端口
   let host = gVar.dtsCloud.player
@@ -138,6 +143,7 @@ let _onReady = async (e: any) => {
     await DtsFacade.getLayerTree()
   }
 
+  store.dtsStore.sceneState = 'ready'
   EventDispatcher.onReady(e, context)
 }
 
