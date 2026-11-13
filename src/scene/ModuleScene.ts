@@ -34,6 +34,16 @@ function byType(entries: Entry[]): Entry[][] {
 const idsOf = (entries: Entry[]) => entries.map(e => e.object.id)
 
 /**
+ * 由效果库创建的效果（点阵流光、电子围栏、摄像头视域等）：它们自己管理场景对象，
+ * 这里只需要知道怎么显示、隐藏、删除。
+ */
+export interface SceneEffect {
+  show(): Promise<unknown>
+  hide(): Promise<unknown>
+  remove(): Promise<unknown>
+}
+
+/**
  * 模块场景控制器基类。
  * 子类在 onEnter 里通过 add() 创建对象；基类登记每个对象，leave() 时统一删除。
  * token 用来丢弃过期的进入流程：离开后（或再次进入后）旧流程的 add() 不再生效。
@@ -49,6 +59,7 @@ export abstract class ModuleScene {
   private layers = new Map<string, LayerState>()
   private generation = 0
   private active = false
+  private effects: { layer: string; effect: SceneEffect }[] = []
 
   constructor(protected readonly api: SceneApi) {}
 
@@ -70,6 +81,9 @@ export abstract class ModuleScene {
     // 先清空期望状态，进行中的同步不会再往已离开的场景里加对象
     this.layers.forEach(layer => (layer.wanted = []))
     await this.onLeave()
+    const effects = this.effects
+    this.effects = []
+    await Promise.all(effects.map(e => e.effect.remove().catch(err => console.error('[ModuleScene] 删除效果失败', err))))
     await Promise.all([...this.layers.values()].map(layer => this.clear(layer, generation)))
   }
 
@@ -85,6 +99,27 @@ export abstract class ModuleScene {
     await this.sync(state)
   }
 
+  /**
+   * 创建一个效果库效果并登记到图层：离开时自动删除，图层开关时跟着显示/隐藏。
+   * create 失败只记日志，不影响其它图层（例如效果总包没挂载）。
+   */
+  protected async effect(token: number, layer: string, create: () => Promise<SceneEffect>): Promise<void> {
+    if (!this.isCurrent(token)) return
+    let effect: SceneEffect
+    try {
+      effect = await create()
+    } catch (e) {
+      console.warn(`[ModuleScene] 图层 ${layer} 的效果创建失败`, e)
+      return
+    }
+    if (!this.isCurrent(token)) {
+      await effect.remove()
+      return
+    }
+    this.effects.push({ layer, effect })
+    if (!this.layer(layer).visible) await effect.hide()
+  }
+
   /** 用新对象整体替换某个图层（用于随时间变化的图层）。重叠调用时场景最终停在最后一次请求的内容上 */
   async replaceLayer(layer: string, type: SceneObjectType, objects: { id: string }[]): Promise<void> {
     if (!this.active) return
@@ -96,6 +131,7 @@ export abstract class ModuleScene {
   async setLayerVisible(layer: string, visible: boolean): Promise<void> {
     const state = this.layer(layer)
     state.visible = visible
+    await Promise.all(this.effects.filter(e => e.layer === layer).map(e => (visible ? e.effect.show() : e.effect.hide())))
     await this.sync(state)
   }
 

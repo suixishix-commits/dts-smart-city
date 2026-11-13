@@ -1,70 +1,48 @@
-import { heatPointsAt } from '@/api/mock/population'
+import { districtDensityAt, heatGridAt, hotspotActivityAt } from '@/api/mock/population'
 import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
+import type { CityGeo } from '@/scene/geo'
+import { area, COLOR, heatmap, pin, rampColor, regionLayer, ripple } from '@/scene/kit'
 import type { OverviewData } from '@/types/smartCity'
 
 export interface OverviewSceneOptions {
-  /** [x, y, z, pitch, yaw]；为 null 时自动定位到片区 */
+  /** [x, y, z, pitch, yaw]；为 null 时不动相机 */
   cameraView: number[] | null
   /** 热力图垂直范围 [minZ, maxZ] */
   heatmapZ: [number, number]
+  /** 效果总包是否可用；不可用时片区退回普通面 */
+  pak: boolean
 }
 
-const HEATMAP_ID = 'population-heat'
-/** 热力值范围，万人/km² */
-const HEAT_RANGE = [0, 3]
+/** 密度色带的上限，万人/km² */
+const DENSITY_MAX = 2.8
+/** 热力网格间距，米 */
+const HEAT_STEP = 480
+const DISTRICT_LAYER_ID = 'sc_overview_districts'
 
-// RGBA，取值 0–1
-const WHITE = [1, 1, 1, 1]
-const PANEL = [0.07, 0.09, 0.12, 0.92]
-const BLUE = [0.3, 0.6, 1, 0.9]
-const HOT = [1, 0.42, 0.42, 0.95] // 热度 ≥ 90
-const WARM = [1, 0.66, 0.3, 0.95] // 热度 ≥ 75
-const MILD = [1, 0.83, 0.23, 0.95]
-
-function heatColor(heat: number): number[] {
-  return heat >= 90 ? HOT : heat >= 75 ? WARM : MILD
+function heatColor(heat: number): string {
+  return heat >= 90 ? COLOR.danger : heat >= 75 ? COLOR.warn : COLOR.caution
 }
 
-/** 文字标注的公共样式（不带图片）。字段含义见 DTS 文档 Marker.add */
-function textMarker(id: string, groupId: string, coordinate: number[], text: string, background: number[], userId: string) {
-  return {
-    id,
-    groupId,
-    userData: JSON.stringify({ id: userId }),
-    coordinate,
-    coordinateType: 0,
-    range: [1, 1000000],
-    imagePath: '',
-    imageSize: [0, 0],
-    fixedSize: true,
-    text,
-    useTextAnimation: false,
-    textRange: [1, 1000000],
-    textOffset: [0, 0],
-    textBackgroundColor: background,
-    fontSize: 14,
-    fontColor: WHITE,
-    showLine: true,
-    lineSize: [2, 30],
-    lineColor: background,
-    lineOffset: [0, 0],
-    autoHeight: true,
-    displayMode: 2,
-    occlusionCull: false
-  }
-}
-
+/**
+ * 城市总览的场景图层：
+ * - district 片区：点阵流光，颜色随所选时刻的人口密度变化；
+ * - heat     人口热力：只落在陆地上的网格热力，叠加热点事件的人群；
+ * - hotspot  热点事件：扩散波纹 + 标注，波纹大小随事件活跃度变化；
+ * - camera   摄像头：标注。
+ */
 export class OverviewScene extends ModuleScene {
   private data: OverviewData | null = null
   private hour = 12
-  /** onEnter 已经创建完图层（坐标已投影）。在此之前 setHour 只记录小时 */
+  /** onEnter 已经创建完图层。在此之前 setHour 只记录小时 */
   private entered = false
-  /** 经纬度字符串 → 投影坐标，避免重复转换 */
-  private projected = new Map<string, number[]>()
+  private hotspotXY = new Map<string, number[]>()
+  private districts: Awaited<ReturnType<typeof regionLayer>> | null = null
+  private grid: { xy: number[]; districtId: string }[] = []
 
   constructor(
     api: SceneApi,
+    private readonly geo: CityGeo,
     private readonly options: OverviewSceneOptions
   ) {
     super(api)
@@ -76,124 +54,109 @@ export class OverviewScene extends ModuleScene {
     this.hour = hour
   }
 
+  private densityColor(districtId: string): string {
+    const d = this.geo.district(districtId)
+    return d ? rampColor(districtDensityAt(d, this.hour) / DENSITY_MAX) : COLOR.accent
+  }
+
   protected async onEnter(token: number): Promise<void> {
     this.entered = false
     const data = this.data
     if (!data) return
-    await this.projectAll(data)
+    const geo = this.geo
 
-    await this.add(
-      token,
-      'polygon',
-      data.districts.map(d => ({
-        id: 'district-' + d.id,
-        groupId: 'sc_district',
-        coordinates: d.boundary.map(p => this.at(p)),
-        coordinateType: 0,
-        range: [1, 1000000],
-        color: [0.3, 0.6, 1, 0.06],
-        frameColor: [0.79, 0.82, 0.86, 0.8],
-        frameThickness: 2,
-        intensity: 1,
-        style: 0,
-        depthTest: false
-      })),
-      'district'
-    )
+    // 热点、摄像头的坐标不在 geo.json 里，单独投影一次
+    const points = [...data.hotspots.map(h => h.position), ...data.cameras.map(c => c.position)]
+    const xy = await this.api.project(points)
+    data.hotspots.forEach((h, i) => this.hotspotXY.set(h.id, xy[i]))
+    const cameraXY = new Map(data.cameras.map((c, i) => [c.id, xy[data.hotspots.length + i]]))
+    this.grid = geo.landGrid(HEAT_STEP)
 
+    if (this.options.cameraView) await this.api.setCamera(this.options.cameraView)
+
+    if (this.options.pak) {
+      await this.effect(token, 'district', async () => {
+        this.districts = await regionLayer(
+          DISTRICT_LAYER_ID,
+          geo.districts.map(d => ({ id: d.id, color: this.densityColor(d.id), ring: d.ring })),
+          { pattern: 'dots', scale: 3, fill: 0.08 }
+        )
+        return this.districts
+      })
+    } else {
+      await this.add(token, 'polygon', geo.districts.map(d => area({ id: 'district-' + d.id, groupId: 'sc_district', ring: d.ring, color: this.densityColor(d.id), fill: 0.14 })), 'district')
+    }
+
+    const ranked = [...data.hotspots].sort((a, b) => b.heat - a.heat)
     await this.add(
       token,
       'marker',
-      data.hotspots.map((h, i) => textMarker('hotspot-' + h.id, 'sc_hotspot', this.at(h.position), `${i + 1}  ${h.shortName}`, heatColor(h.heat), h.id)),
+      ranked.map((h, i) => pin({ id: 'hotspot-' + h.id, groupId: 'sc_hotspot', at: this.hotspotXY.get(h.id) as number[], text: `${i + 1}  ${h.shortName}`, color: heatColor(h.heat), userId: h.id, lineHeight: 56, priority: 10 })),
       'hotspot'
     )
-
     await this.add(
       token,
       'marker',
-      data.cameras.map(c => textMarker('camera-' + c.id, 'sc_camera', this.at(c.position), c.id, c.online ? BLUE : PANEL, c.id)),
+      data.cameras.map(c => pin({ id: 'camera-' + c.id, groupId: 'sc_camera', at: cameraXY.get(c.id) as number[], text: c.id, color: c.online ? COLOR.accent : COLOR.muted, userId: c.id, lineHeight: 26, fontSize: 11 })),
       'camera'
     )
 
     if (!this.isCurrent(token)) return
-    // 热力图最后创建，用进入期间记录的最新小时；此后 setHour 直接替换图层
+    // 随时间变化的图层最后创建，用进入期间记录的最新小时；此后 setHour 直接替换
     this.entered = true
-    await this.showHeat(data)
-
-    if (!this.isCurrent(token)) return
-    if (this.options.cameraView) {
-      await this.api.setCamera(this.options.cameraView)
-    } else if (data.districts.length) {
-      await this.api.focus('polygon', 'district-' + data.districts[0].id, 6000)
-    }
+    await this.applyHour(data)
   }
 
   protected async onLeave(): Promise<void> {
     this.entered = false
+    this.districts = null
   }
 
-  /** 切换到某个小时：整体替换热力图。进入完成前只记录小时，由 onEnter 应用最新值 */
+  /** 切换到某个小时。进入完成前只记录小时，由 onEnter 应用最新值 */
   async setHour(hour: number): Promise<void> {
     this.hour = hour
     if (!this.entered || !this.data) return
-    await this.showHeat(this.data)
+    await this.applyHour(this.data)
   }
 
-  private async showHeat(data: OverviewData): Promise<void> {
-    const heatmap = this.buildHeatmap(data)
-    await this.replaceLayer('heat', 'heatmap', heatmap ? [heatmap] : [])
+  private async applyHour(data: OverviewData): Promise<void> {
+    const geo = this.geo
+    await Promise.all([
+      this.replaceLayer('heat', 'heatmap', [this.buildHeatmap(data)]),
+      this.replaceLayer(
+        'hotspot-ripple',
+        'radiationPoint',
+        data.hotspots.map(h => ripple({ id: 'hotspot-ripple-' + h.id, groupId: 'sc_hotspot_ripple', at: this.hotspotXY.get(h.id) as number[], radius: 260 + 520 * hotspotActivityAt(h, this.hour), color: heatColor(h.heat) }))
+      ),
+      this.districts?.setColors(Object.fromEntries(geo.districts.map(d => [d.id, this.densityColor(d.id)])))
+    ])
+  }
+
+  private buildHeatmap(data: OverviewData) {
+    const hotspots = data.hotspots.map(h => ({ id: h.id, heat: h.heat, xy: this.hotspotXY.get(h.id) as number[] }))
+    return heatmap({ id: 'population-heat', groupId: 'sc_heat', points: heatGridAt(this.hour, this.grid, this.geo.districts, hotspots, HEAT_STEP), range: [0, 6], z: this.options.heatmapZ })
+  }
+
+  /** 热点事件图层的开关同时控制标注和波纹 */
+  async setLayerVisible(layer: string, visible: boolean): Promise<void> {
+    await super.setLayerVisible(layer, visible)
+    if (layer === 'hotspot') await super.setLayerVisible('hotspot-ripple', visible)
+  }
+
+  /** 城市巡航的机位：依次从西南方向俯瞰各热点事件（按热度从高到低） */
+  tourViews(): number[][] {
+    const ranked = [...(this.data?.hotspots ?? [])].sort((a, b) => b.heat - a.heat)
+    return ranked.flatMap(h => {
+      const p = this.hotspotXY.get(h.id)
+      return p ? [[p[0] - 1500, p[1] - 1900, 2200, -38, -38]] : []
+    })
   }
 
   async focusHotspot(id: string): Promise<void> {
-    await this.api.focus('marker', 'hotspot-' + id, 800)
+    await this.api.focus('marker', 'hotspot-' + id, 1800)
   }
 
   async focusCamera(id: string): Promise<void> {
-    await this.api.focus('marker', 'camera-' + id, 400)
-  }
-
-  private key(p: number[]): string {
-    return p[0] + ',' + p[1]
-  }
-
-  private at(p: number[]): number[] {
-    const c = this.projected.get(this.key(p))
-    if (!c) throw new Error(`没有 [${p[0]}, ${p[1]}] 的投影坐标：坐标还没有转换，或转换结果缺失`)
-    return c
-  }
-
-  /** 一次性把所有经纬度转成投影坐标 */
-  private async projectAll(data: OverviewData): Promise<void> {
-    const all: number[][] = []
-    data.districts.forEach(d => {
-      all.push(d.center)
-      d.boundary.forEach(p => all.push(p))
-    })
-    data.hotspots.forEach(h => all.push(h.position))
-    data.cameras.forEach(c => all.push(c.position))
-    const todo = all.filter(p => !this.projected.has(this.key(p)))
-    if (todo.length === 0) return
-    const result = await this.api.project(todo)
-    todo.forEach((p, i) => this.projected.set(this.key(p), result[i]))
-  }
-
-  /** 没有热力点时返回 null（空点集算不出包围盒） */
-  private buildHeatmap(data: OverviewData) {
-    const points = heatPointsAt(this.hour, data.districts, data.hotspots).map(p => {
-      const c = this.at(p.position)
-      return { id: p.id, coordinate: [c[0], c[1], c[2] ?? 0], radius: p.radius, heatValue: Math.min(HEAT_RANGE[1], p.value) }
-    })
-    if (points.length === 0) return null
-    const xs = points.map(p => p.coordinate[0])
-    const ys = points.map(p => p.coordinate[1])
-    const pad = 1200
-    const [minZ, maxZ] = this.options.heatmapZ
-    return {
-      id: HEATMAP_ID,
-      groupId: 'sc_heat',
-      bbox: [Math.min(...xs) - pad, Math.min(...ys) - pad, minZ, Math.max(...xs) + pad, Math.max(...ys) + pad, maxZ],
-      range: HEAT_RANGE,
-      data: points
-    }
+    await this.api.focus('marker', 'camera-' + id, 1200)
   }
 }

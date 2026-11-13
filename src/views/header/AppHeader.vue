@@ -26,10 +26,10 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 const modules = [
   { name: '城市总览', path: '/overview', ready: true },
-  { name: '智慧交通', path: '/traffic', ready: false },
-  { name: '公共安全', path: '/security', ready: false },
-  { name: '生态环境', path: '/environment', ready: false },
-  { name: '城市生命线', path: '/lifeline', ready: false }
+  { name: '智慧交通', path: '/traffic', ready: true },
+  { name: '公共安全', path: '/security', ready: true },
+  { name: '生态环境', path: '/environment', ready: true },
+  { name: '城市生命线', path: '/lifeline', ready: true }
 ]
 
 const WEEK = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']

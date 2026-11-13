@@ -18,7 +18,7 @@
       <LineChart :option="chartOption" label="今日在岛人口二十四小时曲线" />
     </PanelCard>
 
-    <PanelCard title="片区人口密度" extra="万人/km² · 较 1 小时前" grow>
+    <PanelCard title="片区人口密度" extra="前 6 · 万人/km² · 较 1 小时前" grow>
       <div class="rows">
         <BarRow v-for="r in densityRows" :key="r.name" :name="r.name" :value="r.value" :percent="r.percent" :color="r.color" :note="r.delta" :note-color="r.deltaColor" />
       </div>
@@ -28,6 +28,7 @@
 
 <script setup lang="ts">
 import { districtDensityAt, islandPopulationAt, populationPeak, populationSeries } from '@/api/mock/population'
+import { rampColor } from '@/scene/kit'
 import type { OverviewData } from '@/types/smartCity'
 import { computed } from 'vue'
 
@@ -51,11 +52,12 @@ const densityRows = computed(() => {
   })
   rows.sort((a, b) => b.v - a.v)
   const max = rows.length ? rows[0].v : 1
-  return rows.map(r => ({
+  // 面板只列密度最高的 6 个片区；颜色与场景里片区的色带一致
+  return rows.slice(0, 6).map(r => ({
     name: r.name,
     value: r.v.toFixed(1),
     percent: Math.round((r.v / max) * 100),
-    color: r.v >= 2 ? '#ff6b6b' : r.v >= 1.5 ? '#ffa94d' : '#ffe066',
+    color: rampColor(r.v / 2.8),
     delta: (r.delta >= 0 ? '+' : '') + r.delta.toFixed(2),
     deltaColor: r.delta > 0.005 ? '#ffa94d' : '#9aa4b2'
   }))

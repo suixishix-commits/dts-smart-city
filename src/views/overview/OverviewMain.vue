@@ -3,7 +3,8 @@
     <OverviewLeft :data="data" :hour="hour" :now-hour="nowHour" />
     <OverviewRight :data="data" :active-hotspot="activeHotspot" :active-camera="activeCamera" @hotspot="selectHotspot" @camera="selectCamera" />
 
-    <SceneTools class="tools" :active="activeTools" @tool="onTool" />
+    <SceneTools class="tools" :active="tools.active.value" @tool="tools.onTool" />
+    <BaseLayerPanel v-if="tools.showLayers.value" class="base-layers" :state="tools.base" @change="tools.setBase" />
 
     <HotspotCard v-if="activeHotspotData" class="card" :hotspot="activeHotspotData" :rank="activeHotspotRank" @close="activeHotspot = null" @camera="selectCamera" />
 
@@ -13,7 +14,7 @@
       <span class="legend-item"><b>人口密度</b>低<i class="ramp"></i>高</span>
       <span class="legend-item"><i class="pin">1</i>热点事件</span>
       <span class="legend-item"><i class="dot"></i>摄像头</span>
-      <span class="legend-item"><i class="line"></i>片区边界</span>
+      <span class="legend-item"><i class="line"></i>片区（按密度着色）</span>
     </SceneLegend>
 
     <LayerToggle v-model="layers" class="layers" :layers="LAYERS" @change="onLayer" />
@@ -23,8 +24,9 @@
 <script setup lang="ts">
 import { populationPeak } from '@/api/mock/population'
 import { getOverviewData } from '@/api/overview'
+import { useSceneTools } from '@/composables/useSceneTools'
 import { DtsSceneApi } from '@/scene/DtsSceneApi'
-import { whenSceneReady } from '@/scene/sceneReady'
+import { cityBase } from '@/scene/CityBase'
 import store from '@/stores'
 import type { OverviewData } from '@/types/smartCity'
 import emitter from '@/utils/emitter'
@@ -36,7 +38,7 @@ const LAYERS = [
   { key: 'heat', name: '人口热力' },
   { key: 'hotspot', name: '热点事件' },
   { key: 'camera', name: '摄像头' },
-  { key: 'district', name: '片区边界' }
+  { key: 'district', name: '片区密度' }
 ]
 
 const peak = populationPeak()
@@ -47,7 +49,6 @@ const hour = ref(nowHour)
 const layers = ref(LAYERS.map(l => l.key))
 const activeHotspot = ref<string | null>(null)
 const activeCamera = ref<string | null>(null)
-const activeTools = ref<string[]>([])
 
 let scene: OverviewScene | null = null
 /** 卸载时 abort，结束对场景就绪的等待 */
@@ -78,29 +79,16 @@ function onLayer(key: string, visible: boolean) {
   scene?.setLayerVisible(key, visible)
 }
 
-function toggleTool(key: string): boolean {
-  const on = !activeTools.value.includes(key)
-  activeTools.value = on ? [...activeTools.value, key] : activeTools.value.filter(k => k !== key)
-  return on
-}
+/** 默认机位 [x, y, z, pitch, yaw] */
+const HOME: number[] | null = gVar?.smartCity?.cameras?.overview ?? null
 
-async function onTool(key: string) {
-  if (key === 'fullscreen') {
-    if (document.fullscreenElement) await document.exitFullscreen()
-    else await document.documentElement.requestFullscreen()
-    return
-  }
-  if (store.dtsStore.sceneState !== 'ready') return
-  if (key === 'reset') {
-    await scene?.leave()
-    await scene?.enter()
-  } else if (key === 'night') {
-    __xapi.weather.setDarkMode(toggleTool('night'))
-  } else if (key === 'rain') {
-    if (toggleTool('rain')) __xapi.weather.setRainParam(0.3, 1, 1, null)
-    else __xapi.weather.disableRainSnow(null)
-  }
-}
+const tools = useSceneTools({
+  reset: async () => {
+    if (HOME) await __xapi.camera.set(HOME[0], HOME[1], HOME[2], HOME[3], HOME[4], 1.5)
+  },
+  // 巡航：从默认机位出发，依次俯瞰各热点事件，再回到默认机位
+  tour: () => (HOME ? [HOME, ...(scene?.tourViews() ?? []), HOME] : [])
+})
 
 // 场景里点击标注：EventDispatcher 会按 groupId 派发事件，data.userData 是 JSON 字符串
 function onHotspotClick(e: any) {
@@ -118,11 +106,12 @@ onMounted(async () => {
   emitter.on('sc_hotspot', onHotspotClick)
   emitter.on('sc_camera', onCameraClick)
 
-  const ready = await whenSceneReady(unmounting.signal)
-  if (!ready || unmounting.signal.aborted) return
-  scene = new OverviewScene(new DtsSceneApi(), {
+  const geo = await cityBase.start()
+  if (!geo || unmounting.signal.aborted) return
+  scene = new OverviewScene(new DtsSceneApi(), geo, {
     cameraView: gVar?.smartCity?.cameras?.overview ?? null,
-    heatmapZ: gVar?.smartCity?.heatmapZ ?? [-50, 300]
+    heatmapZ: gVar?.smartCity?.heatmapZ ?? [-50, 300],
+    pak: cityBase.pak
   })
   scene.setData(loaded, hour.value)
   // 场景就绪前用户可能已经关掉了某些图层
@@ -151,6 +140,11 @@ $scene-right: $scene-left;
 .tools {
   position: absolute;
   left: $scene-left;
+  top: $panel-top;
+}
+.base-layers {
+  position: absolute;
+  left: $scene-left + 64px;
   top: $panel-top;
 }
 .card {

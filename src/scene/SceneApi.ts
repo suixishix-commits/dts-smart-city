@@ -1,4 +1,15 @@
-export type SceneObjectType = 'marker' | 'polygon' | 'heatmap'
+/** 都是 __xapi 上同名的对象类，接口一致：add / delete / show / hide / focus */
+export type SceneObjectType =
+  | 'marker'
+  | 'marker3d'
+  | 'polygon'
+  | 'polygon3d'
+  | 'polyline'
+  | 'odline'
+  | 'beam'
+  | 'radiationPoint'
+  | 'heatmap'
+  | 'customObject'
 
 /** 场景操作的最小接口。真实实现见 DtsSceneApi，测试用替身实现。 */
 export interface SceneApi {

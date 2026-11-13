@@ -1,52 +1,233 @@
 {
   "vitals": [
-    { "label": "主岛常住人口", "value": "62.4", "unit": "万人" },
-    { "label": "在线感知设备", "value": "48,620", "unit": "台" },
-    { "label": "今日事件", "value": "1,284", "unit": "起" },
-    { "label": "事件办结率", "value": "96.3", "unit": "%" }
-  ],
-  "districts": [
-    { "id": "markaziyah", "name": "马卡齐亚", "center": [54.365, 24.490], "baseDensity": 2.1,
-      "boundary": [[54.352, 24.482], [54.372, 24.479], [54.378, 24.497], [54.358, 24.500]] },
-    { "id": "khalidiyah", "name": "哈利迪亚", "center": [54.345, 24.470], "baseDensity": 1.7,
-      "boundary": [[54.332, 24.462], [54.352, 24.460], [54.356, 24.478], [54.336, 24.481]] },
-    { "id": "zahiyah", "name": "扎希亚", "center": [54.382, 24.497], "baseDensity": 1.5,
-      "boundary": [[54.373, 24.488], [54.392, 24.486], [54.395, 24.504], [54.378, 24.506]] },
-    { "id": "nahyan", "name": "纳哈扬", "center": [54.385, 24.465], "baseDensity": 1.1,
-      "boundary": [[54.374, 24.456], [54.395, 24.455], [54.397, 24.474], [54.376, 24.476]] },
-    { "id": "mushrif", "name": "穆什里夫", "center": [54.385, 24.445], "baseDensity": 1.0,
-      "boundary": [[54.372, 24.436], [54.396, 24.435], [54.398, 24.453], [54.374, 24.454]] },
-    { "id": "bateen", "name": "巴廷", "center": [54.340, 24.455], "baseDensity": 0.7,
-      "boundary": [[54.328, 24.446], [54.350, 24.445], [54.352, 24.459], [54.330, 24.461]] }
+    {
+      "label": "主岛常住人口",
+      "value": "62.4",
+      "unit": "万人"
+    },
+    {
+      "label": "在线感知设备",
+      "value": "48,620",
+      "unit": "台"
+    },
+    {
+      "label": "今日事件",
+      "value": "1,284",
+      "unit": "起"
+    },
+    {
+      "label": "事件办结率",
+      "value": "96.3",
+      "unit": "%"
+    }
   ],
   "hotspots": [
-    { "id": "h1", "name": "科尼什海滩音乐节", "shortName": "科尼什音乐节", "type": "文体活动", "districtId": "markaziyah",
-      "position": [54.352, 24.478], "heat": 96, "people": 18000, "cameraId": "CAM-0218", "nearbyCameras": 6 },
-    { "id": "h2", "name": "哈利迪亚商场周年庆", "shortName": "商场周年庆", "type": "商业促销", "districtId": "khalidiyah",
-      "position": [54.347, 24.468], "heat": 88, "people": 9200, "cameraId": "CAM-0117", "nearbyCameras": 4 },
-    { "id": "h3", "name": "扎希亚港邮轮到港", "shortName": "邮轮到港", "type": "交通客流", "districtId": "zahiyah",
-      "position": [54.388, 24.501], "heat": 81, "people": 6400, "cameraId": "CAM-0409", "nearbyCameras": 5 },
-    { "id": "h4", "name": "穆什里夫公园周末市集", "shortName": "周末市集", "type": "文体活动", "districtId": "mushrif",
-      "position": [54.383, 24.447], "heat": 74, "people": 4100, "cameraId": "CAM-0531", "nearbyCameras": 3 },
-    { "id": "h5", "name": "纳哈扬体育场足球赛", "shortName": "足球赛（19:00）", "type": "文体活动", "districtId": "nahyan",
-      "position": [54.387, 24.463], "heat": 68, "people": 2600, "cameraId": "CAM-0620", "nearbyCameras": 4 }
+    {
+      "id": "h1",
+      "name": "科尼什海滩音乐节",
+      "shortName": "科尼什音乐节",
+      "type": "文体活动",
+      "districtId": "khalidiyah",
+      "position": [
+        54.334,
+        24.4712
+      ],
+      "heat": 96,
+      "people": 18000,
+      "cameraId": "CAM-0218",
+      "nearbyCameras": 6
+    },
+    {
+      "id": "h2",
+      "name": "瓦赫达购物中心周年庆",
+      "shortName": "商场周年庆",
+      "type": "商业促销",
+      "districtId": "wahda",
+      "position": [
+        54.3729,
+        24.4705
+      ],
+      "heat": 88,
+      "people": 9200,
+      "cameraId": "CAM-0117",
+      "nearbyCameras": 4
+    },
+    {
+      "id": "h3",
+      "name": "扎耶德港邮轮到港",
+      "shortName": "邮轮到港",
+      "type": "交通客流",
+      "districtId": "zahiyah",
+      "position": [
+        54.381,
+        24.512
+      ],
+      "heat": 81,
+      "people": 6400,
+      "cameraId": "CAM-0409",
+      "nearbyCameras": 5
+    },
+    {
+      "id": "h4",
+      "name": "乌姆阿联酋公园周末市集",
+      "shortName": "周末市集",
+      "type": "文体活动",
+      "districtId": "mushrif",
+      "position": [
+        54.3845,
+        24.453
+      ],
+      "heat": 74,
+      "people": 4100,
+      "cameraId": "CAM-0531",
+      "nearbyCameras": 3
+    },
+    {
+      "id": "h5",
+      "name": "扎耶德体育城足球赛",
+      "shortName": "足球赛（19:00）",
+      "type": "文体活动",
+      "districtId": "maqta",
+      "position": [
+        54.4536,
+        24.4161
+      ],
+      "heat": 68,
+      "people": 2600,
+      "cameraId": "CAM-0620",
+      "nearbyCameras": 4
+    }
   ],
   "cameras": [
-    { "id": "CAM-0218", "name": "海滩东入口", "position": [54.353, 24.479], "online": true, "featured": true },
-    { "id": "CAM-0342", "name": "机场路口", "position": [54.368, 24.486], "online": true, "featured": true },
-    { "id": "CAM-0117", "name": "哈利迪亚商场", "position": [54.348, 24.469], "online": true, "featured": true },
-    { "id": "CAM-0409", "name": "扎希亚港", "position": [54.389, 24.502], "online": true, "featured": true },
-    { "id": "CAM-0531", "name": "穆什里夫公园", "position": [54.384, 24.448], "online": true, "featured": false },
-    { "id": "CAM-0620", "name": "纳哈扬体育场", "position": [54.388, 24.464], "online": true, "featured": false },
-    { "id": "CAM-0705", "name": "巴廷码头", "position": [54.338, 24.452], "online": false, "featured": false },
-    { "id": "CAM-0811", "name": "哈姆丹街", "position": [54.362, 24.492], "online": true, "featured": false }
+    {
+      "id": "CAM-0218",
+      "name": "科尼什海滩东入口",
+      "position": [
+        54.3352,
+        24.4718
+      ],
+      "online": true,
+      "featured": true
+    },
+    {
+      "id": "CAM-0342",
+      "name": "霍森宫路口",
+      "position": [
+        54.3556,
+        24.4828
+      ],
+      "online": true,
+      "featured": true
+    },
+    {
+      "id": "CAM-0117",
+      "name": "瓦赫达购物中心",
+      "position": [
+        54.3738,
+        24.4698
+      ],
+      "online": true,
+      "featured": true
+    },
+    {
+      "id": "CAM-0409",
+      "name": "扎耶德港客运码头",
+      "position": [
+        54.3802,
+        24.5108
+      ],
+      "online": true,
+      "featured": true
+    },
+    {
+      "id": "CAM-0531",
+      "name": "乌姆阿联酋公园",
+      "position": [
+        54.3856,
+        24.4537
+      ],
+      "online": true,
+      "featured": false
+    },
+    {
+      "id": "CAM-0620",
+      "name": "扎耶德体育城",
+      "position": [
+        54.4525,
+        24.4172
+      ],
+      "online": true,
+      "featured": false
+    },
+    {
+      "id": "CAM-0705",
+      "name": "巴廷码头",
+      "position": [
+        54.3625,
+        24.4415
+      ],
+      "online": false,
+      "featured": false
+    },
+    {
+      "id": "CAM-0811",
+      "name": "大清真寺南广场",
+      "position": [
+        54.4742,
+        24.4118
+      ],
+      "online": true,
+      "featured": false
+    }
   ],
   "alarms": [
-    { "id": "a1", "module": "生命线", "level": 1, "title": "哈利迪亚街 DN600 供水主管爆管", "area": "哈利迪亚", "time": "14:26" },
-    { "id": "a2", "module": "交通", "level": 2, "title": "科尼什路与机场路口多车追尾", "area": "马卡齐亚", "time": "14:21" },
-    { "id": "a3", "module": "环境", "level": 2, "title": "扎希亚港区 PM10 超标", "area": "扎希亚", "time": "14:15" },
-    { "id": "a4", "module": "安全", "level": 3, "title": "科尼什海滩东入口人员聚集", "area": "马卡齐亚", "time": "14:08" },
-    { "id": "a5", "module": "生命线", "level": 3, "title": "穆罗尔路下穿通道积水 18 cm", "area": "纳哈扬", "time": "13:57" },
-    { "id": "a6", "module": "生命线", "level": 4, "title": "巴廷 3 号变电站负荷偏高", "area": "巴廷", "time": "13:42" }
+    {
+      "id": "a1",
+      "module": "生命线",
+      "level": 1,
+      "title": "阿拉伯湾街 DN600 供水主管爆管",
+      "area": "哈利迪亚",
+      "time": "14:26"
+    },
+    {
+      "id": "a2",
+      "module": "交通",
+      "level": 2,
+      "title": "滨海大道与谢赫拉希德街口多车追尾",
+      "area": "达纳",
+      "time": "14:21"
+    },
+    {
+      "id": "a3",
+      "module": "环境",
+      "level": 2,
+      "title": "扎耶德港区 PM10 超标",
+      "area": "扎希亚",
+      "time": "14:15"
+    },
+    {
+      "id": "a4",
+      "module": "安全",
+      "level": 3,
+      "title": "科尼什海滩东入口人员聚集",
+      "area": "哈利迪亚",
+      "time": "14:08"
+    },
+    {
+      "id": "a5",
+      "module": "生命线",
+      "level": 3,
+      "title": "苏丹·本·扎耶德街下穿通道积水 18 cm",
+      "area": "纳哈扬",
+      "time": "13:57"
+    },
+    {
+      "id": "a6",
+      "module": "生命线",
+      "level": 4,
+      "title": "巴廷 3 号变电站负荷偏高",
+      "area": "巴廷",
+      "time": "13:42"
+    }
   ]
 }
