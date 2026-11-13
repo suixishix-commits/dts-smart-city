@@ -23,20 +23,20 @@ describe('AppHeader', () => {
     store.dtsStore.sceneState = 'connecting'
   })
 
-  it('renders only ready modules as links', () => {
+  it('renders all five modules as links, in order', () => {
     const w = mountHeader()
-    expect(w.findAll('nav a').map(a => a.text())).toEqual(['城市总览'])
+    expect(w.findAll('nav a').map(a => a.text())).toEqual(['城市总览', '智慧交通', '公共安全', '生态环境', '城市生命线'])
   })
 
-  it('renders modules that are not ready as disabled text that cannot be focused or activated', () => {
+  it('links each module to its route', () => {
     const w = mountHeader()
-    const disabled = w.findAll('nav span.tab.disabled')
-    expect(disabled.map(s => s.text())).toEqual(['智慧交通', '公共安全', '生态环境', '城市生命线'])
-    disabled.forEach(s => {
-      expect(s.attributes('aria-disabled')).toBe('true')
-      expect(s.attributes('href')).toBeUndefined()
-      expect(s.attributes('tabindex')).toBeUndefined()
-    })
+    expect(w.findAll('nav a').map(a => a.attributes('href'))).toEqual(['/overview', '/traffic', '/security', '/environment', '/lifeline'])
+  })
+
+  it('has no disabled module left', () => {
+    const w = mountHeader()
+    expect(w.findAll('nav .tab.disabled')).toEqual([])
+    expect(w.findAll('nav [aria-disabled="true"]')).toEqual([])
   })
 
   it('announces the connection status', async () => {

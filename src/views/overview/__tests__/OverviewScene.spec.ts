@@ -1,6 +1,23 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { districtDensityAt, hotspotActivityAt } from '@/api/mock/population'
 import type { SceneApi, SceneObjectType } from '@/scene/SceneApi'
+import type { CityGeo } from '@/scene/geo'
+import { COLOR, rampColor, rgba } from '@/scene/kit'
+import { loadCityGeo, loadOverviewJson } from '@/scene/__tests__/fixtures'
 import type { OverviewData } from '@/types/smartCity'
+
+// 效果总包的点阵流光图层用替身：只测 OverviewScene 怎么用它，不测效果库本身
+const region = vi.hoisted(() => ({
+  layer: {
+    show: vi.fn(async () => {}),
+    hide: vi.fn(async () => {}),
+    remove: vi.fn(async () => {}),
+    setColors: vi.fn(async (_colors: Record<string, string>) => {})
+  },
+  regionLayer: vi.fn()
+}))
+vi.mock('@/scene/kit', async importOriginal => ({ ...(await importOriginal<typeof import('@/scene/kit')>()), regionLayer: region.regionLayer }))
+
 import { OverviewScene } from '../OverviewScene'
 
 /** 严格的场景替身：重复添加同一个 id、删除不存在的 id 都会抛错 */
@@ -9,6 +26,7 @@ class FakeApi implements SceneApi {
   visible = new Map<string, boolean>()
   cameraCalls: number[][] = []
   focusCalls: string[] = []
+  projectCalls: number[][][] = []
   /** 设置后 project() 会等它 resolve，用来停在“正在进入”的状态 */
   projectGate: Promise<void> | null = null
   async add(type: SceneObjectType, objects: { id: string }[]) {
@@ -33,160 +51,408 @@ class FakeApi implements SceneApi {
   async setCamera(view: number[]) {
     this.cameraCalls.push(view)
   }
-  async focus(type: SceneObjectType, id: string) {
-    this.focusCalls.push(`${type}:${id}`)
+  async focus(type: SceneObjectType, id: string, distance?: number) {
+    this.focusCalls.push(`${type}:${id}:${distance}`)
   }
   async project(lonLat: number[][]) {
+    this.projectCalls.push(lonLat)
     if (this.projectGate) await this.projectGate
-    // 假投影：平面坐标不变，z 固定为 7，便于断言
-    return lonLat.map(p => [p[0], p[1], 7])
+    // 与 fixtures 的假投影一致：经纬度 ×1e5
+    return lonLat.map(p => [p[0] * 1e5, p[1] * 1e5, 0])
   }
   ids(type: string) {
     return [...this.store.keys()].filter(k => k.startsWith(type + ':')).sort()
   }
 }
 
-const data: OverviewData = {
-  vitals: [],
-  districts: [
-    { id: 'd1', name: '甲', center: [54.36, 24.49], baseDensity: 2, boundary: [[54.35, 24.48], [54.37, 24.48], [54.37, 24.5]] }
-  ],
-  hotspots: [
-    { id: 'h1', name: '音乐节', shortName: '音乐节', type: '文体活动', districtId: 'd1', position: [54.352, 24.478], heat: 96, people: 18000, cameraId: 'c1', nearbyCameras: 6 }
-  ],
-  cameras: [
-    { id: 'c1', name: '东入口', position: [54.353, 24.479], online: true, featured: true },
-    { id: 'c2', name: '码头', position: [54.338, 24.452], online: false, featured: false }
-  ],
-  alarms: []
-}
+const HEAT_STEP = 480
+const DENSITY_MAX = 2.8
 
 describe('OverviewScene', () => {
+  let geo: CityGeo
+  let data: OverviewData
   let api: FakeApi
   let scene: OverviewScene
+  /** 进入后场景里的对象总数：片区面 + 热点标注 + 摄像头标注 + 热点波纹 + 1 张热力图 */
+  let total: number
+
+  const densityColor = (districtId: string, hour: number) => rampColor(districtDensityAt(geo.district(districtId)!, hour) / DENSITY_MAX)
+
+  beforeAll(async () => {
+    geo = await loadCityGeo()
+    // 与 getOverviewData 一样：片区来自 geo.json
+    data = { ...loadOverviewJson(), districts: geo.raw.districts }
+    total = geo.districts.length + data.hotspots.length * 2 + data.cameras.length + 1
+  })
 
   beforeEach(() => {
+    region.regionLayer.mockReset().mockResolvedValue(region.layer)
+    Object.values(region.layer).forEach(fn => fn.mockClear())
     api = new FakeApi()
-    scene = new OverviewScene(api, { cameraView: null, heatmapZ: [-50, 300] })
+    scene = new OverviewScene(api, geo, { cameraView: null, heatmapZ: [-50, 300], pak: false })
     scene.setData(data, 12)
   })
 
-  it('creates districts, hotspots, cameras and one heatmap on enter', async () => {
-    await scene.enter()
-    expect(api.ids('polygon')).toEqual(['polygon:district-d1'])
-    expect(api.ids('marker')).toEqual(['marker:camera-c1', 'marker:camera-c2', 'marker:hotspot-h1'])
-    expect(api.ids('heatmap')).toEqual(['heatmap:population-heat'])
-  })
-
-  it('projects coordinates before adding', async () => {
-    await scene.enter()
-    expect(api.store.get('marker:hotspot-h1').coordinate).toEqual([54.352, 24.478, 7])
-    expect(api.store.get('polygon:district-d1').coordinates[0]).toEqual([54.35, 24.48, 7])
-  })
-
-  it('gives markers a group id and JSON user data', async () => {
-    await scene.enter()
-    const m = api.store.get('marker:hotspot-h1')
-    expect(m.groupId).toBe('sc_hotspot')
-    expect(JSON.parse(m.userData)).toEqual({ id: 'h1' })
-    expect(api.store.get('marker:camera-c1').groupId).toBe('sc_camera')
-  })
-
-  it('builds the heatmap from district and hotspot points', async () => {
-    await scene.enter()
-    const hm = api.store.get('heatmap:population-heat')
-    expect(hm.data.map((p: any) => p.id)).toEqual(['heat-d1', 'heat-h1'])
-    expect(hm.data[0].heatValue).toBeCloseTo(2)
-    expect(hm.bbox).toHaveLength(6)
-    expect(hm.bbox[2]).toBe(-50)
-    expect(hm.bbox[5]).toBe(300)
-  })
-
-  it('rebuilds the heatmap when the hour changes', async () => {
-    await scene.enter()
-    await scene.setHour(19.5)
-    const hm = api.store.get('heatmap:population-heat')
-    expect(hm.data[0].heatValue).toBeCloseTo(2.28)
-    expect(api.ids('heatmap')).toHaveLength(1)
-  })
-
-  it('uses the configured camera view when present', async () => {
-    scene = new OverviewScene(api, { cameraView: [1, 2, 3, -45, 0], heatmapZ: [-50, 300] })
-    scene.setData(data, 12)
-    await scene.enter()
-    expect(api.cameraCalls).toEqual([[1, 2, 3, -45, 0]])
-  })
-
-  it('focuses the district when no camera view is configured', async () => {
-    await scene.enter()
-    expect(api.focusCalls).toEqual(['polygon:district-d1'])
-  })
-
-  it('toggles a layer by key', async () => {
-    await scene.enter()
-    await scene.setLayerVisible('camera', false)
-    expect(api.visible.get('marker:camera-c1')).toBe(false)
-    expect(api.visible.get('marker:hotspot-h1')).toBe(true)
-  })
-
-  it('focuses a hotspot or camera by id', async () => {
-    await scene.enter()
-    api.focusCalls = []
-    await scene.focusHotspot('h1')
-    await scene.focusCamera('c2')
-    expect(api.focusCalls).toEqual(['marker:hotspot-h1', 'marker:camera-c2'])
-  })
-
-  it('removes everything on leave', async () => {
-    await scene.enter()
-    await scene.leave()
-    expect(api.store.size).toBe(0)
-  })
-
-  it('only records the hour while entering and applies the latest one after enter', async () => {
-    let open!: () => void
-    api.projectGate = new Promise<void>(resolve => (open = resolve))
-    const entering = scene.enter()
-    await scene.setHour(8)
-    await scene.setHour(19.5)
-    expect(api.ids('heatmap')).toEqual([])
-    open()
-    await entering
-    expect(api.ids('heatmap')).toEqual(['heatmap:population-heat'])
-    expect(api.store.get('heatmap:population-heat').data[0].heatValue).toBeCloseTo(2.28)
-    expect(scene.objectCount()).toBe(5)
-  })
-
-  it('keeps the hour set after leave for the next enter', async () => {
-    await scene.enter()
-    await scene.leave()
-    await scene.setHour(19.5)
-    expect(api.store.size).toBe(0)
-    await scene.enter()
-    expect(api.store.get('heatmap:population-heat').data[0].heatValue).toBeCloseTo(2.28)
-  })
-
-  it('creates no heatmap when there are no heat points', async () => {
-    scene.setData({ ...data, districts: [], hotspots: [] }, 12)
-    await scene.enter()
-    await scene.setHour(19.5)
-    expect(api.ids('heatmap')).toEqual([])
-    expect(api.ids('marker')).toEqual(['marker:camera-c1', 'marker:camera-c2'])
-  })
-
-  it('fails with a descriptive error when a coordinate was not projected', async () => {
-    api.project = async () => []
-    await expect(scene.enter()).rejects.toThrow(/投影坐标/)
-  })
-
-  it('does not grow after repeated enter/leave', async () => {
-    for (let i = 0; i < 5; i++) {
+  describe('进入（pak: false，片区用普通面兜底）', () => {
+    it('creates district areas, hotspot pins and ripples, camera pins and one heatmap', async () => {
       await scene.enter()
-      await scene.setHour(i)
+      expect(api.ids('polygon')).toEqual(geo.districts.map(d => 'polygon:district-' + d.id).sort())
+      expect(api.ids('marker')).toEqual([...data.cameras.map(c => 'marker:camera-' + c.id), ...data.hotspots.map(h => 'marker:hotspot-' + h.id)].sort())
+      expect(api.ids('radiationPoint')).toEqual(data.hotspots.map(h => 'radiationPoint:hotspot-ripple-' + h.id).sort())
+      expect(api.ids('heatmap')).toEqual(['heatmap:population-heat'])
+      expect(api.store.size).toBe(total)
+      expect(scene.objectCount()).toBe(total)
+      expect(region.regionLayer).not.toHaveBeenCalled()
+    })
+
+    it('does nothing when no data was set', async () => {
+      scene = new OverviewScene(api, geo, { cameraView: [1, 2, 3, -45, 0], heatmapZ: [-50, 300], pak: false })
+      await scene.enter()
+      expect(api.store.size).toBe(0)
+      expect(api.cameraCalls).toEqual([])
+    })
+
+    it('projects only the hotspot and camera positions, in one call', async () => {
+      await scene.enter()
+      expect(api.projectCalls).toHaveLength(1)
+      expect(api.projectCalls[0]).toEqual([...data.hotspots.map(h => h.position), ...data.cameras.map(c => c.position)])
+    })
+
+    it('draws each district on its projected ring, coloured by density at the entry hour', async () => {
+      await scene.enter()
+      for (const d of geo.districts) {
+        const polygon = api.store.get('polygon:district-' + d.id)
+        expect(polygon.groupId).toBe('sc_district')
+        expect(polygon.coordinates.map((p: number[]) => [p[0], p[1]])).toEqual(d.ring)
+        expect(polygon.frameColor.slice(0, 3), d.id).toEqual(rgba(densityColor(d.id, 12)).slice(0, 3))
+      }
+    })
+
+    it('uses the hour passed to setData for the district colours', async () => {
+      scene.setData(data, 2)
+      await scene.enter()
+      // 商务区达纳凌晨是低密度（冷色最低档），正午是高密度
+      expect(densityColor('danah', 2)).not.toBe(densityColor('danah', 12))
+      expect(api.store.get('polygon:district-danah').frameColor.slice(0, 3)).toEqual(rgba(densityColor('danah', 2)).slice(0, 3))
+    })
+
+    it('labels hotspots with their rank by heat and colours them by heat', async () => {
+      await scene.enter()
+      const ranked = [...data.hotspots].sort((a, b) => b.heat - a.heat)
+      ranked.forEach((h, i) => {
+        const m = api.store.get('marker:hotspot-' + h.id)
+        expect(m.text).toBe(`${i + 1}  ${h.shortName}`)
+        expect(m.groupId).toBe('sc_hotspot')
+        expect(JSON.parse(m.userData)).toEqual({ id: h.id })
+        expect(m.coordinate[0]).toBeCloseTo(h.position[0] * 1e5)
+        expect(m.coordinate[1]).toBeCloseTo(h.position[1] * 1e5)
+        const color = h.heat >= 90 ? COLOR.danger : h.heat >= 75 ? COLOR.warn : COLOR.caution
+        expect(m.lineColor).toEqual(rgba(color, 0.95))
+      })
+    })
+
+    it('labels cameras with their id, muted when offline', async () => {
+      await scene.enter()
+      for (const c of data.cameras) {
+        const m = api.store.get('marker:camera-' + c.id)
+        expect(m.text).toBe(c.id)
+        expect(m.groupId).toBe('sc_camera')
+        expect(JSON.parse(m.userData)).toEqual({ id: c.id })
+        expect(m.lineColor).toEqual(rgba(c.online ? COLOR.accent : COLOR.muted, 0.95))
+      }
+      expect(data.cameras.some(c => !c.online)).toBe(true)
+    })
+
+    it('builds the heatmap from the land grid plus one point per hotspot', async () => {
+      await scene.enter()
+      const hm = api.store.get('heatmap:population-heat')
+      const grid = geo.landGrid(HEAT_STEP)
+      expect(hm.data).toHaveLength(grid.length + data.hotspots.length)
+      expect(hm.data.slice(-data.hotspots.length).map((p: any) => p.id)).toEqual(data.hotspots.map(h => 'hot-' + h.id))
+      expect(hm.groupId).toBe('sc_heat')
+      expect(hm.bbox).toHaveLength(6)
+      expect(hm.bbox[2]).toBe(-50)
+      expect(hm.bbox[5]).toBe(300)
+    })
+
+    it('keeps every grid heat point on land and every heat value inside the range', async () => {
+      await scene.enter()
+      const hm = api.store.get('heatmap:population-heat')
+      const gridPoints = hm.data.filter((p: any) => p.id.startsWith('g'))
+      expect(gridPoints.length).toBeGreaterThan(100)
+      for (const p of gridPoints) expect(geo.onLand(p.coordinate)).toBe(true)
+      for (const p of hm.data) {
+        expect(p.heatValue).toBeGreaterThanOrEqual(hm.range[0])
+        expect(p.heatValue).toBeLessThanOrEqual(hm.range[1])
+      }
+    })
+
+    it('uses the configured heatmap z range', async () => {
+      scene = new OverviewScene(api, geo, { cameraView: null, heatmapZ: [-10, 120], pak: false })
+      scene.setData(data, 12)
+      await scene.enter()
+      const hm = api.store.get('heatmap:population-heat')
+      expect([hm.bbox[2], hm.bbox[5]]).toEqual([-10, 120])
+    })
+
+    it('sizes each hotspot ripple by the activity at the current hour', async () => {
+      await scene.enter()
+      for (const h of data.hotspots) {
+        const r = api.store.get('radiationPoint:hotspot-ripple-' + h.id)
+        expect(r.radius).toBeCloseTo(260 + 520 * hotspotActivityAt(h, 12))
+        expect(r.groupId).toBe('sc_hotspot_ripple')
+        expect(r.coordinate[0]).toBeCloseTo(h.position[0] * 1e5)
+      }
+    })
+
+    it('flies to the configured camera view', async () => {
+      scene = new OverviewScene(api, geo, { cameraView: [1, 2, 3, -45, 0], heatmapZ: [-50, 300], pak: false })
+      scene.setData(data, 12)
+      await scene.enter()
+      expect(api.cameraCalls).toEqual([[1, 2, 3, -45, 0]])
+    })
+
+    it('leaves the camera alone when no view is configured', async () => {
+      await scene.enter()
+      expect(api.cameraCalls).toEqual([])
+      expect(api.focusCalls).toEqual([])
+    })
+
+    it('still builds the heatmap when there are no hotspots', async () => {
+      scene.setData({ ...data, hotspots: [] }, 12)
+      await scene.enter()
+      expect(api.ids('heatmap')).toEqual(['heatmap:population-heat'])
+      expect(api.ids('radiationPoint')).toEqual([])
+      expect(api.ids('marker')).toEqual(data.cameras.map(c => 'marker:camera-' + c.id).sort())
+      expect(scene.tourViews()).toEqual([])
+    })
+  })
+
+  describe('时间轴', () => {
+    it('rebuilds the heatmap and the ripples when the hour changes, without duplicating them', async () => {
+      await scene.enter()
+      const before = api.store.get('heatmap:population-heat')
+      await scene.setHour(19.5)
+      const after = api.store.get('heatmap:population-heat')
+      expect(after).not.toBe(before)
+      expect(api.ids('heatmap')).toHaveLength(1)
+      expect(api.store.size).toBe(total)
+      const h = data.hotspots[0]
+      expect(after.data.find((p: any) => p.id === 'hot-' + h.id).heatValue).toBeCloseTo(Math.min(after.range[1], 3 * hotspotActivityAt(h, 19.5)))
+      expect(api.store.get('radiationPoint:hotspot-ripple-' + h.id).radius).toBeCloseTo(260 + 520 * hotspotActivityAt(h, 19.5))
+    })
+
+    it('makes hotspot ripples larger in the evening than before dawn', async () => {
+      await scene.enter()
+      const id = 'radiationPoint:hotspot-ripple-' + data.hotspots[0].id
+      await scene.setHour(19.5)
+      const evening = api.store.get(id).radius
+      await scene.setHour(3)
+      expect(api.store.get(id).radius).toBeLessThan(evening)
+    })
+
+    it('only records the hour while entering and applies the latest one after enter', async () => {
+      let open!: () => void
+      api.projectGate = new Promise<void>(resolve => (open = resolve))
+      const entering = scene.enter()
+      await scene.setHour(8)
+      await scene.setHour(19.5)
+      expect(api.ids('heatmap')).toEqual([])
+      open()
+      await entering
+      expect(api.ids('heatmap')).toEqual(['heatmap:population-heat'])
+      const h = data.hotspots[0]
+      expect(api.store.get('radiationPoint:hotspot-ripple-' + h.id).radius).toBeCloseTo(260 + 520 * hotspotActivityAt(h, 19.5))
+      expect(scene.objectCount()).toBe(total)
+    })
+
+    it('keeps the hour set after leave for the next enter', async () => {
+      await scene.enter()
       await scene.leave()
-    }
-    await scene.enter()
-    expect(api.store.size).toBe(5)
-    expect(scene.objectCount()).toBe(5)
+      await scene.setHour(19.5)
+      expect(api.store.size).toBe(0)
+      await scene.enter()
+      const h = data.hotspots[0]
+      expect(api.store.get('radiationPoint:hotspot-ripple-' + h.id).radius).toBeCloseTo(260 + 520 * hotspotActivityAt(h, 19.5))
+    })
+
+    it('ends on the last hour when the slider is dragged quickly', async () => {
+      await scene.enter()
+      await Promise.all([8, 12, 16, 22].map(h => scene.setHour(h)))
+      const h = data.hotspots[0]
+      expect(api.store.get('radiationPoint:hotspot-ripple-' + h.id).radius).toBeCloseTo(260 + 520 * hotspotActivityAt(h, 22))
+      expect(api.store.size).toBe(total)
+    })
+  })
+
+  describe('图层开关', () => {
+    it('toggles a layer by key', async () => {
+      await scene.enter()
+      const camera = 'marker:camera-' + data.cameras[0].id
+      const hotspot = 'marker:hotspot-' + data.hotspots[0].id
+      await scene.setLayerVisible('camera', false)
+      expect(api.visible.get(camera)).toBe(false)
+      expect(api.visible.get(hotspot)).toBe(true)
+      await scene.setLayerVisible('camera', true)
+      expect(api.visible.get(camera)).toBe(true)
+    })
+
+    it('hides hotspot pins and ripples together', async () => {
+      await scene.enter()
+      await scene.setLayerVisible('hotspot', false)
+      for (const h of data.hotspots) {
+        expect(api.visible.get('marker:hotspot-' + h.id)).toBe(false)
+        expect(api.visible.get('radiationPoint:hotspot-ripple-' + h.id)).toBe(false)
+      }
+      await scene.setLayerVisible('hotspot', true)
+      expect(api.visible.get('radiationPoint:hotspot-ripple-' + data.hotspots[0].id)).toBe(true)
+    })
+
+    it('hides the district areas and the heatmap by their keys', async () => {
+      await scene.enter()
+      await scene.setLayerVisible('district', false)
+      await scene.setLayerVisible('heat', false)
+      expect(api.visible.get('polygon:district-danah')).toBe(false)
+      expect(api.visible.get('heatmap:population-heat')).toBe(false)
+    })
+
+    it('does not create a layer that was switched off before entering, until it is switched on', async () => {
+      await scene.setLayerVisible('heat', false)
+      await scene.setLayerVisible('hotspot', false)
+      await scene.enter()
+      expect(api.ids('heatmap')).toEqual([])
+      expect(api.ids('radiationPoint')).toEqual([])
+      expect(api.ids('marker')).toEqual(data.cameras.map(c => 'marker:camera-' + c.id).sort())
+      await scene.setHour(19.5)
+      expect(api.ids('heatmap')).toEqual([])
+      await scene.setLayerVisible('heat', true)
+      expect(api.ids('heatmap')).toEqual(['heatmap:population-heat'])
+      await scene.setLayerVisible('hotspot', true)
+      expect(api.ids('radiationPoint')).toHaveLength(data.hotspots.length)
+      expect(api.store.size).toBe(total)
+    })
+  })
+
+  describe('定位与巡航', () => {
+    it('focuses a hotspot or camera by id', async () => {
+      await scene.enter()
+      await scene.focusHotspot('h1')
+      await scene.focusCamera('CAM-0705')
+      expect(api.focusCalls).toEqual(['marker:hotspot-h1:1800', 'marker:camera-CAM-0705:1200'])
+    })
+
+    it('offers one tour view per hotspot, hottest first, looking from the south-west', async () => {
+      expect(scene.tourViews()).toEqual([])
+      await scene.enter()
+      const ranked = [...data.hotspots].sort((a, b) => b.heat - a.heat)
+      const views = scene.tourViews()
+      expect(views).toHaveLength(ranked.length)
+      views.forEach((v, i) => {
+        expect(v).toHaveLength(5)
+        expect(v[0]).toBeCloseTo(ranked[i].position[0] * 1e5 - 1500)
+        expect(v[1]).toBeCloseTo(ranked[i].position[1] * 1e5 - 1900)
+        expect(v.slice(2)).toEqual([2200, -38, -38])
+      })
+    })
+  })
+
+  describe('离开', () => {
+    it('removes everything on leave', async () => {
+      await scene.enter()
+      await scene.leave()
+      expect(api.store.size).toBe(0)
+      expect(scene.objectCount()).toBe(0)
+    })
+
+    it('adds nothing when leave happens while entering', async () => {
+      let open!: () => void
+      api.projectGate = new Promise<void>(resolve => (open = resolve))
+      const entering = scene.enter()
+      const leaving = scene.leave()
+      open()
+      await Promise.all([entering, leaving])
+      expect(api.store.size).toBe(0)
+    })
+
+    it('ignores setHour after leave', async () => {
+      await scene.enter()
+      await scene.leave()
+      await scene.setHour(19.5)
+      expect(api.store.size).toBe(0)
+    })
+
+    it('does not grow after repeated enter/leave', async () => {
+      for (let i = 0; i < 5; i++) {
+        await scene.enter()
+        await scene.setHour(i)
+        await scene.leave()
+      }
+      await scene.enter()
+      expect(api.store.size).toBe(total)
+      expect(scene.objectCount()).toBe(total)
+    })
+  })
+
+  describe('pak: true（片区用点阵流光图层，效果库为替身）', () => {
+    beforeEach(() => {
+      scene = new OverviewScene(api, geo, { cameraView: null, heatmapZ: [-50, 300], pak: true })
+      scene.setData(data, 12)
+    })
+
+    it('creates one region layer for all districts instead of polygons', async () => {
+      await scene.enter()
+      expect(api.ids('polygon')).toEqual([])
+      expect(region.regionLayer).toHaveBeenCalledTimes(1)
+      const [id, regions] = region.regionLayer.mock.calls[0]
+      expect(id).toBe('sc_overview_districts')
+      expect(regions.map((r: any) => r.id)).toEqual(geo.districts.map(d => d.id))
+      for (const r of regions) {
+        expect(r.ring).toEqual(geo.district(r.id)!.ring)
+        expect(r.color).toBe(densityColor(r.id, 12))
+      }
+      // 其余图层照常创建
+      expect(api.store.size).toBe(total - geo.districts.length)
+    })
+
+    it('recolours the region layer when the hour changes', async () => {
+      await scene.enter()
+      region.layer.setColors.mockClear()
+      await scene.setHour(2)
+      expect(region.layer.setColors).toHaveBeenCalledTimes(1)
+      const colors = region.layer.setColors.mock.calls[0][0]
+      expect(Object.keys(colors).sort()).toEqual(geo.districts.map(d => d.id).sort())
+      for (const d of geo.districts) expect(colors[d.id]).toBe(densityColor(d.id, 2))
+    })
+
+    it('hides and shows the region layer with the district switch', async () => {
+      await scene.enter()
+      await scene.setLayerVisible('district', false)
+      expect(region.layer.hide).toHaveBeenCalledTimes(1)
+      await scene.setLayerVisible('district', true)
+      expect(region.layer.show).toHaveBeenCalledTimes(1)
+    })
+
+    it('removes the region layer on leave and stops recolouring it', async () => {
+      await scene.enter()
+      await scene.leave()
+      expect(region.layer.remove).toHaveBeenCalledTimes(1)
+      expect(api.store.size).toBe(0)
+      region.layer.setColors.mockClear()
+      await scene.setHour(19.5)
+      expect(region.layer.setColors).not.toHaveBeenCalled()
+    })
+
+    it('still builds the other layers when the region layer cannot be created', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      region.regionLayer.mockRejectedValue(new Error('效果库加载失败'))
+      await scene.enter()
+      expect(warn).toHaveBeenCalled()
+      expect(api.ids('heatmap')).toEqual(['heatmap:population-heat'])
+      expect(api.ids('marker')).toHaveLength(data.hotspots.length + data.cameras.length)
+      await scene.setHour(19.5)
+      await scene.leave()
+      expect(api.store.size).toBe(0)
+      warn.mockRestore()
+    })
   })
 })

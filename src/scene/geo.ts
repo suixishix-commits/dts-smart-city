@@ -22,6 +22,8 @@ export function alongLine(line: number[][], step: number): XY[] {
     const [x0, y0] = line[i - 1]
     const [x1, y1] = line[i]
     const len = Math.hypot(x1 - x0, y1 - y0)
+    // 重复的相邻点（长度为 0 的线段）跳过，否则 0/0 会产生 NaN 坐标
+    if (len === 0) continue
     let d = carry
     for (; d <= len; d += step) out.push([x0 + ((x1 - x0) * d) / len, y0 + ((y1 - y0) * d) / len])
     carry = d - len
