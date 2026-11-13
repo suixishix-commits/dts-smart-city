@@ -10,7 +10,7 @@
     "build:demo": "vite build --mode fd",
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",
-    "test:unit": "vitest",
+    "test:unit": "vitest run",
     "build-only": "vite build",
     "type-check": "vue-tsc --build --force",
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix --ignore-path .gitignore",
@@ -48,6 +48,7 @@
     "@vitejs/plugin-vue-jsx": "^5.1.3",
     "@vue/eslint-config-prettier": "^10.2.0",
     "@vue/eslint-config-typescript": "^14.6.0",
+    "@vue/test-utils": "^2.5.1",
     "@vue/tsconfig": "^0.8.1",
     "eslint": "^9.39.2",
     "eslint-plugin-vue": "^10.7.0",
@@ -63,6 +64,7 @@
     "unplugin-icons": "^23.0.1",
     "unplugin-vue-components": "^31.0.0",
     "vite": "^7.3.1",
+    "vitest": "^3.2.7",
     "vue-tsc": "^3.2.4"
   }
 }
