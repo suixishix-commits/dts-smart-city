@@ -3,19 +3,29 @@ import type { SceneApi, SceneObjectType } from '@/scene/SceneApi'
 import type { OverviewData } from '@/types/smartCity'
 import { OverviewScene } from '../OverviewScene'
 
+/** 严格的场景替身：重复添加同一个 id、删除不存在的 id 都会抛错 */
 class FakeApi implements SceneApi {
   store = new Map<string, any>()
   visible = new Map<string, boolean>()
   cameraCalls: number[][] = []
   focusCalls: string[] = []
+  /** 设置后 project() 会等它 resolve，用来停在“正在进入”的状态 */
+  projectGate: Promise<void> | null = null
   async add(type: SceneObjectType, objects: { id: string }[]) {
     objects.forEach(o => {
-      this.store.set(`${type}:${o.id}`, o)
-      this.visible.set(`${type}:${o.id}`, true)
+      const key = `${type}:${o.id}`
+      if (this.store.has(key)) throw new Error('add: id already exists: ' + key)
+      this.store.set(key, o)
+      this.visible.set(key, true)
     })
   }
   async remove(type: SceneObjectType, ids: string[]) {
-    ids.forEach(id => this.store.delete(`${type}:${id}`))
+    ids.forEach(id => {
+      const key = `${type}:${id}`
+      if (!this.store.has(key)) throw new Error('remove: id does not exist: ' + key)
+      this.store.delete(key)
+      this.visible.delete(key)
+    })
   }
   async setVisible(type: SceneObjectType, ids: string[], visible: boolean) {
     ids.forEach(id => this.visible.set(`${type}:${id}`, visible))
@@ -27,6 +37,7 @@ class FakeApi implements SceneApi {
     this.focusCalls.push(`${type}:${id}`)
   }
   async project(lonLat: number[][]) {
+    if (this.projectGate) await this.projectGate
     // 假投影：平面坐标不变，z 固定为 7，便于断言
     return lonLat.map(p => [p[0], p[1], 7])
   }
@@ -130,5 +141,52 @@ describe('OverviewScene', () => {
     await scene.enter()
     await scene.leave()
     expect(api.store.size).toBe(0)
+  })
+
+  it('only records the hour while entering and applies the latest one after enter', async () => {
+    let open!: () => void
+    api.projectGate = new Promise<void>(resolve => (open = resolve))
+    const entering = scene.enter()
+    await scene.setHour(8)
+    await scene.setHour(19.5)
+    expect(api.ids('heatmap')).toEqual([])
+    open()
+    await entering
+    expect(api.ids('heatmap')).toEqual(['heatmap:population-heat'])
+    expect(api.store.get('heatmap:population-heat').data[0].heatValue).toBeCloseTo(2.28)
+    expect(scene.objectCount()).toBe(5)
+  })
+
+  it('keeps the hour set after leave for the next enter', async () => {
+    await scene.enter()
+    await scene.leave()
+    await scene.setHour(19.5)
+    expect(api.store.size).toBe(0)
+    await scene.enter()
+    expect(api.store.get('heatmap:population-heat').data[0].heatValue).toBeCloseTo(2.28)
+  })
+
+  it('creates no heatmap when there are no heat points', async () => {
+    scene.setData({ ...data, districts: [], hotspots: [] }, 12)
+    await scene.enter()
+    await scene.setHour(19.5)
+    expect(api.ids('heatmap')).toEqual([])
+    expect(api.ids('marker')).toEqual(['marker:camera-c1', 'marker:camera-c2'])
+  })
+
+  it('fails with a descriptive error when a coordinate was not projected', async () => {
+    api.project = async () => []
+    await expect(scene.enter()).rejects.toThrow(/投影坐标/)
+  })
+
+  it('does not grow after repeated enter/leave', async () => {
+    for (let i = 0; i < 5; i++) {
+      await scene.enter()
+      await scene.setHour(i)
+      await scene.leave()
+    }
+    await scene.enter()
+    expect(api.store.size).toBe(5)
+    expect(scene.objectCount()).toBe(5)
   })
 })

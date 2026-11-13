@@ -1,30 +1,44 @@
 import type { SceneApi, SceneObjectType } from './SceneApi'
 
+/**
+ * SDK 调用失败时通常不会 reject，而是 resolve 一个 result 非 0 的对象。这里只记录，不抛错。
+ */
+function check(res: unknown, operation: string, ids: string[]): void {
+  const r = res as { result?: unknown; resultMessage?: unknown } | null | undefined
+  if (r && typeof r === 'object' && typeof r.result === 'number' && r.result !== 0) {
+    console.warn(`[DtsSceneApi] ${operation} 失败`, ids, r.resultMessage)
+  }
+}
+
 /** SceneApi 的 DTS 实现，直接调用 __xapi。只在场景就绪后使用。 */
 export class DtsSceneApi implements SceneApi {
   async add(type: SceneObjectType, objects: { id: string }[]): Promise<void> {
     if (type === 'heatmap') {
-      for (const o of objects) await __xapi.heatmap.addByHeatPoints(o)
+      for (const o of objects) check(await __xapi.heatmap.addByHeatPoints(o), 'heatmap.addByHeatPoints', [o.id])
       return
     }
-    await __xapi[type].add(objects)
+    check(
+      await __xapi[type].add(objects),
+      `${type}.add`,
+      objects.map(o => o.id)
+    )
   }
 
   async remove(type: SceneObjectType, ids: string[]): Promise<void> {
-    await __xapi[type].delete(ids)
+    check(await __xapi[type].delete(ids), `${type}.delete`, ids)
   }
 
   async setVisible(type: SceneObjectType, ids: string[], visible: boolean): Promise<void> {
-    if (visible) await __xapi[type].show(ids)
-    else await __xapi[type].hide(ids)
+    if (visible) check(await __xapi[type].show(ids), `${type}.show`, ids)
+    else check(await __xapi[type].hide(ids), `${type}.hide`, ids)
   }
 
   async setCamera(view: number[], flyTime = 2): Promise<void> {
-    await __xapi.camera.set(view[0], view[1], view[2], view[3], view[4], flyTime)
+    check(await __xapi.camera.set(view[0], view[1], view[2], view[3], view[4], flyTime), 'camera.set', [])
   }
 
   async focus(type: SceneObjectType, id: string, distance = 600): Promise<void> {
-    await __xapi[type].focus(id, distance, 2)
+    check(await __xapi[type].focus(id, distance, 2), `${type}.focus`, [id])
   }
 
   async project(lonLat: number[][]): Promise<number[][]> {

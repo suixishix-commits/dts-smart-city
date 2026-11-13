@@ -58,6 +58,8 @@ function textMarker(id: string, groupId: string, coordinate: number[], text: str
 export class OverviewScene extends ModuleScene {
   private data: OverviewData | null = null
   private hour = 12
+  /** onEnter 已经创建完图层（坐标已投影）。在此之前 setHour 只记录小时 */
+  private entered = false
   /** 经纬度字符串 → 投影坐标，避免重复转换 */
   private projected = new Map<string, number[]>()
 
@@ -75,6 +77,7 @@ export class OverviewScene extends ModuleScene {
   }
 
   protected async onEnter(token: number): Promise<void> {
+    this.entered = false
     const data = this.data
     if (!data) return
     await this.projectAll(data)
@@ -98,8 +101,6 @@ export class OverviewScene extends ModuleScene {
       'district'
     )
 
-    await this.add(token, 'heatmap', [this.buildHeatmap(data)], 'heat')
-
     await this.add(
       token,
       'marker',
@@ -115,6 +116,11 @@ export class OverviewScene extends ModuleScene {
     )
 
     if (!this.isCurrent(token)) return
+    // 热力图最后创建，用进入期间记录的最新小时；此后 setHour 直接替换图层
+    this.entered = true
+    await this.showHeat(data)
+
+    if (!this.isCurrent(token)) return
     if (this.options.cameraView) {
       await this.api.setCamera(this.options.cameraView)
     } else if (data.districts.length) {
@@ -122,11 +128,20 @@ export class OverviewScene extends ModuleScene {
     }
   }
 
-  /** 切换到某个小时：整体替换热力图 */
+  protected async onLeave(): Promise<void> {
+    this.entered = false
+  }
+
+  /** 切换到某个小时：整体替换热力图。进入完成前只记录小时，由 onEnter 应用最新值 */
   async setHour(hour: number): Promise<void> {
     this.hour = hour
-    if (!this.data) return
-    await this.replaceLayer('heat', 'heatmap', [this.buildHeatmap(this.data)])
+    if (!this.entered || !this.data) return
+    await this.showHeat(this.data)
+  }
+
+  private async showHeat(data: OverviewData): Promise<void> {
+    const heatmap = this.buildHeatmap(data)
+    await this.replaceLayer('heat', 'heatmap', heatmap ? [heatmap] : [])
   }
 
   async focusHotspot(id: string): Promise<void> {
@@ -142,7 +157,9 @@ export class OverviewScene extends ModuleScene {
   }
 
   private at(p: number[]): number[] {
-    return this.projected.get(this.key(p)) as number[]
+    const c = this.projected.get(this.key(p))
+    if (!c) throw new Error(`没有 [${p[0]}, ${p[1]}] 的投影坐标：坐标还没有转换，或转换结果缺失`)
+    return c
   }
 
   /** 一次性把所有经纬度转成投影坐标 */
@@ -160,11 +177,13 @@ export class OverviewScene extends ModuleScene {
     todo.forEach((p, i) => this.projected.set(this.key(p), result[i]))
   }
 
+  /** 没有热力点时返回 null（空点集算不出包围盒） */
   private buildHeatmap(data: OverviewData) {
     const points = heatPointsAt(this.hour, data.districts, data.hotspots).map(p => {
       const c = this.at(p.position)
       return { id: p.id, coordinate: [c[0], c[1], c[2] ?? 0], radius: p.radius, heatValue: Math.min(HEAT_RANGE[1], p.value) }
     })
+    if (points.length === 0) return null
     const xs = points.map(p => p.coordinate[0])
     const ys = points.map(p => p.coordinate[1])
     const pad = 1200
