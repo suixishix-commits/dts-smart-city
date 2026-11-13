@@ -1,2 +1,40 @@
-$titleHeight: 8rem; //2k下标题栏高=100px
-//$titleHeight4k: 20rem;//4k下标题栏高=200px
+// 布局（按 1920×1080 设计稿）
+$titleHeight: 64px; // 顶栏高
+$page-margin: 24px;
+$panel-width: 432px;
+$panel-top: 88px; // 顶栏 64 + 间距 24
+$panel-gap: 16px;
+$panel-padding: 16px;
+$radius: 8px;
+$radius-sm: 6px;
+
+// 颜色
+$bg-page: #10151c;
+$bg-panel: rgba(17, 22, 30, 0.9);
+$bg-float: rgba(17, 22, 30, 0.94);
+$bg-inset: #0b0f14;
+$border: rgba(255, 255, 255, 0.08);
+$border-strong: rgba(255, 255, 255, 0.14);
+$divider: rgba(255, 255, 255, 0.06);
+$track: rgba(255, 255, 255, 0.08);
+
+$text-strong: #f3f5f8;
+$text: #e6eaf0;
+$text-muted: #9aa4b2;
+
+$accent: #4c9aff;
+$accent-soft: rgba(76, 154, 255, 0.24);
+$accent-light: #8fc0ff;
+
+$ok: #51cf66;
+$level-1: #ff6b6b;
+$level-2: #ffa94d;
+$level-3: #ffd43b;
+$level-4: #74a9ff;
+$heat-low: #ffe066;
+
+// 字体
+$font-family: Inter, 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+$fs-title: 16px;
+$fs-body: 14px;
+$fs-aux: 13px;
