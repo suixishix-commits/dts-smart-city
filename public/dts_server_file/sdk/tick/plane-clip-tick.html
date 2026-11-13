@@ -1,0 +1,87 @@
+﻿<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>assembling-process-tick</title>
+    <script type="text/javascript" src="http://127.0.0.1:9090/ac_conf.js"></script>
+    <script type="text/javascript" src="http://127.0.0.1:9090/ac.min.js"></script>
+    <script type="text/javascript" src="./lib/jquery-3.6.0.min.js"></script>
+    <style type="text/css">
+      body {
+        font-family: Verdana, Geneva, Tahoma, sans-serif;
+        font-size: 9pt;
+        background-color: rgb(199, 237, 204);
+        overflow: scroll;
+      }
+    </style>
+  </head>
+  <body>
+    <strong>Tick Debug Window</strong>&emsp; &emsp;<a href="javascript:fdapi.tag.delete(id)">DeleteTag</a> &emsp;<a
+      href="javascript:FdExternal.postEvent('test string')"
+      >PostEvent</a
+    >
+    &emsp;<a href="javascript:fdapi.showTickWindow(false);">Close</a>
+    <hr />
+    <span id="r1"></span>
+    <hr />
+    <span id="r2"></span>
+    <hr />
+    <span id="r3"></span>
+  </body>
+</html>
+
+<script>
+  // DTS方法调用参考
+  // fdapi.tag.delete(id)
+  // FdExternal.postEvent('test string')
+  // fdapi.showTickWindow(false);
+  // 调用次数
+  let i = 0
+  // 帧调用次数
+  let count = 0
+  // 是否加载完毕
+  let isLoaded = false
+
+  // 高程
+  let ZRange = [70, 20]
+  // 当前剖切值
+  let z = ZRange[0]
+
+  window.onload = function () {
+    new DigitalTwinAPI()
+    isLoaded = true
+  }
+
+  // 供客户端调用
+  // let code = "clientCalled('this is a message called from client.')";
+  // fdapi.executeJsInTickPage(code);
+  function clientCalled(str) {}
+
+  // Dts调用主入口
+  function tick(frame) {
+    i++
+    if (isLoaded && fdapi && fdapi.isReady && i % 2 == 0) {
+      if (z == ZRange[0]) {
+        document.getElementById('r1').innerText = `[Frame:${frame}] ` + i + '---' + z + '-start'
+        // 护坦范围剖切
+        // fdapi.tools.startVolumeClip([-7310.130313,-14778.699375,70,-6714.560312,-15266.65,98], 0, false, false, [0, 90, 0]);
+        fdapi.tools.startVolumeClip([-7305.177188, -14980.099688, 70, -6712.162188, -15096.549687, 98.925107], 0, false, false, [0, 0, 0])
+        z = z - 0.5
+      } else {
+        if (z <= ZRange[1]) {
+          isLoaded = false
+          fdapi.tools.stopVolumeClip()
+          FdExternal.postEvent('ClipFinished')
+          fdapi.showTickWindow(false)
+          fdapi.removeTick()
+        } else {
+          document.getElementById('r1').innerText = `[Frame:${frame}] ` + i + '---' + z + '-update'
+          fdapi.tools.updateVolumeClip([-7305.177188, -14980.099688, z, -6712.162188, -15096.549687, 98.925107], 0, false, false, [0, 0, 0])
+        }
+        z = z - 0.5
+      }
+    } else {
+      document.getElementById('r1').innerText = `[Frame:${frame}] ---${z} ` + fdapi?.isReady
+    }
+  }
+</script>

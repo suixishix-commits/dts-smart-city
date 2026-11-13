@@ -1,0 +1,274 @@
+// 全局覆盖Element-Plus样式
+// Element Plus 里写成 var(--x, 32px) 的回退值 postcss-pxtorem 转不到，4K 下不缩放；
+// 在这里把这些变量显式定义一遍（px 会被转成 rem），组件里更具体的定义仍然优先
+:root {
+  --el-checkbox-height: 32px;
+  --el-aside-width: 300px;
+  --el-dialog-padding-primary: 20px;
+  --el-message-close-size: 16px;
+  --el-popover-border-radius: 4px;
+}
+
+body {
+  // 自定义树样式
+  .customTree {
+    color: white;
+    box-sizing: border-box;
+    background: transparent;
+    overflow: auto;
+    .el-tree-node__content {
+      height: 2.6rem;
+    }
+    .el-tree-node__content:hover {
+      background: transparent;
+    }
+    .el-tree-node:focus > .el-tree-node__content {
+      background: transparent;
+    }
+    .el-tree-node__expand-icon {
+      color: white;
+    }
+    .el-tree-node__expand-icon.is-leaf {
+      color: transparent;
+      cursor: default;
+    }
+    .custom-tree-node {
+      padding-right: 2rem;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      flex: 1;
+
+      .name {
+        font-family: OPPOSans;
+        font-size: 1.4rem;
+        font-weight: normal;
+        line-height: 2.4rem;
+        letter-spacing: 0em;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
+
+        &.root {
+          font-size: 1.6rem;
+          font-weight: 500;
+          line-height: 1.8rem;
+        }
+      }
+    }
+
+    /* 更改节点被点击时的文字颜色 */
+    .el-tree-node .is-current {
+      color: #409eff;
+    }
+
+    //复选框
+    .el-checkbox__input {
+      .el-checkbox__inner {
+        height: 1.6rem;
+        width: 1.6rem;
+        border-radius: 0.2rem;
+        border: 0.1rem solid #03c9fe;
+        background: linear-gradient(180deg, #0095d0 7%, #00d4ff 100%);
+        border-color: #00d5ff;
+      }
+      // 选中样式
+      &.is-checked {
+        .el-checkbox__inner {
+          &::after {
+            width: 0.4rem;
+            height: 0.8rem;
+            border-width: 0.2rem;
+            // 调整勾的位置
+            margin-left: 0.1rem;
+          }
+        }
+      }
+      // 半选中
+      &.is-indeterminate {
+        .el-checkbox__inner {
+          &::before {
+            height: 0.36rem;
+            // 调整勾的位置
+            margin-top: 0.2rem;
+          }
+        }
+      }
+    }
+  }
+  // 自定义表格样式
+  .customTable {
+    //复选框
+    .el-checkbox__input {
+      .el-checkbox__inner {
+        height: 1.4rem;
+        width: 1.4rem;
+        border-radius: 0.2rem;
+        border: 0.1rem solid #03c9fe;
+        background: linear-gradient(180deg, #0095d0 7%, #00d4ff 100%);
+        border-color: #00d5ff;
+      }
+      // 选中样式
+      &.is-checked {
+        .el-checkbox__inner {
+          &::after {
+            width: 0.4rem;
+            height: 0.8rem;
+            border-width: 0.2rem;
+            // 调整勾的位置
+            margin-left: 0.09rem;
+          }
+        }
+      }
+      // 半选中
+      &.is-indeterminate {
+        .el-checkbox__inner {
+          &::before {
+            height: 0.36rem;
+            // 调整勾的位置
+            margin-top: 0.12rem;
+          }
+        }
+      }
+    }
+    // 表头行高
+    .el-table__header tr,
+    .el-table__header th {
+      padding: 0;
+      height: 3.3rem;
+    }
+    // 表格行高
+    .el-table__body tr,
+    .el-table__body td {
+      padding: 0;
+      height: 3.3rem;
+    }
+  }
+  // 自定义多选框
+  .custom-checkbox-group {
+    //复选框
+    .el-checkbox__input {
+      .el-checkbox__inner {
+        border-radius: 0.2rem;
+        border: 0.1rem solid #03c9fe;
+        background: linear-gradient(180deg, #0095d0 7%, #00d4ff 100%);
+        border-color: #00d5ff;
+      }
+      // 选中样式
+      &.is-checked {
+        .el-checkbox__inner {
+          &::after {
+            width: 0.4rem;
+            height: 0.8rem;
+            border-width: 0.2rem;
+            // 调整勾的位置
+            margin-left: 0.09rem;
+          }
+        }
+      }
+    }
+  }
+  // 自定义时间选择框
+  .custom-date-picker {
+    // 文本框提示文字颜色
+    input::-webkit-input-placeholder {
+      color: #97d5ff; /* Chrome/Opera/Safari */
+    }
+  }
+  // 自定义按钮
+  .custom-button {
+    height: 2.6rem;
+  }
+
+  // 分页组件
+  .el-pagination {
+    margin-top: 15px;
+    justify-content: flex-end;
+  }
+
+  .el-form--inline .el-form-item {
+    margin-right: 16px !important;
+  }
+
+  .el-drawer .el-drawer__header {
+    display: flex;
+    align-items: center;
+    height: var(--theme-header-height);
+    padding: 0 15px;
+    margin-bottom: 0 !important;
+    font-size: 15px;
+    border-bottom: 1px solid var(--el-border-color);
+    color: var(--el-text-color-primary);
+  }
+
+  .el-card.is-always-shadow {
+    box-shadow: none !important;
+  }
+
+  /* element message 样式重改 */
+  .el-message__icon {
+    font-size: 3rem;
+  }
+
+  .el-message__content {
+    font-size: 2rem;
+  }
+
+  // 自定义message样式框
+  .custom-message {
+    top: 10.5rem !important;
+    background: url('@/assets/images/home/tip-bg.png') no-repeat center center / 100% 100% !important;
+    --el-message-text-color: #fff !important;
+    border: solid 1px rgba(255, 255, 255, 0);
+
+    .el-message-icon--info {
+      display: none;
+    }
+  }
+  // 自定义message警告样式框
+  .custom-message-warning {
+    top: 10.5rem !important;
+    background: url('@/assets/images/tip-abnormal-bg.png') no-repeat center center / 100% 100% !important;
+    --el-message-text-color: #fff !important;
+    border: solid 1px rgba(255, 255, 255, 0);
+
+    .el-message-icon--info {
+      display: none;
+    }
+
+    .blinking-message-container {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      animation: blink 1.5s infinite;
+
+      img {
+        width: 2rem;
+        height: 2rem;
+      }
+
+      .message-text {
+        font-family: OPPOSans;
+        font-size: 1.6rem;
+        font-weight: 500;
+        letter-spacing: 0px;
+        font-variation-settings: 'opsz' auto;
+        color: #fd7369;
+      }
+
+      @keyframes blink {
+        0% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+        100% {
+          opacity: 1;
+        }
+      }
+    }
+  }
+}

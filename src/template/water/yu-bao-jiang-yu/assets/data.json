@@ -1,0 +1,97 @@
+{
+  "code": 0,
+  "msg": null,
+  "data": [
+    {
+      "id": "1658321537216512006",
+      "tsakId": "1658310982963527682",
+      "diskId": "10",
+      "diskName": null,
+      "preRainSize": 5,
+      "doPersionId": "jz",
+      "doPersionName": "均值",
+      "distAvg": null,
+      "creatTime": "2013-08-06 00:00:00",
+      "ynDonetask": null,
+      "orderBy": 11
+    },
+    {
+      "id": "1658321532833464323",
+      "tsakId": "1658310982963527682",
+      "diskId": "10",
+      "diskName": null,
+      "preRainSize": 15,
+      "doPersionId": "jz",
+      "doPersionName": "均值",
+      "distAvg": null,
+      "creatTime": "2013-08-07 00:00:00",
+      "ynDonetask": null,
+      "orderBy": 11
+    },
+    {
+      "id": "1658321535039668226",
+      "tsakId": "1658310982963527682",
+      "diskId": "10",
+      "diskName": null,
+      "preRainSize": 29.2,
+      "doPersionId": "jz",
+      "doPersionName": "均值",
+      "distAvg": null,
+      "creatTime": "2013-08-08 00:00:00",
+      "ynDonetask": null,
+      "orderBy": 11
+    },
+    {
+      "id": "1658321538290253826",
+      "tsakId": "1658310982963527682",
+      "diskId": "10",
+      "diskName": null,
+      "preRainSize": 10.1,
+      "doPersionId": "jz",
+      "doPersionName": "均值",
+      "distAvg": null,
+      "creatTime": "2013-08-09 00:00:00",
+      "ynDonetask": null,
+      "orderBy": 11
+    },
+    {
+      "id": "1658321533919789066",
+      "tsakId": "1658310982963527682",
+      "diskId": "10",
+      "diskName": null,
+      "preRainSize": 0,
+      "doPersionId": "jz",
+      "doPersionName": "均值",
+      "distAvg": null,
+      "creatTime": "2013-08-10 00:00:00",
+      "ynDonetask": null,
+      "orderBy": 11
+    },
+    {
+      "id": "1658321536088244227",
+      "tsakId": "1658310982963527682",
+      "diskId": "10",
+      "diskName": null,
+      "preRainSize": 0,
+      "doPersionId": "jz",
+      "doPersionName": "均值",
+      "distAvg": null,
+      "creatTime": "2013-08-11 00:00:00",
+      "ynDonetask": null,
+      "orderBy": 11
+    },
+    {
+      "id": "1658321531415789573",
+      "tsakId": "1658310982963527682",
+      "diskId": "10",
+      "diskName": null,
+      "preRainSize": 20,
+      "doPersionId": "jz",
+      "doPersionName": "均值",
+      "distAvg": null,
+      "creatTime": "2013-08-12 00:00:00",
+      "ynDonetask": null,
+      "orderBy": 11
+    }
+  ]
+}

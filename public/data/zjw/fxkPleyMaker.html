@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <script type="text/javascript" src="../ac.min.js"></script>
+    <style>
+        @font-face {
+            font-family: 'YouSheBiaoTiHei';
+            src: url('./font/YouSheBiaoTiHei.ttf');
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            color: #fff;
+        }
+
+        .maker-fsk-popup {
+            background: url("./img/fxk-makert.png") no-repeat center center / 100% 100%;
+            display: flex;
+            flex-direction: column;
+            pointer-events: none;
+            padding: 10px 0 125px;
+        }
+
+        .header {
+            width: 100%;
+            height: 25px;
+            line-height: 25px;
+            font-family: 'YouSheBiaoTiHei';
+            font-size: 15px;
+            padding-left: 10px;
+            font-weight: bold;
+        }
+        .content {
+            width: 90%;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+        }
+        .item {
+            width: 100%;
+            opacity: 1;
+            background: linear-gradient(90deg, rgba(81, 174, 240, 0.3) 1%, rgba(81, 174, 240, 0) 96%);
+            margin-top: 12px;
+            padding-left: 7.5px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .keys {
+            margin-right: 7.5px;
+        }
+        .value {
+            color: #00F7FF;
+        }
+    </style>
+</head>
+<body>
+    <div class="maker-fsk-popup">
+        <div class="header">
+            <img src="./img/arrow-mak.png" alt="" style="width: 14px;height: 10.5px;"/>
+            <span id="stnm">分水口</span>
+        </div>
+        <div class="content">
+
+        </div>
+    </div>
+    <script>
+        const makerElement = document.querySelector('.content');
+        const stnmElement = document.querySelector('#stnm');
+        const makerFskPopup = document.querySelector('.maker-fsk-popup');
+        const keyss = {
+            'cq': '渠道流量m³/s',
+            'h': '干渠水深m',
+            'q': '分水口流量m³/s',
+            'v': '干渠流速m³/s',
+            'hm': '闸门开度m'
+        }
+        const url = new URL(window.location.href);
+        const params = new URLSearchParams(url.search);
+        const stnm = params.get('stnm').replace('@','#')
+        const stnmFontsize = params.get('stnmFontsize') || null;
+        const contentFontsize = params.get('contentFontsize') || 16;
+        if (stnmFontsize){
+            stnmElement.style.fontSize = stnmFontsize + 'px';
+        }if (contentFontsize){
+            makerElement.style.fontSize = contentFontsize + 'px';
+        }
+        stnmElement.innerHTML = stnm;
+        for (let key in keyss) {
+            console.log(key)
+            const item = document.createElement('div');
+            const keys = document.createElement('div');
+            const value = document.createElement('div');
+            value.className = 'value';
+            keys.className = 'keys';
+            item.classList.add('item');
+            keys.innerHTML = keyss[key].slice(0,keyss[key].indexOf('m'))+':';
+            value.innerHTML =params.get(key)+ keyss[key].slice(keyss[key].indexOf('m'));
+            item.appendChild(keys);
+            item.appendChild(value);
+            makerElement.appendChild(item);
+        }
+    </script>
+</body>
+</html

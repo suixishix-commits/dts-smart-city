@@ -1,0 +1,47 @@
+{
+  "displayFieldName": "",
+  "fieldAliases": {
+    "FID": "FID",
+    "OBJECTID": "OBJECTID",
+    "Shape_Leng": "Shape_Leng"
+  },
+  "geometryType": "esriGeometryPolyline",
+  "spatialReference": {
+    "wkid": 4545,
+    "latestWkid": 4545
+  },
+  "fields": [
+    {
+      "name": "FID",
+      "type": "esriFieldTypeOID",
+      "alias": "FID"
+    },
+    {
+      "name": "OBJECTID",
+      "type": "esriFieldTypeInteger",
+      "alias": "OBJECTID"
+    },
+    {
+      "name": "Shape_Leng",
+      "type": "esriFieldTypeDouble",
+      "alias": "Shape_Leng"
+    }
+  ],
+  "features": [
+    {
+      "attributes": {
+        "FID": 0,
+        "OBJECTID": 1,
+        "Shape_Leng": 0.00321654055727
+      },
+      "geometry": {
+        "paths": [
+          [
+            [595686.874, 3808006.716, 451],
+            [595323.46, 3807993.16, 451]
+          ]
+        ]
+      }
+    }
+  ]
+}

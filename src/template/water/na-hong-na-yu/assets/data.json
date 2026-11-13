@@ -1,0 +1,53 @@
+{
+  "code": 0,
+  "msg": null,
+  "data": [
+    {
+      "makeTime": "2023-05-17 12:58:59",
+      "rainCapacityVoList": [
+        {
+          "stcd": "11201780",
+          "userid": "1628690244525940737",
+          "makeTime": "2023-05-17 12:58:59",
+          "fullengine": null,
+          "rainnum": null,
+          "swflag": null,
+          "nahong": null,
+          "water": 213.37
+        },
+        {
+          "stcd": "11201780",
+          "userid": "1628690244525940737",
+          "makeTime": "2023-05-17 12:58:59",
+          "fullengine": "249.612",
+          "rainnum": "252.357",
+          "swflag": "2",
+          "nahong": 144.74,
+          "water": 216
+        },
+        {
+          "stcd": "11201780",
+          "userid": "1628690244525940737",
+          "makeTime": "2023-05-17 12:58:59",
+          "fullengine": "0",
+          "rainnum": "272.121",
+          "swflag": "3",
+          "nahong": 156.06,
+          "water": 218.15
+        },
+        {
+          "stcd": "11201780",
+          "userid": "1628690244525940737",
+          "makeTime": "2023-05-17 12:58:59",
+          "fullengine": "0",
+          "rainnum": "289.872",
+          "swflag": "3",
+          "nahong": 166.25,
+          "water": 219.9
+        }
+      ],
+      "stcd": "11201780",
+      "userid": "1628690244525940737"
+    }
+  ]
+}

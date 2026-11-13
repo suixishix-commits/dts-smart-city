@@ -1,0 +1,240 @@
+{
+  "泄水闸": {
+    "bsm": "ejxsz",
+    "name": "泄水闸",
+    "coordinate": [489484.92375, 2489925.92, 103.33],
+    "rotation": [0, 0, 0],
+    "threeDimensionalModel": {},
+    "physicalQuantity": [
+      {
+        "name": "变形场",
+        "name_en": "displacements",
+        "indicator": [
+          {
+            "name": "横河向变形",
+            "title": "横河向变形",
+            "unit": "mm",
+            "type": "s22",
+            "selected": true,
+            "valueRange": []
+          },
+          {
+            "name": "顺河向变形",
+            "title": "顺河向变形",
+            "unit": "mm",
+            "type": "s33",
+            "selected": false,
+            "valueRange": [-4, 0]
+          },
+          {
+            "name": "竖向变形",
+            "title": "竖向变形",
+            "unit": "mm",
+            "type": "s12",
+            "selected": false,
+            "valueRange": []
+          },
+          {
+            "name": "综合变形",
+            "title": "综合变形",
+            "unit": "mm",
+            "type": "s13",
+            "selected": false,
+            "valueRange": []
+          }
+        ]
+      },
+      {
+        "name": "温度",
+        "name_en": "TEMPERATURE",
+        "indicator": [
+          {
+            "name": "温度",
+            "title": "温度",
+            "unit": "℃",
+            "type": "s22",
+            "selected": true,
+            "valueRange": []
+          }
+        ]
+      },
+      {
+        "name": "压力水头",
+        "name_en": "SEEPAGE_P",
+        "indicator": [
+          {
+            "name": "压力水头",
+            "title": "压力水头",
+            "unit": "m",
+            "type": "s22",
+            "selected": true,
+            "valueRange": []
+          },
+          {
+            "name": "总水头",
+            "title": "总水头",
+            "unit": "m",
+            "type": "s33",
+            "selected": false,
+            "valueRange": []
+          }
+        ]
+      },
+      {
+        "name": "抗裂安全系数",
+        "name_en": "crack_factor",
+        "indicator": [
+          {
+            "name": "抗裂安全系数",
+            "title": "抗裂安全系数",
+            "unit": "",
+            "type": "s22",
+            "selected": true,
+            "valueRange": []
+          }
+        ]
+      },
+      {
+        "name": "应力",
+        "name_en": "STRESS",
+        "indicator": [
+          {
+            "name": "x向正应力",
+            "title": "横河向变形",
+            "unit": "MPa",
+            "type": "s22",
+            "selected": true,
+            "valueRange": []
+          },
+          {
+            "name": "y向应力",
+            "title": "y向应力",
+            "unit": "MPa",
+            "type": "s33",
+            "selected": false,
+            "valueRange": []
+          },
+          {
+            "name": "z向应力",
+            "title": "z向应力",
+            "unit": "MPa",
+            "type": "s12",
+            "selected": false,
+            "valueRange": []
+          },
+          {
+            "name": "xy向切应力",
+            "title": "xy向切应力",
+            "unit": "MPa",
+            "type": "s13",
+            "selected": false,
+            "valueRange": []
+          },
+          {
+            "name": "yz向切应力",
+            "title": "yz向切应力",
+            "unit": "MPa",
+            "type": "s23",
+            "selected": false,
+            "valueRange": []
+          },
+          {
+            "name": "zx向切应力",
+            "title": "zx向切应力",
+            "unit": "MPa",
+            "type": "d1",
+            "selected": false,
+            "valueRange": []
+          },
+          {
+            "name": "第1主应力",
+            "title": "第1主应力",
+            "unit": "MPa",
+            "type": "d2",
+            "selected": false,
+            "valueRange": [-0.01, 0.015]
+          },
+          {
+            "name": "第2主应力",
+            "title": "第2主应力",
+            "unit": "MPa",
+            "type": "d3",
+            "selected": false,
+            "valueRange": []
+          },
+          {
+            "name": "第3主应力",
+            "title": "第3主应力",
+            "unit": "MPa",
+            "type": "u1",
+            "selected": false,
+            "valueRange": [-0.01, 0.015]
+          }
+        ]
+      },
+      {
+        "name": "位移",
+        "name_en": "DISPLACEMENT",
+        "indicator": [
+          {
+            "name": "x向位移",
+            "title": "x向位移",
+            "unit": "mm",
+            "type": "s22",
+            "selected": true,
+            "valueRange": [-0.01, 0.015]
+          },
+          {
+            "name": "y向位移",
+            "title": "y向位移",
+            "unit": "mm",
+            "type": "s33",
+            "selected": false,
+            "valueRange": [-0.01, 0.015]
+          },
+          {
+            "name": "z向位移",
+            "title": "z向位移",
+            "unit": "mm",
+            "type": "s12",
+            "selected": false,
+            "valueRange": [-0.01, 0.015]
+          },
+          {
+            "name": "综合位移",
+            "title": "综合位移",
+            "unit": "mm",
+            "type": "s23",
+            "selected": false,
+            "valueRange": [-0.01, 0.015]
+          }
+        ]
+      }
+    ],
+    "materialMapper": [
+      { "num": 2, "name": "上游防冲板" },
+      { "num": 3, "name": "上游防冲铺盖" },
+      { "num": 4, "name": "上游防渗板" },
+      { "num": 5, "name": "右导墙" },
+      { "num": 6, "name": "闸墩" },
+      { "num": 7, "name": "胸墙" },
+      { "num": 8, "name": "工作桥" },
+      { "num": 9, "name": "闸底板" },
+      { "num": 10, "name": "左隔墙" },
+      { "num": 11, "name": "右隔墙" },
+      { "num": 12, "name": "消力池" },
+      { "num": 13, "name": "下游防冲槽" },
+      { "num": 14, "name": "下游护坦" },
+      { "num": 15, "name": "下游检修平台" },
+      { "num": 16, "name": "下游防冲护固段" },
+      { "num": 17, "name": "下游海漫" },
+      { "num": 18, "name": "下游防冲板" },
+      { "num": 19, "name": "上游帷幕" },
+      { "num": 20, "name": "闸室帷幕" },
+      { "num": 21, "name": "下游帷幕" }
+    ],
+    "showLayerId": [],
+    "hideLayerId": []
+  },
+  "typeMapper": { "s22": 4, "s33": 5, "s12": 6, "s13": 7, "s23": 8, "d1": 9, "d2": 10, "d3": 11, "u1": 0, "u2": 1 }
+}
