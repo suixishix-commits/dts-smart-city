@@ -2,13 +2,15 @@
   <header class="app-header">
     <h1 class="title">智慧城市数字孪生平台</h1>
     <nav class="nav" aria-label="模块导航">
-      <router-link v-for="m in modules" :key="m.path" :to="m.path" class="tab" :class="{ disabled: !m.ready }" active-class="active">
-        {{ m.name }}
-      </router-link>
+      <template v-for="m in modules" :key="m.path">
+        <router-link v-if="m.ready" :to="m.path" class="tab" active-class="active">{{ m.name }}</router-link>
+        <!-- 未上线的模块不是链接：键盘也不能激活，不会跳到不存在的路由 -->
+        <span v-else class="tab disabled" aria-disabled="true">{{ m.name }}</span>
+      </template>
     </nav>
     <div class="meta">
-      <span v-if="sceneState === 'failed'" class="scene-failed">场景未连接</span>
-      <span v-else-if="sceneState === 'connecting'">场景连接中…</span>
+      <span v-if="sceneState === 'failed'" class="scene-failed" role="status">场景未连接</span>
+      <span v-else-if="sceneState === 'connecting'" role="status">场景连接中…</span>
       <span>晴 29℃</span>
       <span>阿布扎比主岛</span>
       <span>{{ date }}</span>
@@ -86,7 +88,7 @@ onBeforeUnmount(() => window.clearInterval(timer))
     border-bottom-color: $accent;
   }
   &.disabled {
-    pointer-events: none;
+    cursor: default;
     opacity: 0.5;
   }
 }
