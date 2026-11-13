@@ -5,6 +5,7 @@ import { buildCityGeo, type CityGeo } from './geo'
 import { COLOR, flowLine, plainLine, prepareFlowLines } from './kit'
 import { whenSceneReady } from './sceneReady'
 
+const CLEARABLE = ['marker', 'marker3d', 'polygon', 'polygon3d', 'polyline', 'odline', 'beam', 'radiationPoint', 'heatmap', 'customObject'] as const
 const ROAD_PREFIX = 'sc_base_road_'
 const COAST_ID = 'sc_base_coast'
 
@@ -30,6 +31,9 @@ class CityBase {
   private async run(): Promise<CityGeo | null> {
     if (!(await whenSceneReady())) return null
     const api = new DtsSceneApi()
+    // 场景对象存在渲染实例里，页面刷新后不会消失。启动时先清掉上一次页面留下的全部接口对象
+    // （逐类 clear：实测 reset(ClearObjects) 清不掉热力图）
+    await Promise.all(CLEARABLE.map(type => __xapi[type].clear()))
     await applyAmbience()
     this.pak = await mountEffectsPak()
     this.geo = await buildCityGeo(await getGeoData(), ll => api.project(ll))

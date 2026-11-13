@@ -62,27 +62,35 @@ export interface FlowLineOptions {
   height?: number
 }
 
+/** 各样式相对 width 的线宽比例：用粗细而不是花纹来区分线的主次 */
+const LINE_SCALE = { pulse: 1, arrow: 1, particles: 0.8, dash: 0.6 } as const
+
 /**
- * 流动线（效果总包的折线材质）。返回 polyline.add 的参数。
- * 调用前要先 await prepareFlowLines()（加载适配库）并确认总包已挂载；没挂载时用 plainLine。
+ * 城市级俯视下的发光线：道路、管线、路线都用它。返回 polyline.add 的参数。
+ *
+ * 实测结论（相机距离 8–10 公里）：效果总包的流动线材质和 DTS 内置的流动、箭头、虚线样式在这个距离上只剩一条
+ * 若隐若现的细线，多点长线上几乎看不见；只有内置的实线样式能稳定地画出清晰的发光线。所以这里统一用实线，
+ * 靠颜色、粗细、亮度区分类别；动态感交给波纹、点阵流光和飞线。style / speed / spacing / reverse 保留给调用方表达语义，
+ * 目前只有 style 影响粗细。
  */
 export function flowLine(o: FlowLineOptions): { id: string } {
   const style = o.style ?? 'particles'
-  const coordinates = o.path.map(p => z(p, o.height ?? 12))
-  const spacing = o.spacing ?? o.width * 2.4
-  const common = { id: o.id, groupId: o.groupId, coordinates, color: o.color, width: o.width, spacingMeters: spacing, speed: o.speed ?? 0.26, brightness: o.brightness ?? 2.4, reverse: o.reverse ?? false }
-  const w = window as any
-  const data =
-    style === 'dash' || style === 'arrow'
-      ? w.DTSDynamicLines.preparePolyline({ ...common, style })
-      : w.DTSFlowFX.preparePolyline({ ...common, style, pulseSpacingMeters: Math.max(spacing * 10, 1200) })
-  return { ...data, depthTest: false, range: FAR }
+  return {
+    id: o.id,
+    groupId: o.groupId,
+    coordinates: o.path.map(p => z(p, o.height ?? 12)),
+    coordinateType: 0,
+    color: rgba(o.color, style === 'dash' ? 0.85 : 1),
+    style: 4, // PolylineStyle.Normal
+    thickness: Math.max(10, o.width * LINE_SCALE[style]),
+    intensity: Math.min(3, Math.max(0.8, o.brightness ?? 2.4)),
+    depthTest: false,
+    range: FAR
+  } as { id: string }
 }
 
-/** 加载流动线用到的适配库 */
-export async function prepareFlowLines(): Promise<void> {
-  await loadLib('flow-fx')
-}
+/** 保留的入口：流动线已不依赖适配库，调用它没有副作用 */
+export async function prepareFlowLines(): Promise<void> {}
 
 /** 普通发光实线（DTS 内置样式），不依赖效果总包 */
 export function plainLine(o: { id: string; groupId?: string; path: number[][]; color: string; width: number; brightness?: number; height?: number; flow?: boolean; alpha?: number }) {
@@ -142,7 +150,8 @@ export function pin(o: { id: string; groupId: string; at: number[]; text: string
     lineColor: accent,
     lineOffset: [0, 0],
     autoHeight: true,
-    displayMode: 2,
+    // 重点标注（priority ≥ 10）始终显示；其余交给引擎做避让，挤在一起时自动隐去一部分，放大后再出现
+    displayMode: (o.priority ?? 0) >= 10 ? 2 : 4,
     priority: o.priority ?? 0,
     occlusionCull: false
   }
