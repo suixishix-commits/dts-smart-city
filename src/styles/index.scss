@@ -13,7 +13,12 @@
   gap: $panel-gap;
   border-radius: $radius-pane;
   pointer-events: all;
-  overflow: hidden;
+  // 内容比面板高时可以滚动，而不是被裁掉；滚动条不占位
+  overflow: hidden auto;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 #layout-container aside .panel-card {
   padding: 0;
@@ -25,7 +30,7 @@
 }
 // 区块之间用一条极淡的分隔线
 #layout-container aside .panel-card + .panel-card {
-  padding-top: $panel-gap;
+  padding-top: $panel-gap * 0.7;
   border-top: 1px solid $divider;
 }
 // 场景上的浮层：工具栏、图例、图层开关、时间轴、详情卡片
