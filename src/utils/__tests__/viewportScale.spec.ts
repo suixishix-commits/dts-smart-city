@@ -17,7 +17,7 @@ function designOption() {
     xAxis: { type: 'category', data: categories, axisLabel: { fontSize: 12, margin: 10 }, axisLine: { lineStyle: { width: 1, color: '#2a3340' } } },
     yAxis: { type: 'value', min: 50, max: 100, splitNumber: 5, axisLabel: { fontSize: 12, formatter } },
     series: [
-      { type: 'line', smooth: true, symbolSize: 6, lineStyle: { width: 2, color: '#4c9aff' }, areaStyle: { opacity: 0.2 }, data },
+      { type: 'line', smooth: true, symbolSize: 6, lineStyle: { width: 2, color: '#4cc4d4' }, areaStyle: { opacity: 0.2 }, data },
       { type: 'bar', barWidth: 10, itemStyle: { borderRadius: [4, 4, 0, 0] }, label: { show: true, distance: 6, fontSize: 11 }, data: [{ value: 5, symbolSize: 10, itemStyle: { borderWidth: 2 } }] }
     ]
   }
@@ -89,7 +89,7 @@ describe('scaleOptionSizes', () => {
     const out = scaleOptionSizes(designOption(), 2)
     expect(out.yAxis).toMatchObject({ type: 'value', min: 50, max: 100, splitNumber: 5 })
     expect(out.series[0]).toMatchObject({ type: 'line', smooth: true, areaStyle: { opacity: 0.2 } })
-    expect(out.series[0].lineStyle.color).toBe('#4c9aff')
+    expect(out.series[0].lineStyle.color).toBe('#4cc4d4')
     expect(out.tooltip.trigger).toBe('axis')
   })
 

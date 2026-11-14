@@ -90,34 +90,34 @@ const chartOption = computed(() => {
     grid: { left: 36, right: 12, top: 20, bottom: 24 },
     xAxis: {
       type: 'value', min: 0, max: 24, interval: 6,
-      axisLabel: { color: '#9aa4b2', fontSize: 12, formatter: (v: number) => String(v).padStart(2, '0') },
+      axisLabel: { color: '#8b9aa3', fontSize: 12, formatter: (v: number) => String(v).padStart(2, '0') },
       axisLine: { lineStyle: { color: 'rgba(255,255,255,0.2)' } },
       axisTick: { show: false },
       splitLine: { show: false }
     },
     yAxis: {
       type: 'value', min: 0, max, interval: max / 2,
-      axisLabel: { color: '#9aa4b2', fontSize: 12 },
+      axisLabel: { color: '#8b9aa3', fontSize: 12 },
       splitLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } }
     },
     series: [
       {
         type: 'line', data: series.value, showSymbol: false, smooth: 0.3,
-        lineStyle: { color: '#4c9aff', width: 2 },
-        areaStyle: { color: 'rgba(76,154,255,0.12)' },
+        lineStyle: { color: '#4cc4d4', width: 2 },
+        areaStyle: { color: 'rgba(76,196,212,0.12)' },
         markLine: {
           symbol: 'none', silent: true,
           data: [
             // 国标限值：虚线
-            { yAxis: limit, lineStyle: { color: '#ffa94d', type: 'dashed', width: 1 }, label: { color: '#ffa94d', fontSize: 12, position: 'insideEndTop', formatter: meta.value.limitName + ' ' + limit } },
+            { yAxis: limit, lineStyle: { color: '#e8b04f', type: 'dashed', width: 1 }, label: { color: '#e8b04f', fontSize: 12, position: 'insideEndTop', formatter: meta.value.limitName + ' ' + limit } },
             // 所选时刻：竖线
-            { xAxis: props.hour, lineStyle: { color: 'rgba(255,255,255,0.5)', type: 'solid', width: 1 }, label: { color: '#9aa4b2', fontSize: 12, formatter: formatHour(props.hour) } }
+            { xAxis: props.hour, lineStyle: { color: 'rgba(255,255,255,0.5)', type: 'solid', width: 1 }, label: { color: '#8b9aa3', fontSize: 12, formatter: formatHour(props.hour) } }
           ]
         },
         markPoint: {
           symbol: 'circle', symbolSize: 8, silent: true,
           itemStyle: { color: '#10151c', borderColor: airColor(now.level), borderWidth: 2 },
-          label: { color: '#f3f5f8', fontSize: 12, position: props.hour > 20 ? 'left' : 'right', formatter: String(now.value) },
+          label: { color: '#eef5f8', fontSize: 12, position: props.hour > 20 ? 'left' : 'right', formatter: String(now.value) },
           data: [{ coord: [props.hour, now.value] }]
         }
       }

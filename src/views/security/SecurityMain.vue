@@ -214,7 +214,7 @@ $row-2: $page-margin + 52px + 12px;
     height: 10px;
     box-sizing: border-box;
     border: 1.5px solid $accent;
-    background: rgba(76, 154, 255, 0.25);
+    background: rgba(76, 196, 212, 0.25);
   }
   // 警情：按等级着色的波纹
   .ring {
@@ -250,13 +250,13 @@ $row-2: $page-margin + 52px + 12px;
     height: 0;
     border-top: 6px solid transparent;
     border-bottom: 6px solid transparent;
-    border-right: 14px solid rgba(76, 154, 255, 0.55);
+    border-right: 14px solid rgba(76, 196, 212, 0.55);
   }
   .ramp {
     width: 80px;
     height: 8px;
     border-radius: 4px;
-    background: linear-gradient(to right, #2b5f9e, #4c9aff, #e8a33d, #e8603c);
+    background: linear-gradient(to right, #1f6f80, #4cc4d4, #e8b04f, #ee6b5c);
   }
 }
 </style>

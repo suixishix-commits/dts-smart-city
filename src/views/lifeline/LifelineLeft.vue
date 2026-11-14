@@ -70,7 +70,7 @@ function tagStyle(level: number) {
 
 const chartOption = computed(() => {
   const now = props.data.hour
-  const axisLabel = { color: '#9aa4b2', fontSize: 12 }
+  const axisLabel = { color: '#8b9aa3', fontSize: 12 }
   // 实线是今日实测，虚线是预测
   const line = (name: string, points: [number, number][], color: string, yAxisIndex: number) => [
     { name, type: 'line', yAxisIndex, data: points.filter(p => p[0] <= now), showSymbol: false, lineStyle: { color, width: 2 } },
@@ -98,7 +98,7 @@ const chartOption = computed(() => {
         markLine: {
           symbol: 'none', silent: true,
           lineStyle: { color: 'rgba(255,255,255,0.5)', type: 'solid', width: 1 },
-          label: { color: '#9aa4b2', fontSize: 12, formatter: formatHour(now) },
+          label: { color: '#8b9aa3', fontSize: 12, formatter: formatHour(now) },
           data: [{ xAxis: now }]
         }
       },
@@ -109,7 +109,7 @@ const chartOption = computed(() => {
         markPoint: {
           symbol: 'circle', symbolSize: 8,
           itemStyle: { color: '#10151c', borderColor: COLOR.ice, borderWidth: 2 },
-          label: { color: '#f3f5f8', fontSize: 12, position: 'top', formatter: '峰值 ' + peak.value },
+          label: { color: '#eef5f8', fontSize: 12, position: 'top', formatter: '峰值 ' + peak.value },
           data: [{ coord: [peak.hour, peak.value] }]
         }
       }
@@ -225,7 +225,7 @@ const chartOption = computed(() => {
     margin-left: 6px;
     border-top: 2px solid $accent;
     &.load {
-      border-top-color: #bfe3ff;
+      border-top-color: #d9f4f8;
     }
   }
 }

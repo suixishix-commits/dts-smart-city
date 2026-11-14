@@ -68,24 +68,24 @@ const chartOption = computed(() => {
     grid: { left: 32, right: 8, top: 10, bottom: 20 },
     xAxis: {
       type: 'value', min: 0, max: 24, interval: 6,
-      axisLabel: { color: '#9aa4b2', fontSize: 11, formatter: (v: number) => String(v).padStart(2, '0') },
+      axisLabel: { color: '#8b9aa3', fontSize: 11, formatter: (v: number) => String(v).padStart(2, '0') },
       axisLine: { lineStyle: { color: 'rgba(255,255,255,0.2)' } },
       axisTick: { show: false },
       splitLine: { show: false }
     },
     yAxis: {
       type: 'value', min: 0, max, interval: max / 2,
-      axisLabel: { color: '#9aa4b2', fontSize: 11 },
+      axisLabel: { color: '#8b9aa3', fontSize: 11 },
       splitLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } }
     },
     series: [
       {
         type: 'line', data: series, showSymbol: false, smooth: 0.3,
-        lineStyle: { color: '#4c9aff', width: 2 },
+        lineStyle: { color: '#4cc4d4', width: 2 },
         markLine: {
           symbol: 'none', silent: true, label: { show: false },
           data: [
-            { yAxis: limit, lineStyle: { color: '#ffa94d', type: 'dashed', width: 1 } },
+            { yAxis: limit, lineStyle: { color: '#e8b04f', type: 'dashed', width: 1 } },
             { xAxis: props.hour, lineStyle: { color: 'rgba(255,255,255,0.5)', type: 'solid', width: 1 } }
           ]
         },

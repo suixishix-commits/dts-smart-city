@@ -116,7 +116,7 @@ const parkings = computed(() =>
   background: transparent;
   cursor: pointer;
   &.active {
-    background: rgba(76, 154, 255, 0.14);
+    background: rgba(76, 196, 212, 0.14);
   }
   &.compact {
     min-height: 36px;

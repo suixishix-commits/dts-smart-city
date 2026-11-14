@@ -6,16 +6,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>智慧城市数字孪生平台</title>
     <script>
-      // 根字号适配：1920×1080 设计稿下 1rem = 10px（与 postcss-pxtorem rootValue 一致）。
-      // 先按宽度算：4K(≥3840) 固定 2 倍、2K(≥2560) 固定 1.25 倍、≤768 下限 0.75 倍，其余等比；
-      // 再受高度约束：窗口比 16:9 更扁时（如带地址栏的浏览器窗口）按高度等比缩小，保证一屏放得下。
+      // 界面适配：设计稿 1920×1080，1rem = 10px（与 postcss-pxtorem 的 rootValue 一致）。
+      // 1. 缩放倍数取宽、高两个方向里较小的一个，窗口比 16:9 更扁或更窄时都能一屏放下；
+      //    4K(≥3840 宽) 固定 2 倍、2K(≥2560 宽) 固定 1.25 倍，同样受高度约束。
+      // 2. 倍数 ≥ 0.6 时只改根字号，文字保持清晰；
+      //    再小就不能继续缩字号了（浏览器有最小字号，字缩不下去而盒子在缩，版式会乱），
+      //    改为根字号停在 0.6 倍，剩下的比例交给 --ui-scale，由界面容器用 transform 整体缩小。
       ;(function (d, w) {
+        const MIN_FONT_SCALE = 0.6
         const f = () => {
           const c = d.documentElement.clientWidth,
             h = d.documentElement.clientHeight,
-            byWidth = c >= 3840 ? 20 : c >= 2560 ? 12.5 : c <= 768 ? 7.5 : 10 * (c / 1920),
-            byHeight = 10 * (h / 1080)
-          d.documentElement.style.fontSize = Math.max(5, Math.min(byWidth, byHeight)) + 'px'
+            byWidth = c >= 3840 ? 2 : c >= 2560 ? 1.25 : c / 1920,
+            scale = Math.min(byWidth, h / 1080),
+            fontScale = Math.max(MIN_FONT_SCALE, scale)
+          d.documentElement.style.fontSize = 10 * fontScale + 'px'
+          d.documentElement.style.setProperty('--ui-scale', String(scale / fontScale))
         }
         f()
         w.addEventListener('resize', f)

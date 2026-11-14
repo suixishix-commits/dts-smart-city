@@ -13,7 +13,7 @@
       <div class="pop-stats">
         <StatItem label="所选时刻在岛" :value="current.toFixed(1)" unit="万人" />
         <StatItem label="预计峰值" :value="peak.value.toFixed(1)" :unit="'万 · ' + formatHour(peak.hour)" />
-        <StatItem label="最高密度" :value="maxDensity.toFixed(1)" unit="万人/km²" color="#ffa94d" />
+        <StatItem label="最高密度" :value="maxDensity.toFixed(1)" unit="万人/km²" color="#e8b04f" />
       </div>
       <LineChart :option="chartOption" label="今日在岛人口二十四小时曲线" />
     </PanelCard>
@@ -59,7 +59,7 @@ const densityRows = computed(() => {
     percent: Math.round((r.v / max) * 100),
     color: rampColor(r.v / 2.8),
     delta: (r.delta >= 0 ? '+' : '') + r.delta.toFixed(2),
-    deltaColor: r.delta > 0.005 ? '#ffa94d' : '#9aa4b2'
+    deltaColor: r.delta > 0.005 ? '#e8b04f' : '#8b9aa3'
   }))
 })
 
@@ -73,34 +73,34 @@ const chartOption = computed(() => {
     grid: { left: 36, right: 8, top: 16, bottom: 24 },
     xAxis: {
       type: 'value', min: 0, max: 24, interval: 6,
-      axisLabel: { color: '#9aa4b2', fontSize: 12, formatter: (v: number) => String(v).padStart(2, '0') },
+      axisLabel: { color: '#8b9aa3', fontSize: 12, formatter: (v: number) => String(v).padStart(2, '0') },
       axisLine: { lineStyle: { color: 'rgba(255,255,255,0.2)' } },
       axisTick: { show: false },
       splitLine: { show: false }
     },
     yAxis: {
       type: 'value', min: 50, max: 100, interval: 25,
-      axisLabel: { color: '#9aa4b2', fontSize: 12 },
+      axisLabel: { color: '#8b9aa3', fontSize: 12 },
       splitLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } }
     },
     series: [
       {
         type: 'line', data: past, showSymbol: false,
-        lineStyle: { color: '#4c9aff', width: 2 },
+        lineStyle: { color: '#4cc4d4', width: 2 },
         markLine: {
           symbol: 'none', silent: true,
           lineStyle: { color: 'rgba(255,255,255,0.5)', type: 'solid', width: 1 },
-          label: { color: '#9aa4b2', fontSize: 12, formatter: formatHour(props.hour) },
+          label: { color: '#8b9aa3', fontSize: 12, formatter: formatHour(props.hour) },
           data: [{ xAxis: props.hour }]
         }
       },
       {
         type: 'line', data: future, showSymbol: false,
-        lineStyle: { color: '#4c9aff', width: 2, type: 'dashed' },
+        lineStyle: { color: '#4cc4d4', width: 2, type: 'dashed' },
         markPoint: {
           symbol: 'circle', symbolSize: 8,
-          itemStyle: { color: '#10151c', borderColor: '#ffa94d', borderWidth: 2 },
-          label: { color: '#f3f5f8', fontSize: 12, position: 'top', formatter: '峰值 ' + peak.value },
+          itemStyle: { color: '#10151c', borderColor: '#e8b04f', borderWidth: 2 },
+          label: { color: '#eef5f8', fontSize: 12, position: 'top', formatter: '峰值 ' + peak.value },
           data: [{ coord: [peak.hour, peak.value] }]
         }
       }

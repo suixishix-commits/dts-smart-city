@@ -8,22 +8,22 @@ import { loadLib } from './effects'
 
 /** 与界面设计令牌一致的颜色 */
 export const COLOR = {
-  accent: '#4c9aff',
-  accentLight: '#7cc4ff',
-  ice: '#bfe3ff',
-  ok: '#51cf66',
-  caution: '#ffd43b',
-  warn: '#ffa94d',
-  danger: '#ff6b6b',
-  muted: '#9aa4b2',
-  white: '#f3f5f8',
+  accent: '#4cc4d4',
+  accentLight: '#8fe0ea',
+  ice: '#d9f4f8',
+  ok: '#5fcf9a',
+  caution: '#e3cf6a',
+  warn: '#e8b04f',
+  danger: '#ee6b5c',
+  muted: '#8b9aa3',
+  white: '#eef5f8',
   panel: '#11161e'
 } as const
 
 /** 数值分级色带：低 → 高。前四档是蓝，只有最高两档转暖 */
-export const RAMP = ['#2b5f9e', '#3b7fc4', '#4c9aff', '#7fb8ff', '#ffb454', '#ff7a59'] as const
+export const RAMP = ['#1f6f80', '#2f97a8', '#4cc4d4', '#8fe0ea', '#e8b04f', '#ee6b5c'] as const
 /** 告警等级色：1 级最严重 */
-export const LEVEL_COLOR: Record<number, string> = { 1: COLOR.danger, 2: COLOR.warn, 3: COLOR.caution, 4: '#74a9ff' }
+export const LEVEL_COLOR: Record<number, string> = { 1: COLOR.danger, 2: COLOR.warn, 3: COLOR.caution, 4: '#6fb4c9' }
 /** 状态色：畅通/正常 → 拥堵/异常 */
 export const STATUS_RAMP = [COLOR.ok, COLOR.caution, COLOR.warn, COLOR.danger] as const
 
@@ -253,11 +253,11 @@ export function heatmap(o: { id: string; groupId?: string; points: { id: string;
       gradient: true,
       invalidColor: [0, 0, 0, 0],
       colorStops: o.stops ?? [
-        { value: 0, color: rgba('#2b5f9e', 0) },
-        { value: 0.3, color: rgba('#3b7fc4', 0.35) },
-        { value: 0.55, color: rgba('#4c9aff', 0.5) },
-        { value: 0.75, color: rgba('#e8a33d', 0.6) },
-        { value: 1, color: rgba('#e8603c', 0.7) }
+        { value: 0, color: rgba('#1f6f80', 0) },
+        { value: 0.3, color: rgba('#2f97a8', 0.35) },
+        { value: 0.55, color: rgba('#4cc4d4', 0.5) },
+        { value: 0.75, color: rgba('#e8b04f', 0.6) },
+        { value: 1, color: rgba('#ee6b5c', 0.7) }
       ]
     },
     updateTime: 0.8

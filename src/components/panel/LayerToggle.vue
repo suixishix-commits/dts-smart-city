@@ -39,10 +39,13 @@ function toggle(key: string) {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 44px;
-  padding: 0 14px;
+  height: 38px;
+  padding: 0 16px;
   border: 0;
-  border-radius: $radius-sm;
+  border-radius: $radius-pill;
+  transition:
+    color 0.15s,
+    background 0.15s;
   font-family: inherit;
   font-size: $fs-body;
   color: $text-muted;
@@ -53,10 +56,18 @@ function toggle(key: string) {
     height: 8px;
     box-sizing: border-box;
     border-radius: 50%;
-    border: 1.5px solid #6b7685;
+    border: 1.5px solid #5d6b74;
+  }
+  &:hover {
+    background: rgba(221, 244, 250, 0.06);
+  }
+  &:focus-visible {
+    outline: 2px solid $accent-light;
+    outline-offset: -2px;
   }
   &.on {
     color: $text-strong;
+    background: rgba(221, 244, 250, 0.1);
     .dot {
       border-color: $accent;
       background: $accent;

@@ -9,12 +9,18 @@
       </template>
     </nav>
     <div class="meta">
-      <span v-if="sceneState === 'failed'" class="scene-failed" role="status">场景未连接</span>
-      <span v-else-if="sceneState === 'connecting'" role="status">场景连接中…</span>
-      <span>晴 29℃</span>
-      <span>阿布扎比主岛</span>
-      <span>{{ date }}</span>
-      <span class="clock">{{ clock }}</span>
+      <span v-if="sceneState === 'failed'" class="chip scene-failed" role="status">场景未连接</span>
+      <span v-else-if="sceneState === 'connecting'" class="chip" role="status">场景连接中…</span>
+      <span class="chip">
+        <span>晴 29℃</span>
+        <i class="sep"></i>
+        <span>阿布扎比主岛</span>
+      </span>
+      <span class="chip">
+        <span>{{ date }}</span>
+        <i class="sep"></i>
+        <span class="clock">{{ clock }}</span>
+      </span>
     </div>
   </header>
 </template>
@@ -52,58 +58,90 @@ onBeforeUnmount(() => window.clearInterval(timer))
   top: 0;
   z-index: 10;
   width: 100%;
-  height: $titleHeight;
+  height: $titleHeight + 12px;
   box-sizing: border-box;
   padding: 0 $page-margin;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 48px;
-  pointer-events: all;
-  background: rgba(16, 21, 28, 0.94);
-  border-bottom: 1px solid $border;
+  pointer-events: none;
+  // 顶部压一层渐暗，让标题和导航在亮的影像上也读得清
+  background: linear-gradient(to bottom, rgba(7, 11, 16, 0.72), rgba(7, 11, 16, 0));
 }
 .title {
-  font-size: 20px;
+  margin: 0;
+  font-size: 21px;
   font-weight: 700;
-  letter-spacing: 1px;
+  letter-spacing: 2px;
   color: $text-strong;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 .nav {
   display: flex;
-  align-self: stretch;
-  gap: 8px;
+  gap: 4px;
+  padding: 5px;
+  pointer-events: all;
+  border-radius: $radius-pill;
+  @include glass($bg-float);
 }
 .tab {
   display: flex;
   align-items: center;
-  padding: 0 16px;
-  font-size: 16px;
+  height: 38px;
+  padding: 0 20px;
+  font-size: 15px;
   text-decoration: none;
   color: $text-muted;
-  border-top: 2px solid transparent;
-  border-bottom: 2px solid transparent;
+  border-radius: $radius-pill;
+  transition:
+    color 0.15s,
+    background 0.15s;
+  &:hover {
+    color: $text-strong;
+    background: rgba(221, 244, 250, 0.08);
+  }
   &.active {
     font-weight: 600;
-    color: $text-strong;
-    border-bottom-color: $accent;
+    color: #06262b;
+    background: $accent;
+    box-shadow: 0 6px 14px rgba(76, 196, 212, 0.3);
   }
   &.disabled {
     cursor: default;
     opacity: 0.5;
   }
+  &:focus-visible {
+    outline: 2px solid $accent-light;
+    outline-offset: 2px;
+  }
 }
 .meta {
-  margin-left: auto;
+  justify-self: end;
   display: flex;
   align-items: center;
-  gap: 24px;
-  font-size: $fs-body;
-  color: $text-muted;
+  gap: 10px;
+  pointer-events: all;
+}
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 16px;
+  font-size: $fs-aux;
+  color: $text;
+  border-radius: $radius-pill;
+  @include glass($bg-float);
+}
+.sep {
+  width: 1px;
+  height: 12px;
+  background: $border-strong;
 }
 .clock {
-  font-size: 18px;
-  font-weight: 500;
-  color: $text;
+  font-size: 15px;
+  font-weight: 600;
+  color: $text-strong;
 }
 .scene-failed {
   color: $level-2;

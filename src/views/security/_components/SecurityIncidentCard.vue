@@ -170,7 +170,7 @@ const emit = defineEmits<{ (e: 'close'): void; (e: 'camera', id: string): void }
   background: transparent;
   cursor: pointer;
   &:hover {
-    background: rgba(76, 154, 255, 0.14);
+    background: rgba(76, 196, 212, 0.14);
   }
 }
 .dot {
@@ -239,7 +239,7 @@ const emit = defineEmits<{ (e: 'close'): void; (e: 'camera', id: string): void }
   height: 10px;
   box-sizing: border-box;
   border-radius: 50%;
-  border: 2px solid #6b7685;
+  border: 2px solid #5d6b74;
   background: $bg-page;
 }
 .step-time {

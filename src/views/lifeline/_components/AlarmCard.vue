@@ -157,7 +157,7 @@ const SYSTEM_NAME: Record<LifelineSystem, string> = { water: '供水', power: '�
     height: 8px;
     box-sizing: border-box;
     border-radius: 50%;
-    border: 1.5px solid #6b7685;
+    border: 1.5px solid #5d6b74;
   }
   &.done {
     color: $text;

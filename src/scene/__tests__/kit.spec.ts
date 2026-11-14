@@ -8,10 +8,10 @@ describe('rgba', () => {
   })
 
   it('keeps fractional channels', () => {
-    const [r, g, b, a] = rgba('#4c9aff', 0.9)
+    const [r, g, b, a] = rgba('#4cc4d4', 0.9)
     expect(r).toBeCloseTo(0x4c / 255)
-    expect(g).toBeCloseTo(0x9a / 255)
-    expect(b).toBe(1)
+    expect(g).toBeCloseTo(0xc4 / 255)
+    expect(b).toBeCloseTo(0xd4 / 255)
     expect(a).toBe(0.9)
   })
 })
@@ -245,7 +245,7 @@ describe('flowLine', () => {
     [1, 2],
     [3, 4]
   ]
-  const line = (o: Partial<Parameters<typeof flowLine>[0]> = {}) => flowLine({ id: 'f1', path, color: '#4c9aff', width: 50, ...o }) as Record<string, any>
+  const line = (o: Partial<Parameters<typeof flowLine>[0]> = {}) => flowLine({ id: 'f1', path, color: '#4cc4d4', width: 50, ...o }) as Record<string, any>
 
   it('builds a solid glowing line 12 m above ground that needs no effect library', () => {
     const l = line({ groupId: 'g' })
@@ -254,7 +254,7 @@ describe('flowLine', () => {
       [1, 2, 12],
       [3, 4, 12]
     ])
-    expect(l.color).toEqual(rgba('#4c9aff'))
+    expect(l.color).toEqual(rgba('#4cc4d4'))
   })
 
   it('expresses the style through thickness: pulse and arrow full width, particles 80%, dash 60%', () => {

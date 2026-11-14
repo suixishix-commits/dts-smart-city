@@ -18,7 +18,7 @@ defineProps<{ title: string; extra?: string; grow?: boolean }>()
   padding: $panel-padding;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
   pointer-events: all;
   background: $bg-panel;
   border: 1px solid $border;
@@ -36,6 +36,7 @@ defineProps<{ title: string; extra?: string; grow?: boolean }>()
 .title {
   font-size: $fs-title;
   font-weight: 600;
+  letter-spacing: 0.2px;
   color: $text-strong;
 }
 .extra {

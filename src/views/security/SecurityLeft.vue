@@ -66,13 +66,13 @@ const chartOption = computed(() => {
       trigger: 'axis',
       backgroundColor: 'rgba(17,22,30,0.96)',
       borderColor: 'rgba(255,255,255,0.14)',
-      textStyle: { color: '#e6eaf0', fontSize: 12 }
+      textStyle: { color: '#d6e0e5', fontSize: 12 }
     },
     xAxis: {
       type: 'category',
       data: t.labels,
       boundaryGap: false,
-      axisLabel: { color: '#9aa4b2', fontSize: 12, interval },
+      axisLabel: { color: '#8b9aa3', fontSize: 12, interval },
       axisLine: { lineStyle: { color: 'rgba(255,255,255,0.2)' } },
       axisTick: { show: false }
     },
@@ -80,12 +80,12 @@ const chartOption = computed(() => {
       type: 'value',
       minInterval: 1,
       splitNumber: 3,
-      axisLabel: { color: '#9aa4b2', fontSize: 12 },
+      axisLabel: { color: '#8b9aa3', fontSize: 12 },
       splitLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } }
     },
     series: [
       { name: t.previousName, type: 'line', data: t.previous, showSymbol: false, lineStyle: { color: COLOR.muted, width: 1.5, type: 'dashed' }, itemStyle: { color: COLOR.muted } },
-      { name: t.currentName, type: 'line', data: t.current, showSymbol: false, lineStyle: { color: COLOR.accent, width: 2 }, itemStyle: { color: COLOR.accent }, areaStyle: { color: 'rgba(76,154,255,0.12)' } }
+      { name: t.currentName, type: 'line', data: t.current, showSymbol: false, lineStyle: { color: COLOR.accent, width: 2 }, itemStyle: { color: COLOR.accent }, areaStyle: { color: 'rgba(76,196,212,0.12)' } }
     ]
   }
 })

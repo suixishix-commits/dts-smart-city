@@ -11,7 +11,7 @@
 import { computed } from 'vue'
 
 const props = withDefaults(defineProps<{ name: string; value: string | number; percent: number; color?: string; note?: string; noteColor?: string }>(), {
-  color: '#4c9aff'
+  color: '#4cc4d4'
 })
 
 /** 进度条宽度，限制在 0–100 */

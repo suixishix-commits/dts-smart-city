@@ -1,40 +1,53 @@
+// 设计令牌。视觉参考：INSPECTION COMMAND CENTER（Figma）——整块玻璃面板、青色主色、大圆角、胶囊控件。
 // 布局（按 1920×1080 设计稿）
 $titleHeight: 64px; // 顶栏高
 $page-margin: 24px;
 $panel-width: 432px;
 $panel-top: 88px; // 顶栏 64 + 间距 24
-$panel-gap: 16px;
-$panel-padding: 16px;
-$radius: 8px;
-$radius-sm: 6px;
+$panel-gap: 28px; // 面板内各区块的间距
+$panel-padding: 22px;
+$radius-pane: 20px; // 大面板
+$radius: 14px; // 浮层、卡片
+$radius-sm: 8px; // 控件
+$radius-pill: 999px;
 
 // 颜色
-$bg-page: #10151c;
-$bg-panel: rgba(17, 22, 30, 0.9);
-$bg-float: rgba(17, 22, 30, 0.94);
-$bg-inset: #0b0f14;
-$border: rgba(255, 255, 255, 0.08);
-$border-strong: rgba(255, 255, 255, 0.14);
-$divider: rgba(255, 255, 255, 0.06);
-$track: rgba(255, 255, 255, 0.08);
+$bg-page: #070b10;
+$bg-panel: rgba(10, 14, 20, 0.7);
+$bg-float: rgba(14, 20, 27, 0.72);
+$bg-inset: rgba(221, 244, 250, 0.05);
+$border: rgba(221, 244, 250, 0.09);
+$border-strong: rgba(221, 244, 250, 0.16);
+$divider: rgba(221, 244, 250, 0.07);
+$track: rgba(221, 244, 250, 0.1);
 
-$text-strong: #f3f5f8;
-$text: #e6eaf0;
-$text-muted: #9aa4b2;
+$text-strong: #eef5f8;
+$text: #d6e0e5;
+$text-muted: #8b9aa3;
 
-$accent: #4c9aff;
-$accent-soft: rgba(76, 154, 255, 0.24);
-$accent-light: #8fc0ff;
+$accent: #4cc4d4;
+$accent-soft: rgba(76, 196, 212, 0.16);
+$accent-light: #8fe0ea;
 
-$ok: #51cf66;
-$level-1: #ff6b6b;
-$level-2: #ffa94d;
-$level-3: #ffd43b;
-$level-4: #74a9ff;
-$heat-low: #ffe066;
+$ok: #5fcf9a;
+$level-1: #ee6b5c;
+$level-2: #e8b04f;
+$level-3: #e3cf6a;
+$level-4: #6fb4c9;
+$heat-low: #e3cf6a;
 
 // 字体
-$font-family: Inter, 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
-$fs-title: 16px;
+$font-family: Manrope, Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+$fs-title: 17px;
 $fs-body: 14px;
 $fs-aux: 13px;
+
+/// 玻璃质感：半透明深色 + 背景模糊 + 顶部一道高光 + 柔和投影
+@mixin glass($bg: $bg-panel) {
+  background: $bg;
+  border: 1px solid $border;
+  backdrop-filter: blur(18px) saturate(1.15);
+  box-shadow:
+    inset 0 1px 0 rgba(221, 244, 250, 0.08),
+    0 8px 24px rgba(0, 0, 0, 0.35);
+}

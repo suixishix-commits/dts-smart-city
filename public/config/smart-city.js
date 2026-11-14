@@ -6,7 +6,7 @@ Object.assign(gVar, {
     effectsPak: 'H:/Dts-Optimize/dts-effect-kit/effects/bundle/DTS-Effects-Bundle.pak',
     // 底图风格：把影像压成偏冷的黄昏色调，让图层从底图里浮出来。
     // tint 乘到影像原色上；saturation 0~2；brightness 0.1~10；contrast 0.2~5；bloom 泛光 0~10
-    ambience: { tint: [0.78, 0.88, 1, 1], saturation: 0.75, brightness: 0.2, contrast: 1.1, bloom: 0.7 },
+    ambience: { tint: [0.78, 0.88, 1, 1], saturation: 0.85, brightness: 0.3, contrast: 1.08, bloom: 0.6 },
     // 各模块默认相机位 [x, y, z, pitch, yaw]（投影坐标，米）。
     // 取值方法：在场景里调好视角后，浏览器控制台执行 (await __xapi.camera.get()).camera，取前 5 个数。
     cameras: {

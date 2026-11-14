@@ -3,3 +3,52 @@
 @use './font.scss';
 @use './layout.scss';
 @use './element.scss';
+
+
+// ---- PANES：左右面板是一整块玻璃面板，PanelCard 是其中的区块（不再各自带底和边框） ----
+#layout-container aside {
+  @include glass;
+  box-sizing: border-box;
+  padding: $panel-padding;
+  gap: $panel-gap;
+  border-radius: $radius-pane;
+  pointer-events: all;
+  overflow: hidden;
+}
+#layout-container aside .panel-card {
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+// 区块之间用一条极淡的分隔线
+#layout-container aside .panel-card + .panel-card {
+  padding-top: $panel-gap;
+  border-top: 1px solid $divider;
+}
+// 场景上的浮层：工具栏、图例、图层开关、时间轴、详情卡片
+#layout-container {
+  .scene-tools,
+  .scene-legend,
+  .layer-toggle,
+  .time-axis,
+  .base-layers,
+  [class$='-card']:not(.panel-card) {
+    @include glass($bg-float);
+  }
+  .scene-tools,
+  .layer-toggle,
+  .scene-legend {
+    border-radius: $radius-pill;
+  }
+  .scene-tools {
+    border-radius: 26px;
+  }
+}
+// 数字用等宽数字，列表里上下对齐
+#layout-container {
+  font-family: $font-family;
+  font-variant-numeric: tabular-nums;
+}

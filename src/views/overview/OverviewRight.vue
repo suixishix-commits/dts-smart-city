@@ -89,7 +89,7 @@ function heatClass(heat: number): string {
   background: transparent;
   cursor: pointer;
   &.active {
-    background: rgba(76, 154, 255, 0.14);
+    background: rgba(76, 196, 212, 0.14);
   }
   &.static {
     cursor: default;
