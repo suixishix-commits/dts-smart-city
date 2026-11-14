@@ -6,14 +6,15 @@
     <SceneTools class="tools" :active="tools.active.value" @tool="tools.onTool" />
     <BaseLayerPanel v-if="tools.showLayers.value" class="base-layers" :state="tools.base" @change="tools.setBase" />
 
-    <HotspotCard v-if="activeHotspotData" class="card" :hotspot="activeHotspotData" :rank="activeHotspotRank" @close="activeHotspot = null" @camera="selectCamera" />
+    <HotspotCard v-if="activeHotspotData" class="card" :hotspot="activeHotspotData" :rank="activeHotspotRank" @close="clearSelection" @camera="locateCamera" />
+    <DetailCard v-else-if="detail" class="card" :detail="detail" @close="clearSelection" />
 
     <TimeAxis class="axis" :model-value="hour" :peak-hour="peak.hour" @update:model-value="onHour" />
 
     <SceneLegend class="legend">
-      <span class="legend-item"><b>片区人口密度</b>低<i class="steps"><i v-for="c in RAMP" :key="c" :style="{ background: c }"></i></i>高</span>
-      <span class="legend-item"><i class="ring"></i>热点事件</span>
-      <span class="legend-item"><i class="dot"></i>摄像头</span>
+      <span v-if="layers.includes('district') || layers.includes('heat')" class="legend-item"><b>片区人口密度</b>低<i class="steps"><i v-for="c in RAMP" :key="c" :style="{ background: c }"></i></i>高</span>
+      <span v-if="layers.includes('hotspot')" class="legend-item"><i class="ring"></i>热点事件</span>
+      <span v-if="layers.includes('camera')" class="legend-item"><i class="dot"></i>摄像头</span>
       <span class="legend-item"><i class="line"></i>路网</span>
     </SceneLegend>
 
@@ -24,11 +25,14 @@
 <script setup lang="ts">
 import { populationPeak } from '@/api/mock/population'
 import { getOverviewData } from '@/api/overview'
+import DetailCard from '@/components/panel/DetailCard.vue'
+import { useEscape } from '@/composables/useEscape'
 import { useSceneTools } from '@/composables/useSceneTools'
-import { RAMP } from '@/scene/kit'
+import { COLOR, RAMP } from '@/scene/kit'
 import { DtsSceneApi } from '@/scene/DtsSceneApi'
 import { cityBase } from '@/scene/CityBase'
 import store from '@/stores'
+import type { DetailModel } from '@/types/detail'
 import type { OverviewData } from '@/types/smartCity'
 import emitter from '@/utils/emitter'
 import dayjs from 'dayjs'
@@ -47,7 +51,8 @@ const data = ref<OverviewData | null>(null)
 // 当前真实时刻，取整到半小时
 const nowHour = Math.round((dayjs().hour() + dayjs().minute() / 60) * 2) / 2
 const hour = ref(nowHour)
-const layers = ref(LAYERS.map(l => l.key))
+// 摄像头默认关闭：首屏只留热力、热点、片区三层，选中某路摄像头时再打开
+const layers = ref(LAYERS.map(l => l.key).filter(k => k !== 'camera'))
 const activeHotspot = ref<string | null>(null)
 const activeCamera = ref<string | null>(null)
 
@@ -59,16 +64,48 @@ const sortedHotspots = computed(() => (data.value ? [...data.value.hotspots].sor
 const activeHotspotData = computed(() => sortedHotspots.value.find(h => h.id === activeHotspot.value) ?? null)
 const activeHotspotRank = computed(() => sortedHotspots.value.findIndex(h => h.id === activeHotspot.value) + 1)
 
+/** 摄像头的详情（热点事件有自己的卡片；选中热点时它的摄像头只是高亮，不换卡片） */
+const detail = computed<DetailModel | null>(() => {
+  const camera = data.value?.cameras.find(c => c.id === activeCamera.value)
+  if (!camera) return null
+  const watching = data.value?.hotspots.find(h => h.cameraId === camera.id)
+  return {
+    tag: { text: camera.online ? '在线' : '离线', color: camera.online ? COLOR.ok : COLOR.muted },
+    title: camera.name,
+    rows: [
+      { label: '设备编号', value: camera.id },
+      { label: '视频信号', value: camera.online ? '正常' : '信号中断，已报修' },
+      { label: '关联热点', value: watching?.name ?? '无' }
+    ]
+  }
+})
+
+function clearSelection() {
+  activeHotspot.value = null
+  activeCamera.value = null
+}
+useEscape(clearSelection)
+
 function selectHotspot(id: string) {
   activeHotspot.value = id
   const h = data.value?.hotspots.find(x => x.id === id)
-  if (h) activeCamera.value = h.cameraId
+  activeCamera.value = h?.cameraId ?? null
   scene?.focusHotspot(id)
 }
 
-function selectCamera(id: string) {
+/** 飞到某路摄像头，不改变当前的详情卡片（热点卡片里点摄像头时用） */
+function locateCamera(id: string) {
   activeCamera.value = id
+  if (!layers.value.includes('camera')) {
+    layers.value = [...layers.value, 'camera']
+    onLayer('camera', true)
+  }
   scene?.focusCamera(id)
+}
+
+function selectCamera(id: string) {
+  activeHotspot.value = null
+  locateCamera(id)
 }
 
 function onHour(v: number) {

@@ -39,9 +39,17 @@
   .scene-legend,
   .layer-toggle,
   .time-axis,
-  .base-layers,
-  [class$='-card']:not(.panel-card) {
+  .base-layers {
     @include glass($bg-float);
+  }
+  // 详情卡片压在场景上，底色比别的浮层更实，保证正文读得清
+  .detail-card,
+  .hotspot-card,
+  .incident-card,
+  .station-card,
+  .alarm-card,
+  .traffic-incident-card {
+    @include glass(rgba(11, 16, 22, 0.88));
   }
   .scene-tools,
   .layer-toggle,

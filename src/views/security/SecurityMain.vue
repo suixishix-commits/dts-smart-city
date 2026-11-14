@@ -6,7 +6,8 @@
     <SceneTools class="tools" :active="tools.active.value" @tool="tools.onTool" />
     <BaseLayerPanel v-if="tools.showLayers.value" class="base-layers" :state="tools.base" @change="tools.setBase" />
 
-    <SecurityIncidentCard v-if="activeIncidentData" class="card" :incident="activeIncidentData" :cameras="activeIncidentCameras" @close="activeIncident = null" @camera="selectCamera" />
+    <SecurityIncidentCard v-if="activeIncidentData" class="card" :incident="activeIncidentData" :cameras="activeIncidentCameras" @close="clearSelection" @camera="locateCamera" />
+    <DetailCard v-else-if="detail" class="card" :detail="detail" @close="clearSelection" />
 
     <!-- 图例只列当前打开的图层，和场景里看得到的对象一一对应 -->
     <SceneLegend v-if="layers.length" class="legend">
@@ -29,10 +30,13 @@
 
 <script setup lang="ts">
 import { currentHour, getSecurityData } from '@/api/security'
+import DetailCard from '@/components/panel/DetailCard.vue'
+import { useEscape } from '@/composables/useEscape'
 import { useSceneTools } from '@/composables/useSceneTools'
 import { cityBase } from '@/scene/CityBase'
 import { DtsSceneApi } from '@/scene/DtsSceneApi'
-import { LEVEL_COLOR } from '@/scene/kit'
+import { COLOR, LEVEL_COLOR } from '@/scene/kit'
+import type { DetailModel } from '@/types/detail'
 import type { SecurityCamera, SecurityData, SecurityPeriod } from '@/types/security'
 import emitter from '@/utils/emitter'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
@@ -73,25 +77,84 @@ const activeIncidentCameras = computed<SecurityCamera[]>(() => {
   return inc.cameraIds.flatMap(id => d.cameras.find(c => c.id === id) ?? [])
 })
 
-function selectIncident(id: string) {
-  activeIncident.value = id
+const GUARD_LEVEL = ['一级', '二级', '三级']
+
+/** 重点防护区、摄像头的详情（警情有自己的卡片） */
+const detail = computed<DetailModel | null>(() => {
+  const d = data.value
+  if (!d) return null
+  const zone = d.zones.find(z => z.id === activeZone.value)
+  if (zone)
+    return {
+      tag: { text: zone.status, color: zone.status === '正常' ? COLOR.ok : COLOR.warn },
+      title: zone.name,
+      stats: [
+        { label: '驻守警力', value: zone.guards, unit: '人' },
+        { label: '周边摄像头', value: zone.cameras, unit: '路' },
+        { label: '防护半径', value: zone.radius, unit: 'm' }
+      ],
+      rows: [
+        { label: '防护等级', value: GUARD_LEVEL[zone.guardLevel - 1] + '防护' },
+        {
+          label: '在办警情',
+          value:
+            d.incidents
+              .filter(i => i.status !== '已办结' && i.place === zone.name)
+              .map(i => i.title)
+              .join('、') || '无'
+        }
+      ]
+    }
+  const camera = d.cameras.find(c => c.id === activeCamera.value)
+  if (camera) {
+    const cone = d.viewCones.find(v => v.cameraId === camera.id)
+    return {
+      tag: { text: camera.online ? '在线' : '离线', color: camera.online ? COLOR.ok : COLOR.muted },
+      title: camera.name,
+      rows: [
+        { label: '设备编号', value: camera.id },
+        { label: '视频信号', value: camera.online ? '正常' : '信号中断，已报修' },
+        { label: '对准警情', value: (cone && d.incidents.find(i => i.id === cone.incidentId)?.title) || '无' }
+      ]
+    }
+  }
+  return null
+})
+
+/** 同一时刻只选中一个对象：警情、防护区、摄像头互斥 */
+function clearSelection() {
+  activeIncident.value = null
   activeZone.value = null
+  activeCamera.value = null
+}
+useEscape(clearSelection)
+
+function selectIncident(id: string) {
+  clearSelection()
+  activeIncident.value = id
   scene?.focusIncident(id)
 }
 
 function selectZone(id: string) {
+  clearSelection()
   activeZone.value = id
   scene?.focusZone(id)
 }
 
-function selectCamera(id: string) {
+/** 飞到某路摄像头。摄像头图层默认关闭，定位时顺手打开，否则飞过去什么也看不到 */
+function locateCamera(id: string) {
   activeCamera.value = id
-  // 摄像头图层默认关闭，定位摄像头时顺手打开，否则飞过去什么也看不到
   if (!layers.value.includes('camera')) {
     layers.value = [...layers.value, 'camera']
     onLayer('camera', true)
   }
   scene?.focusCamera(id)
+}
+
+/** 从列表或场景里选中摄像头：换成摄像头的详情。警情卡片里点摄像头用 locateCamera，警情卡片保留 */
+function selectCamera(id: string) {
+  clearSelection()
+  locateCamera(id)
 }
 
 function onPeriod(v: SecurityPeriod) {

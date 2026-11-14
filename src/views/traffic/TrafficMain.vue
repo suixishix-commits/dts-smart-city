@@ -6,11 +6,12 @@
     <SceneTools class="tools" :active="tools.active.value" @tool="tools.onTool" />
     <BaseLayerPanel v-if="tools.showLayers.value" class="base-layers" :state="tools.base" @change="tools.setBase" />
 
-    <TrafficIncidentCard v-if="activeIncidentData" class="card" :incident="activeIncidentData" @close="activeIncident = null" />
+    <TrafficIncidentCard v-if="activeIncidentData" class="card" :incident="activeIncidentData" @close="clearSelection" />
+    <DetailCard v-else-if="detail" class="card" :detail="detail" @close="clearSelection" />
 
     <LayerToggle v-model="layers" class="layers" :layers="LAYERS" @change="onLayer" />
 
-    <TimeAxis class="axis" :model-value="hour" :peak-hour="peak.hour" @update:model-value="onHour" />
+    <TimeAxis class="axis" subject="路况变化" :model-value="hour" :peak-hour="peak.hour" @update:model-value="onHour" />
 
     <!-- 图例只列当前打开的图层，和场景里实际看到的东西一一对应 -->
     <SceneLegend class="legend">
@@ -37,12 +38,15 @@
 </template>
 
 <script setup lang="ts">
-import { commuteAt, CONGESTION_TEXT, networkPeak } from '@/api/mock/traffic'
+import { commuteAt, congestionAt, congestionLevel, CONGESTION_TEXT, networkPeak, segmentSpeedAt } from '@/api/mock/traffic'
 import { getTrafficData } from '@/api/traffic'
+import DetailCard from '@/components/panel/DetailCard.vue'
+import { useEscape } from '@/composables/useEscape'
 import { useSceneTools } from '@/composables/useSceneTools'
 import { cityBase } from '@/scene/CityBase'
 import { DtsSceneApi } from '@/scene/DtsSceneApi'
 import { COLOR, RAMP, STATUS_RAMP } from '@/scene/kit'
+import type { DetailModel } from '@/types/detail'
 import type { SignalStatus, TrafficData } from '@/types/traffic'
 import emitter from '@/utils/emitter'
 import dayjs from 'dayjs'
@@ -82,13 +86,62 @@ const peak = computed(() => (data.value ? networkPeak(data.value.segments) : { h
 const inbound = computed(() => commuteAt(hour.value) === 'in')
 const activeIncidentData = computed(() => data.value?.incidents.find(i => i.id === activeIncident.value) ?? null)
 
+const ROAD_LEVEL = ['主干路', '次干路', '支路']
+const clock = (h: number) => String(Math.floor(h)).padStart(2, '0') + ':' + (h % 1 ? '30' : '00')
+
+/** 信号路口、路段的详情（交通事件有自己的卡片） */
+const detail = computed<DetailModel | null>(() => {
+  const d = data.value
+  if (!d) return null
+  const signal = d.signals.find(s => s.id === activeSignal.value)
+  if (signal)
+    return {
+      tag: { text: SIGNAL_TEXT[signal.status], color: SIGNAL_COLOR[signal.status] },
+      title: signal.name,
+      rows: [
+        { label: '控制方式', value: signal.status === 'manual' ? '手动（原' + signal.mode + '）' : signal.mode },
+        { label: '运行情况', value: signal.note || '信号机在线，配时正常' },
+        { label: '关联事件', value: d.incidents.find(i => i.intersectionId === signal.id)?.title ?? '无' }
+      ]
+    }
+  const segment = d.segments.find(s => s.id === activeSegment.value)
+  if (segment) {
+    const index = congestionAt(segment, hour.value)
+    const level = congestionLevel(index)
+    return {
+      tag: { text: CONGESTION_TEXT[level], color: STATUS_RAMP[level] },
+      title: segment.name,
+      stats: [
+        { label: '拥堵指数', value: index.toFixed(2), color: level >= 2 ? STATUS_RAMP[level] : undefined },
+        { label: '平均车速', value: Math.round(segmentSpeedAt(segment, hour.value)), unit: 'km/h' },
+        { label: '路段长度', value: segment.lengthKm.toFixed(1), unit: 'km' }
+      ],
+      rows: [
+        { label: '所属道路', value: segment.roadName + ' · ' + ROAD_LEVEL[segment.level - 1] },
+        { label: '数据时刻', value: clock(hour.value) + (hour.value === nowHour ? '（当前）' : '') }
+      ]
+    }
+  }
+  return null
+})
+
+/** 同一时刻只选中一个对象：事件、信号路口、路段互斥 */
+function clearSelection() {
+  activeIncident.value = null
+  activeSignal.value = null
+  activeSegment.value = null
+}
+useEscape(clearSelection)
+
 function selectIncident(id: string) {
+  clearSelection()
   activeIncident.value = id
   scene?.focusIncident(id)
 }
 
 /** 信号路口图层默认关闭，定位前先打开，否则飞过去什么也看不到 */
 async function selectSignal(id: string) {
+  clearSelection()
   activeSignal.value = id
   if (!layers.value.includes('signal')) {
     layers.value = [...layers.value, 'signal']
@@ -98,6 +151,7 @@ async function selectSignal(id: string) {
 }
 
 function selectSegment(id: string) {
+  clearSelection()
   activeSegment.value = id
   scene?.focusSegment(id)
 }

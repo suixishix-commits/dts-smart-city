@@ -2,7 +2,7 @@ import { commuteAt, congestionAt, congestionLevel, districtCongestionAt, INCIDEN
 import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import { pointAt, sliceLine, type CityGeo } from '@/scene/geo'
-import { arc, area, COLOR, flowLine, LEVEL_COLOR, pin, plainLine, prepareFlowLines, rampColor, regionLayer, ripple, STATUS_RAMP } from '@/scene/kit'
+import { arc, area, COLOR, flowLine, focusView, LEVEL_COLOR, pin, plainLine, prepareFlowLines, rampColor, regionLayer, ripple, STATUS_RAMP } from '@/scene/kit'
 import type { IncidentType, RoadSegment, SignalStatus, TrafficData } from '@/types/traffic'
 
 export interface TrafficSceneOptions {
@@ -33,15 +33,10 @@ export function districtColor(index: number): string {
 /** 各拥堵等级的流速：越堵越慢 */
 const FLOW_SPEED = [0.34, 0.22, 0.13, 0.07]
 /** 各等级道路的线宽，米 */
-const ROAD_WIDTH: Record<number, number> = { 1: 70, 2: 44, 3: 32 }
+const ROAD_WIDTH: Record<number, number> = { 1: 100, 2: 64, 3: 44 }
 const DISTRICT_LAYER_ID = 'sc_traffic_districts'
 /** 巡航经过的拥堵路段数 */
 const TOUR_STOPS = 5
-
-/** 从西南方向俯瞰某点的机位；k 越小越近 */
-function viewOf(p: number[], k = 1): number[] {
-  return [p[0] - 1500 * k, p[1] - 1900 * k, 2200 * k, -38, -38]
-}
 
 /**
  * 智慧交通的场景图层：
@@ -177,7 +172,7 @@ export class TrafficScene extends ModuleScene {
 
     if (String(inbound) !== this.drawn.od) {
       this.drawn.od = String(inbound)
-      tasks.push(this.replaceLayer('od', 'odline', this.buildOd(data, inbound)))
+      tasks.push(this.replaceLayer('od', 'polyline', this.buildOd(data, inbound)))
     }
 
     const colors = this.districtColors(data)
@@ -223,7 +218,7 @@ export class TrafficScene extends ModuleScene {
       const home = this.geo.district(f.homeId)?.centerXY
       const work = this.geo.district(f.workId)?.centerXY
       if (!home || !work) return []
-      return [arc({ id: 'od-' + f.id, groupId: 'sc_traffic_od', from: inbound ? home : work, to: inbound ? work : home, color: i < 2 ? COLOR.warn : COLOR.accentLight, width: 22 + 26 * (f.volume / max), bend: 0.3 })]
+      return [arc({ id: 'od-' + f.id, groupId: 'sc_traffic_od', from: inbound ? home : work, to: inbound ? work : home, color: i < 2 ? COLOR.warn : COLOR.accentLight, width: 36 + 28 * (f.volume / max), bend: 0.3, brightness: i < 2 ? 2 : 1.4 })]
     })
   }
 
@@ -253,33 +248,28 @@ export class TrafficScene extends ModuleScene {
       const mid = this.midOf(r.segment)
       if (!mid) continue
       seen.add(r.segment.roadId)
-      views.push(viewOf(mid))
+      views.push(focusView(mid))
     }
     return views
   }
 
-  /** 飞到某个交通事件。事件图层关着时标注不在场景里，改为直接移动相机 */
+  /** 飞到某个交通事件 */
   async focusIncident(id: string): Promise<void> {
     const incident = this.data?.incidents.find(i => i.id === id)
-    if (!incident) return
-    if (this.isOn('incident')) return this.api.focus('marker', 'incident-' + id, 1500)
-    const p = this.xy.get(incident.intersectionId)
-    if (p) await this.api.setCamera(viewOf(p, 0.6))
+    const p = incident && this.xy.get(incident.intersectionId)
+    if (p) await this.api.setCamera(focusView(p), 1.5)
   }
 
   /** 飞到某个信号路口 */
   async focusSignal(id: string): Promise<void> {
-    if (this.isOn('signal')) return this.api.focus('radiationPoint', 'signal-' + id, 1200)
     const p = this.xy.get(id)
-    if (p) await this.api.setCamera(viewOf(p, 0.5))
+    if (p) await this.api.setCamera(focusView(p, 2600), 1.5)
   }
 
-  /** 飞到某个路段 */
+  /** 飞到某个路段：越长的路段拉得越高，保证整段在画面里 */
   async focusSegment(id: string): Promise<void> {
     const segment = this.data?.segments.find(s => s.id === id)
-    if (!segment) return
-    if (this.isOn('road') && this.paths.has(id)) return this.api.focus('polyline', 'seg-' + id, Math.max(1500, segment.lengthKm * 1400))
-    const mid = this.midOf(segment)
-    if (mid) await this.api.setCamera(viewOf(mid, 0.8))
+    const mid = segment && this.midOf(segment)
+    if (mid) await this.api.setCamera(focusView(mid, Math.min(5200, Math.max(3000, segment.lengthKm * 1500))), 1.5)
   }
 }

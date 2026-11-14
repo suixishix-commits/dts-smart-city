@@ -38,6 +38,21 @@ export function rampColor(t: number, ramp: readonly string[] = RAMP): string {
   return ramp[i]
 }
 
+/** 定位机位的俯仰角、朝向：朝向与各模块默认机位一致，飞过去画面不打转 */
+const FOCUS_PITCH = -42
+const FOCUS_YAW = -38
+
+/**
+ * 俯瞰某一点的机位 [x, y, z, pitch, yaw]，目标点落在画面正中。五个模块的列表定位、标注点击、巡航都用它，
+ * 保证飞过去的角度和远近一致。height 为相机高度：点位默认 3000 米（再近影像会糊，线和波纹显得过大），
+ * 范围较大的对象（防护区、长路段、桥）传更高的值。
+ */
+export function focusView(p: number[], height = 3000): number[] {
+  const d = height / Math.tan((-FOCUS_PITCH * Math.PI) / 180)
+  const yaw = (FOCUS_YAW * Math.PI) / 180
+  return [p[0] - Math.cos(yaw) * d, p[1] + Math.sin(yaw) * d, height, FOCUS_PITCH, FOCUS_YAW]
+}
+
 const FAR: [number, number] = [1, 1000000]
 const z = (p: number[], h: number) => [p[0], p[1], h]
 
@@ -157,28 +172,39 @@ export function pin(o: { id: string; groupId: string; at: number[]; text: string
   }
 }
 
-/** 两点之间的抛物线飞线（区域间联系、调度） */
+/** 飞线的分段数 */
+const ARC_STEPS = 24
+
+/**
+ * 两点之间的弧线（区域间联系、调度）。返回 polyline.add 的参数。
+ *
+ * 实测：DTS 的迁徙线对象（odline）在 8–10 公里的相机距离上画不出来，所以用实线折线自己算弧形。
+ * 弧线同时向侧面弯、向上抬：只向上抬的话，走向和视线一致的飞线从斜俯视看过去是一条直线。
+ * bend 为弯曲程度（侧弯 = 长度 × bend × 0.6，顶点高度 = 长度 × bend × 0.5）；coordinates 首尾就是 from / to。
+ */
 export function arc(o: { id: string; groupId?: string; from: number[]; to: number[]; color: string; width?: number; bend?: number; brightness?: number }) {
+  const bend = o.bend ?? 0.35
+  const dx = o.to[0] - o.from[0]
+  const dy = o.to[1] - o.from[1]
+  const length = Math.hypot(dx, dy)
+  // 行进方向的右手边
+  const side = length ? [dy / length, -dx / length] : [0, 0]
+  const coordinates = Array.from({ length: ARC_STEPS + 1 }, (_, i) => {
+    const t = i / ARC_STEPS
+    const k = 4 * t * (1 - t) // 0 → 1 → 0 的抛物线
+    return [o.from[0] + dx * t + side[0] * length * bend * 0.6 * k, o.from[1] + dy * t + side[1] * length * bend * 0.6 * k, 10 + length * bend * 0.5 * k]
+  })
   return {
     id: o.id,
     groupId: o.groupId,
-    coordinates: [z(o.from, 10), z(o.to, 10)],
+    coordinates,
     coordinateType: 0,
     color: rgba(o.color),
-    intensity: o.brightness ?? 3,
-    flowRate: 0.6,
-    bendDegree: o.bend ?? 0.35,
-    tiling: 1,
-    lineThickness: o.width ?? 30,
-    flowPointSizeScale: (o.width ?? 30) * 2,
-    labelSizeScale: 260,
-    lineShape: 1,
-    lineStyle: 2,
-    flowShape: 1,
-    startPointShape: 0,
-    endPointShape: 1,
-    startLabelShape: 1,
-    endLabelShape: 1
+    style: 4, // PolylineStyle.Normal
+    thickness: o.width ?? 30,
+    intensity: Math.min(3, Math.max(0.8, o.brightness ?? 1.6)),
+    depthTest: false,
+    range: FAR
   }
 }
 
@@ -287,9 +313,16 @@ export async function regionLayer(id: string, regions: { id: string; color: stri
     lib.create(__xapi, { id, groundZ: 3, style: full, regions: regions.map(r => ({ id: r.id, color: colors?.[r.id] ?? r.color, rings: [r.ring.map(p => [p[0], p[1]])] })) })
   await build()
   let current: Record<string, string> = Object.fromEntries(regions.map(r => [r.id, r.color]))
+  let visible = true
   return {
-    show: () => __xapi.customObject.showByGroupId(id),
-    hide: () => __xapi.customObject.hideByGroupId(id),
+    show: () => {
+      visible = true
+      return __xapi.customObject.showByGroupId(id)
+    },
+    hide: () => {
+      visible = false
+      return __xapi.customObject.hideByGroupId(id)
+    },
     remove: () => lib.remove(__xapi, id),
     /** 换色（数值变化时）。颜色没变则不发指令 */
     async setColors(colors) {
@@ -298,6 +331,8 @@ export async function regionLayer(id: string, regions: { id: string; color: stri
       current = { ...current, ...colors }
       // setColors 返回 false 表示要重建
       if (!(await lib.setColors(__xapi, id, colors))) await build(current)
+      // 换色或重建会让对象重新显示；图层关着时再藏回去
+      if (!visible) await __xapi.customObject.hideByGroupId(id)
     }
   }
 }

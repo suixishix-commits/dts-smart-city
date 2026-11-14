@@ -6,7 +6,8 @@
     <SceneTools class="tools" :active="tools.active.value" @tool="tools.onTool" />
     <BaseLayerPanel v-if="tools.showLayers.value" class="base-layers" :state="tools.base" @change="tools.setBase" />
 
-    <AlarmCard v-if="activeAlarmData" class="card" :alarm="activeAlarmData" @close="activeAlarm = null" @locate="selectAlarm" />
+    <AlarmCard v-if="activeAlarmData" class="card" :alarm="activeAlarmData" @close="clearSelection" @locate="selectAlarm" />
+    <DetailCard v-else-if="detail" class="card" :detail="detail" @close="clearSelection" />
 
     <!-- 图例只列当前打开的图层，和场景里看到的一一对应 -->
     <SceneLegend v-if="layers.length" class="legend">
@@ -33,10 +34,14 @@
 
 <script setup lang="ts">
 import { getLifelineData } from '@/api/lifeline'
+import { bridgeStatus } from '@/api/mock/lifeline'
+import DetailCard from '@/components/panel/DetailCard.vue'
+import { useEscape } from '@/composables/useEscape'
 import { useSceneTools } from '@/composables/useSceneTools'
 import { cityBase } from '@/scene/CityBase'
 import { DtsSceneApi } from '@/scene/DtsSceneApi'
 import { COLOR, LEVEL_COLOR, STATUS_RAMP } from '@/scene/kit'
+import type { DetailModel } from '@/types/detail'
 import type { LifelineData } from '@/types/lifeline'
 import emitter from '@/utils/emitter'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
@@ -80,12 +85,47 @@ const statusTitle = computed(() =>
   [on('power') && '变电站负荷', on('gas') && '调压站', on('drain') && '积水 / 泵站', on('bridge') && '桥梁健康'].filter(Boolean).join(' · ')
 )
 
+/** 桥梁的详情（告警有自己的卡片） */
+const detail = computed<DetailModel | null>(() => {
+  const bridge = data.value?.bridges.find(b => b.id === activeBridge.value)
+  if (!bridge) return null
+  const status = bridgeStatus(bridge.score)
+  return {
+    tag: { text: bridge.grade, color: STATUS_RAMP[status] },
+    title: bridge.name,
+    stats: [
+      { label: '健康评分', value: bridge.score, color: status ? STATUS_RAMP[status] : undefined },
+      { label: '在线传感器', value: bridge.sensors, unit: '个' },
+      { label: '建成年份', value: bridge.builtYear }
+    ],
+    rows: [
+      { label: '最近检测', value: bridge.lastInspect },
+      {
+        label: '在办告警',
+        value:
+          data.value?.alarms
+            .filter(a => a.facilityId === bridge.id)
+            .map(a => a.title)
+            .join('、') || '无'
+      }
+    ]
+  }
+})
+
+function clearSelection() {
+  activeAlarm.value = null
+  activeBridge.value = null
+}
+useEscape(clearSelection)
+
 function selectAlarm(id: string) {
+  clearSelection()
   activeAlarm.value = id
   scene?.focusAlarm(id)
 }
 
 function selectBridge(id: string) {
+  clearSelection()
   activeBridge.value = id
   scene?.focusBridge(id)
 }

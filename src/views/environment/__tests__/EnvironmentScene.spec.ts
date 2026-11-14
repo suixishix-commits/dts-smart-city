@@ -3,7 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { buildEnvironmentData, concentrationsAt, noiseDbAt, readingOf } from '@/api/mock/environment'
 import type { SceneApi, SceneObjectType } from '@/scene/SceneApi'
 import { buildCityGeo, pointAt, type CityGeo } from '@/scene/geo'
-import { COLOR, LEVEL_COLOR, rgba } from '@/scene/kit'
+import { COLOR, focusView, LEVEL_COLOR, rgba } from '@/scene/kit'
 import type { EnvironmentData } from '@/types/environment'
 import type { GeoData } from '@/types/geo'
 import { ENV_LAYERS, EnvironmentScene, noiseColor } from '../EnvironmentScene'
@@ -107,6 +107,16 @@ describe('EnvironmentScene', () => {
     expect(m.groupId).toBe('sc_environment_station')
     expect(JSON.parse(m.userData)).toEqual({ id: 'mina-zayed' })
     expect(api.store.get('marker:station-umm-al-emarat-park').lineColor).toEqual(rgba(COLOR.ok, 0.95))
+    // 轻度污染及以上的站点始终显示（优先级 10），其余参与避让（优先级 7）
+    const levels = new Set<boolean>()
+    for (const s of data.stations) {
+      const bad = readingOf(concentrationsAt(s, 11), 'aqi').level >= 2
+      levels.add(bad)
+      const pinned = api.store.get('marker:station-' + s.id)
+      expect(pinned.priority, s.id).toBe(bad ? 10 : 7)
+      expect(pinned.displayMode, s.id).toBe(bad ? 2 : 4)
+    }
+    expect(levels.size).toBe(2)
   })
 
   it('污染源是波纹 + 标注，按告警等级用暖色，波纹半径在 250–800 米', async () => {
@@ -207,16 +217,28 @@ describe('EnvironmentScene', () => {
     expect(api.cameraCalls).toEqual([[1, 2, 3, -38, -38]])
   })
 
-  it('定位：图层开着对准标注，关着直接摆相机', async () => {
+  it('定位：不论图层开关都飞到统一的俯瞰机位（3000 米），不对准标注；未知 id 不动相机', async () => {
     await scene.enter()
-    await scene.focusStation('wtc')
-    await scene.focusSource(data.sources[0].id)
-    expect(api.focusCalls).toEqual(['marker:station-wtc', 'marker:source-' + data.sources[0].id])
-    await scene.setLayerVisible('station', false)
-    await scene.focusStation('wtc')
-    expect(api.focusCalls).toHaveLength(2)
     const xy = geo.landmark('wtc')!.xy
-    expect(api.cameraCalls).toEqual([[xy[0] - 800, xy[1] - 1000, 1300, -38, -38]])
+    const source = data.sources[0]
+    const sourceXY = api.store.get('marker:source-' + source.id).coordinate.slice(0, 2)
+    await scene.focusStation('wtc')
+    await scene.focusSource(source.id)
+    expect(api.cameraCalls).toEqual([focusView(xy), focusView(sourceXY)])
+    expect(api.cameraCalls[0][0]).toBeLessThan(xy[0])
+    expect(api.cameraCalls[0].slice(2)).toEqual([3000, -42, -38])
+
+    api.cameraCalls = []
+    await scene.setLayerVisible('station', false)
+    await scene.setLayerVisible('source', false)
+    await scene.focusStation('wtc')
+    await scene.focusSource(source.id)
+    expect(api.cameraCalls).toEqual([focusView(xy), focusView(sourceXY)])
+
+    await scene.focusStation('不存在')
+    await scene.focusSource('不存在')
+    expect(api.cameraCalls).toHaveLength(2)
+    expect(api.focusCalls).toEqual([])
   })
 
   it('巡航机位：先最差的三个站，再各污染源', async () => {
@@ -224,7 +246,7 @@ describe('EnvironmentScene', () => {
     const views = scene.tourViews()
     expect(views).toHaveLength(6)
     const port = geo.landmark('mina-zayed')!.xy
-    expect(views[0]).toEqual([port[0] - 1500, port[1] - 1900, 2200, -38, -38])
+    expect(views[0]).toEqual(focusView(port))
     views.forEach(v => expect(v).toHaveLength(5))
   })
 

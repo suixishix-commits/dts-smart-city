@@ -1,8 +1,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildTrafficData, congestionAt, congestionLevel, rankSegmentsAt } from '@/api/mock/traffic'
 import type { SceneApi, SceneObjectType } from '@/scene/SceneApi'
-import { buildCityGeo, type CityGeo } from '@/scene/geo'
-import { COLOR, flowLine, rgba, STATUS_RAMP, type FlowLineOptions } from '@/scene/kit'
+import { buildCityGeo, pointAt, type CityGeo } from '@/scene/geo'
+import { COLOR, flowLine, focusView, rgba, STATUS_RAMP, type FlowLineOptions } from '@/scene/kit'
 import type { GeoData } from '@/types/geo'
 import geoJson from '../../../../public/data/smart-city/geo.json'
 import { INCIDENT_COLOR, SIGNAL_COLOR, TrafficScene, type TrafficSceneOptions } from '../TrafficScene'
@@ -79,6 +79,11 @@ describe('TrafficScene', () => {
     return scene
   }
 
+  const segIds = () => api.ids('polyline').filter(k => k.startsWith('polyline:seg-'))
+  const odIds = () => api.ids('polyline').filter(k => k.startsWith('polyline:od-'))
+  /** 路段中点的投影坐标 */
+  const midOf = (s: (typeof data.segments)[number]) => pointAt((geo.road(s.roadId) as NonNullable<ReturnType<CityGeo['road']>>).line, (s.from + s.to) / 2)
+
   beforeAll(async () => {
     geo = await buildCityGeo(raw, async ll => ll.map(p => [p[0] * 1e5, p[1] * 1e5, 0]))
   })
@@ -91,9 +96,11 @@ describe('TrafficScene', () => {
 
   it('进入后创建五个图层的对象', async () => {
     await scene.enter()
-    expect(api.ids('polyline')).toHaveLength(data.segments.length)
-    expect(api.ids('polyline').every(k => k.startsWith('polyline:seg-'))).toBe(true)
-    expect(api.ids('odline')).toHaveLength(8)
+    // 路段和通勤飞线都是折线
+    expect(segIds()).toHaveLength(data.segments.length)
+    expect(odIds()).toHaveLength(8)
+    expect(api.ids('polyline')).toHaveLength(data.segments.length + 8)
+    expect(api.ids('odline')).toEqual([])
     expect(api.ids('marker')).toHaveLength(data.incidents.length + abnormal.length)
     expect(api.ids('radiationPoint')).toHaveLength(data.incidents.length + 36)
     expect(api.ids('polygon')).toHaveLength(16)
@@ -128,6 +135,9 @@ describe('TrafficScene', () => {
     const colors = new Set(data.segments.filter(s => s.downtown).map(s => String(api.get('polyline', 'seg-' + s.id).color)))
     expect([...colors].every(c => c === String(rgba(COLOR.warn)) || c === String(rgba(COLOR.danger)))).toBe(true)
     expect(api.get('polyline', 'seg-khaleej-2').thickness).toBeGreaterThan(api.get('polyline', 'seg-hamdan-2').thickness)
+    // 线宽按道路等级：主干 100、次干 64、支路 44
+    const WIDTH: Record<number, number> = { 1: 100, 2: 64, 3: 44 }
+    for (const s of data.segments) expect(api.get('polyline', 'seg-' + s.id).thickness).toBe(WIDTH[s.level])
   })
 
   it('夜间全部是畅通色；切换小时后重新着色且不留下重复对象', async () => {
@@ -135,7 +145,7 @@ describe('TrafficScene', () => {
     await scene.enter()
     data.segments.forEach(s => expect(api.get('polyline', 'seg-' + s.id).color).toEqual(rgba(COLOR.ok)))
     await scene.setHour(18)
-    expect(api.ids('polyline')).toHaveLength(data.segments.length)
+    expect(segIds()).toHaveLength(data.segments.length)
     expect(api.get('polyline', 'seg-airport-2').color).not.toEqual(rgba(COLOR.ok))
     expect(api.store.size).toBe(TOTAL)
   })
@@ -156,16 +166,23 @@ describe('TrafficScene', () => {
     const home = geo.district(top.homeId)?.centerXY as number[]
     const work = geo.district(top.workId)?.centerXY as number[]
     const id = 'od-' + top.id
-    expect(api.get('odline', id).coordinates[0].slice(0, 2)).toEqual(home)
-    expect(api.get('odline', id).coordinates[1].slice(0, 2)).toEqual(work)
-    const warm = api.ids('odline').filter(k => String(api.store.get(k).color) === String(rgba(COLOR.warn)))
-    expect(warm.sort()).toEqual(data.odFlows.slice(0, 2).map(f => 'odline:od-' + f.id).sort())
-    api.ids('odline').filter(k => !warm.includes(k)).forEach(k => expect(api.store.get(k).color).toEqual(rgba(COLOR.accentLight)))
+    // 飞线是折线：首点是起点，末点是终点，中间抬高
+    const ends = () => {
+      const c = api.get('polyline', id).coordinates as number[][]
+      expect(c.length).toBeGreaterThan(2)
+      expect(Math.max(...c.map(p => p[2]))).toBeGreaterThan(c[0][2])
+      return [c[0].slice(0, 2), c[c.length - 1].slice(0, 2)]
+    }
+    expect(api.get('polyline', id).groupId).toBe('sc_traffic_od')
+    expect(ends()).toEqual([home, work])
+    const warm = odIds().filter(k => String(api.store.get(k).color) === String(rgba(COLOR.warn)))
+    expect(warm.sort()).toEqual(data.odFlows.slice(0, 2).map(f => 'polyline:od-' + f.id).sort())
+    odIds().filter(k => !warm.includes(k)).forEach(k => expect(api.store.get(k).color).toEqual(rgba(COLOR.accentLight)))
 
     await scene.setHour(18)
-    expect(api.get('odline', id).coordinates[0].slice(0, 2)).toEqual(work)
-    expect(api.get('odline', id).coordinates[1].slice(0, 2)).toEqual(home)
-    expect(api.ids('odline')).toHaveLength(8)
+    expect(ends()).toEqual([work, home])
+    expect(odIds()).toHaveLength(8)
+    expect(api.ids('odline')).toEqual([])
   })
 
   it('交通事件是路口上的波纹 + 可点击标注', async () => {
@@ -232,28 +249,58 @@ describe('TrafficScene', () => {
     expect(api.visible.get('polyline:seg-' + data.segments[0].id)).toBe(true)
     await scene.setLayerVisible('road', false)
     expect(api.visible.get('polyline:seg-' + data.segments[0].id)).toBe(false)
+    // 路况和通勤飞线都是折线，但各自受自己的图层开关控制
+    expect(api.visible.get('polyline:od-' + data.odFlows[0].id)).toBe(true)
     await scene.setLayerVisible('od', false)
-    expect(api.visible.get('odline:od-' + data.odFlows[0].id)).toBe(false)
+    expect(api.visible.get('polyline:od-' + data.odFlows[0].id)).toBe(false)
+    await scene.setLayerVisible('road', true)
+    expect(api.visible.get('polyline:seg-' + data.segments[0].id)).toBe(true)
+    expect(api.visible.get('polyline:od-' + data.odFlows[0].id)).toBe(false)
   })
 
-  it('定位：图层开着时聚焦对象，关着时直接移动相机', async () => {
+  it('定位：不论图层开关都用统一的俯瞰机位移动相机，不聚焦对象', async () => {
     await scene.enter()
     const incident = data.incidents[0]
+    const xy = (id: string) => geo.intersections.find(x => x.id === id)?.xy as number[]
+    const segment = (id: string) => data.segments.find(x => x.id === id) as (typeof data.segments)[number]
+    const height = (km: number) => Math.min(5200, Math.max(3000, km * 1500))
+    const seg = segment('airport-2')
+    const expected = [focusView(xy(incident.intersectionId)), focusView(xy(abnormal[0].id), 2600), focusView(midOf(seg), height(seg.lengthKm))]
+
     await scene.focusIncident(incident.id)
     await scene.focusSignal(abnormal[0].id)
     await scene.focusSegment('airport-2')
-    expect(api.focusCalls).toEqual(['marker:incident-' + incident.id, 'radiationPoint:signal-' + abnormal[0].id, 'polyline:seg-airport-2'])
+    expect(api.cameraCalls).toEqual(expected)
+    expect(api.cameraCalls[0][0]).toBeLessThan(xy(incident.intersectionId)[0])
+    expect(api.cameraCalls[0].slice(2)).toEqual([3000, -42, -38])
+    expect(api.cameraCalls[1][2]).toBe(2600)
 
-    api.focusCalls = []
+    // 路段越长相机越高，限制在 3000–5200 米
+    const byLength = [...data.segments].sort((a, b) => a.lengthKm - b.lengthKm)
+    for (const s of [byLength[0], byLength[byLength.length - 1]]) {
+      api.cameraCalls = []
+      await scene.focusSegment(s.id)
+      expect(api.cameraCalls).toEqual([focusView(midOf(s), height(s.lengthKm))])
+      expect(api.cameraCalls[0][2]).toBeGreaterThanOrEqual(3000)
+      expect(api.cameraCalls[0][2]).toBeLessThanOrEqual(5200)
+    }
+
+    // 图层关着时机位相同
+    api.cameraCalls = []
     await scene.setLayerVisible('incident', false)
+    await scene.setLayerVisible('signal', false)
+    await scene.setLayerVisible('road', false)
     await scene.focusIncident(incident.id)
-    expect(api.focusCalls).toEqual([])
-    expect(api.cameraCalls).toHaveLength(1)
-    const xy = geo.intersections.find(x => x.id === incident.intersectionId)?.xy as number[]
-    expect(api.cameraCalls[0][0]).toBeLessThan(xy[0])
-    expect(api.cameraCalls[0].slice(3)).toEqual([-38, -38])
+    await scene.focusSignal(abnormal[0].id)
+    await scene.focusSegment('airport-2')
+    expect(api.cameraCalls).toEqual(expected)
+
+    // 不存在的 id 什么都不做
     await scene.focusIncident('不存在')
-    expect(api.cameraCalls).toHaveLength(1)
+    await scene.focusSignal('不存在')
+    await scene.focusSegment('不存在')
+    expect(api.cameraCalls).toHaveLength(3)
+    expect(api.focusCalls).toEqual([])
   })
 
   it('巡航机位：所选时刻最堵的 5 个路段，每条道路只取一段', async () => {
@@ -261,13 +308,16 @@ describe('TrafficScene', () => {
     await scene.enter()
     const views = scene.tourViews()
     expect(views).toHaveLength(5)
-    views.forEach(v => expect(v).toHaveLength(5))
+    views.forEach(v => expect(v.slice(2)).toEqual([3000, -42, -38]))
     expect(new Set(views.map(String)).size).toBe(5)
-    // 第一站是全网最堵的路段
-    const worst = rankSegmentsAt(data.segments, 18, 1)[0].segment
-    const line = api.get('polyline', 'seg-' + worst.id).coordinates
-    const near = line.some((p: number[]) => Math.hypot(p[0] - (views[0][0] + 1500), p[1] - (views[0][1] + 1900)) < worst.lengthKm * 1000)
-    expect(near).toBe(true)
+    // 依次是最堵的路段（跳过已经取过的道路），机位是路段中点的统一俯瞰机位
+    const seen = new Set<string>()
+    const stops = rankSegmentsAt(data.segments, 18, Infinity)
+      .map(r => r.segment)
+      .filter(s => !seen.has(s.roadId) && !!seen.add(s.roadId))
+      .slice(0, 5)
+    expect(stops[0].id).toBe(rankSegmentsAt(data.segments, 18, 1)[0].segment.id)
+    expect(views).toEqual(stops.map(s => focusView(midOf(s))))
   })
 
   it('离开后清干净；反复进出对象数不增长', async () => {
@@ -363,9 +413,10 @@ describe('TrafficScene', () => {
         expect(o.color).toBe(STATUS_RAMP[congestionLevel(congestionAt(s, 18))])
         expect(api.get('polyline', 'seg-' + s.id).color).toEqual(rgba(o.color))
       }
-      expect(optionsOf('khaleej-2').width).toBeGreaterThanOrEqual(60)
-      expect(optionsOf('hamdan-2').width).toBeGreaterThanOrEqual(30)
-      expect(optionsOf('hamdan-2').width).toBeLessThanOrEqual(50)
+      // 线宽按道路等级：主干 100、次干 64、支路 44
+      const WIDTH: Record<number, number> = { 1: 100, 2: 64, 3: 44 }
+      for (const s of data.segments) expect(optionsOf(s.id).width).toBe(WIDTH[s.level])
+      expect(optionsOf('khaleej-2').width).toBeGreaterThan(optionsOf('hamdan-2').width)
     })
 
     it('越堵流得越慢', async () => {
@@ -384,7 +435,7 @@ describe('TrafficScene', () => {
       await scene.setHour(8)
       expect(optionsOf('khaleej-13').reverse).toBe(true)
       expect(optionsOf('hamdan-2').reverse).toBe(false)
-      expect(api.ids('polyline')).toHaveLength(data.segments.length)
+      expect(segIds()).toHaveLength(data.segments.length)
     })
 
     it('片区用点阵流光，换小时只换色，离开时删除', async () => {

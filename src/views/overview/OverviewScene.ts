@@ -2,7 +2,7 @@ import { districtDensityAt, heatGridAt, hotspotActivityAt } from '@/api/mock/pop
 import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import type { CityGeo } from '@/scene/geo'
-import { area, COLOR, heatmap, pin, rampColor, regionLayer, ripple } from '@/scene/kit'
+import { area, COLOR, focusView, heatmap, pin, rampColor, regionLayer, ripple } from '@/scene/kit'
 import type { OverviewData } from '@/types/smartCity'
 
 export interface OverviewSceneOptions {
@@ -37,6 +37,7 @@ export class OverviewScene extends ModuleScene {
   /** onEnter 已经创建完图层。在此之前 setHour 只记录小时 */
   private entered = false
   private hotspotXY = new Map<string, number[]>()
+  private cameraXY = new Map<string, number[]>()
   private districts: Awaited<ReturnType<typeof regionLayer>> | null = null
   private grid: { xy: number[]; districtId: string }[] = []
 
@@ -69,7 +70,8 @@ export class OverviewScene extends ModuleScene {
     const points = [...data.hotspots.map(h => h.position), ...data.cameras.map(c => c.position)]
     const xy = await this.api.project(points)
     data.hotspots.forEach((h, i) => this.hotspotXY.set(h.id, xy[i]))
-    const cameraXY = new Map(data.cameras.map((c, i) => [c.id, xy[data.hotspots.length + i]]))
+    data.cameras.forEach((c, i) => this.cameraXY.set(c.id, xy[data.hotspots.length + i]))
+    const cameraXY = this.cameraXY
     this.grid = geo.landGrid(HEAT_STEP)
 
     if (this.options.cameraView) await this.api.setCamera(this.options.cameraView)
@@ -148,15 +150,19 @@ export class OverviewScene extends ModuleScene {
     const ranked = [...(this.data?.hotspots ?? [])].sort((a, b) => b.heat - a.heat)
     return ranked.flatMap(h => {
       const p = this.hotspotXY.get(h.id)
-      return p ? [[p[0] - 1500, p[1] - 1900, 2200, -38, -38]] : []
+      return p ? [focusView(p)] : []
     })
   }
 
+  /** 飞到某个热点事件 */
   async focusHotspot(id: string): Promise<void> {
-    await this.api.focus('marker', 'hotspot-' + id, 1800)
+    const p = this.hotspotXY.get(id)
+    if (p) await this.api.setCamera(focusView(p), 1.5)
   }
 
+  /** 飞到某路摄像头 */
   async focusCamera(id: string): Promise<void> {
-    await this.api.focus('marker', 'camera-' + id, 1200)
+    const p = this.cameraXY.get(id)
+    if (p) await this.api.setCamera(focusView(p, 2400), 1.5)
   }
 }

@@ -12,6 +12,9 @@ export interface SceneToolsOptions {
   tour: () => number[][]
 }
 
+/** 昼夜、天气、底图风格、云层改的是整个场景，切换模块后仍然有效，所以状态放在模块之外，五个模块共用 */
+const shared = reactive({ night: false, rain: false, ambience: true, cloud: false })
+
 const TOUR_ID = 'sc_tour'
 /** 巡航时相邻机位之间的飞行时间，秒 */
 const TOUR_STEP = 7
@@ -22,10 +25,10 @@ const TOUR_STEP = 7
  */
 export function useSceneTools(options: SceneToolsOptions) {
   /** 当前处于按下状态的开关型工具 */
-  const active = ref<string[]>([])
+  const active = ref<string[]>((['night', 'rain'] as const).filter(k => shared[k]))
   const showLayers = ref(false)
   /** 底图图层的开关状态 */
-  const base = reactive({ roads: true, ambience: true, cloud: false })
+  const base = reactive({ roads: true, ambience: shared.ambience, cloud: shared.cloud })
   let tourTimer: ReturnType<typeof setTimeout> | undefined
 
   const isOn = (key: string) => active.value.includes(key)
@@ -85,9 +88,11 @@ export function useSceneTools(options: SceneToolsOptions) {
       ElMessage.info('在场景中依次点击量取距离，再点一次「测量」结束')
     } else if (key === 'night') {
       set('night', !isOn('night'))
+      shared.night = isOn('night')
       __xapi.weather.setDarkMode(isOn('night'))
     } else if (key === 'rain') {
       set('rain', !isOn('rain'))
+      shared.rain = isOn('rain')
       if (isOn('rain')) {
         __xapi.weather.setCloudThickness(2)
         __xapi.weather.setRainParam(0.4, 1, 1, [0.7, 0.75, 0.8, 0.25], 0.5, 0.5)
@@ -103,6 +108,7 @@ export function useSceneTools(options: SceneToolsOptions) {
   /** 图层管理面板里的开关 */
   async function setBase(key: 'roads' | 'ambience' | 'cloud', on: boolean) {
     base[key] = on
+    if (key !== 'roads') shared[key] = on
     if (!sceneReady()) return
     if (key === 'roads') await cityBase.setRoadsVisible(on)
     else if (key === 'ambience') await setAmbienceEnabled(on)

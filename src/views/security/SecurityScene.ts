@@ -2,7 +2,7 @@ import { incidentHeatGrid, isActive } from '@/api/mock/security'
 import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import { pointAt, sliceLine, type CityGeo, type XY } from '@/scene/geo'
-import { area, circleRing, COLOR, fence, flowLine, frustum, heatmap, LEVEL_COLOR, pin, plainLine, prepareFlowLines, ripple } from '@/scene/kit'
+import { area, circleRing, COLOR, fence, flowLine, focusView, frustum, heatmap, LEVEL_COLOR, pin, plainLine, prepareFlowLines, ripple } from '@/scene/kit'
 import type { SecurityData, SecurityPeriod } from '@/types/security'
 
 export interface SecuritySceneOptions {
@@ -40,11 +40,6 @@ const GUARD_TEXT: Record<number, string> = { 1: '一级防护', 2: '二级防护
 const CAMERA_HEIGHT = 60
 /** 视域长度，米 */
 const CONE_RANGE = 900
-
-/** 从西南方向俯瞰某一点的机位，height 为相机高度 */
-function viewOf(p: number[], height: number): number[] {
-  return [p[0] - height * 0.68, p[1] - height * 0.86, height, -38, -38]
-}
 
 /**
  * 公共安全的场景图层：
@@ -150,7 +145,7 @@ export class SecurityScene extends ModuleScene {
     await this.add(
       token,
       'marker',
-      data.incidents.map(i => pin({ id: 'incident-' + i.id, groupId: SECURITY_GROUP.incident, at: this.incidentXY.get(i.id) as XY, text: i.title, color: LEVEL_COLOR[i.level], userId: i.id, lineHeight: 60, priority: 15 - i.level })),
+      data.incidents.map(i => pin({ id: 'incident-' + i.id, groupId: SECURITY_GROUP.incident, at: this.incidentXY.get(i.id) as XY, text: i.title, color: LEVEL_COLOR[i.level], userId: i.id, lineHeight: 60, priority: isActive(i) && i.level <= 2 ? 15 - i.level : 8 - i.level })),
       'incident'
     )
   }
@@ -221,7 +216,7 @@ export class SecurityScene extends ModuleScene {
     if (!data) return []
     const zones = data.zones.flatMap(z => {
       const p = this.zoneXY.get(z.id)
-      return p ? [viewOf(p, 2000)] : []
+      return p ? [focusView(p, 3600)] : []
     })
     const incidents = data.incidents
       .filter(isActive)
@@ -229,27 +224,27 @@ export class SecurityScene extends ModuleScene {
       .slice(0, 3)
       .flatMap(i => {
         const p = this.incidentXY.get(i.id)
-        return p ? [viewOf(p, 1500)] : []
+        return p ? [focusView(p)] : []
       })
     return [...zones, ...incidents]
   }
 
   /** 飞到某条警情 */
   async focusIncident(id: string): Promise<void> {
-    await this.flyTo(this.incidentXY.get(id), 1400)
+    await this.flyTo(this.incidentXY.get(id), 3000)
   }
 
   /** 飞到某个重点防护区 */
   async focusZone(id: string): Promise<void> {
-    await this.flyTo(this.zoneXY.get(id), 1900)
+    await this.flyTo(this.zoneXY.get(id), 3600)
   }
 
   /** 飞到某个摄像头 */
   async focusCamera(id: string): Promise<void> {
-    await this.flyTo(this.cameraXY.get(id), 900)
+    await this.flyTo(this.cameraXY.get(id), 2400)
   }
 
   private async flyTo(p: number[] | undefined, height: number): Promise<void> {
-    if (p) await this.api.setCamera(viewOf(p, height), 1.5)
+    if (p) await this.api.setCamera(focusView(p, height), 1.5)
   }
 }

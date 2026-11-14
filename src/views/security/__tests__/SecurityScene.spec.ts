@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { buildSecurityData, isActive } from '@/api/mock/security'
 import type { SceneApi, SceneObjectType } from '@/scene/SceneApi'
 import { buildCityGeo, pointInRing, type CityGeo } from '@/scene/geo'
-import { COLOR, LEVEL_COLOR, rgba } from '@/scene/kit'
+import { COLOR, focusView, LEVEL_COLOR, rgba } from '@/scene/kit'
 import type { GeoData } from '@/types/geo'
 import geoJson from '../../../../public/data/smart-city/geo.json'
 import { SECURITY_GROUP, SECURITY_LAYERS, SecurityScene } from '../SecurityScene'
@@ -129,6 +129,10 @@ describe('SecurityScene', () => {
       expect(m.groupId).toBe(SECURITY_GROUP.incident)
       expect(JSON.parse(m.userData)).toEqual({ id: i.id })
       expect(m.lineColor).toEqual(rgba(LEVEL_COLOR[i.level], 0.95))
+      // 在办的一、二级警情始终显示（优先级 ≥ 10），其余参与避让
+      const urgent = isActive(i) && i.level <= 2
+      expect(m.priority).toBe(urgent ? 15 - i.level : 8 - i.level)
+      expect(m.displayMode).toBe(urgent ? 2 : 4)
     }
     const radius = (id: string) => api.get('radiationPoint:incident-ripple-' + id).radius
     const [most, least] = [data.incidents.find(i => i.level === 1), data.incidents.find(i => i.level === 4)]
@@ -295,41 +299,47 @@ describe('SecurityScene', () => {
     expect(other.cameraCalls).toEqual([[1, 2, 3, -45, 0]])
   })
 
-  it('巡航机位：五个防护区 + 最严重的三条在办警情，都是 [x, y, z, pitch, yaw]', async () => {
+  it('巡航机位：五个防护区（3600 米）+ 最严重的三条在办警情（3000 米），都是统一的俯瞰机位', async () => {
     expect(scene.tourViews()).toEqual([])
     await scene.enter()
     const views = scene.tourViews()
     expect(views).toHaveLength(data.zones.length + 3)
-    views.forEach(v => {
-      expect(v).toHaveLength(5)
-      v.forEach(n => expect(Number.isFinite(n)).toBe(true))
-      expect(v[2]).toBeGreaterThan(0)
-    })
+    const worst = [...data.incidents]
+      .filter(isActive)
+      .sort((a, b) => a.level - b.level)
+      .slice(0, 3)
+    expect(views).toEqual([...data.zones.map(z => focusView(geo.xy(z.position), 3600)), ...worst.map(i => focusView(geo.xy(i.position)))])
     // 机位在目标的西南上方
     const first = geo.xy(data.zones[0].position)
     expect(views[0][0]).toBeLessThan(first[0])
     expect(views[0][1]).toBeLessThan(first[1])
-    const worst = [...data.incidents].filter(isActive).sort((a, b) => a.level - b.level)[0]
-    const p = geo.xy(worst.position)
-    expect(views[data.zones.length][0]).toBeLessThan(p[0])
-    expect(p[0] - views[data.zones.length][0]).toBeLessThan(2000)
+    expect(views[0].slice(2)).toEqual([3600, -42, -38])
+    expect(views[data.zones.length].slice(2)).toEqual([3000, -42, -38])
   })
 
-  it('定位警情、防护区、摄像头时相机飞到目标附近；未知 id 不动相机', async () => {
+  it('定位警情、防护区、摄像头：不论图层开关都飞到统一的俯瞰机位，高度按对象大小；未知 id 不动相机', async () => {
     await scene.enter()
-    const targets: [() => Promise<void>, number[]][] = [
-      [() => scene.focusIncident(data.incidents[0].id), geo.xy(data.incidents[0].position)],
-      [() => scene.focusZone(data.zones[2].id), geo.xy(data.zones[2].position)],
-      [() => scene.focusCamera(data.cameras[5].id), geo.xy(data.cameras[5].position)]
+    const targets: [() => Promise<void>, number[], number][] = [
+      [() => scene.focusIncident(data.incidents[0].id), geo.xy(data.incidents[0].position), 3000],
+      [() => scene.focusZone(data.zones[2].id), geo.xy(data.zones[2].position), 3600],
+      [() => scene.focusCamera(data.cameras[5].id), geo.xy(data.cameras[5].position), 2400]
     ]
-    for (const [fly, p] of targets) {
-      api.cameraCalls = []
-      await fly()
-      expect(api.cameraCalls).toHaveLength(1)
-      const v = api.cameraCalls[0]
-      expect(Math.hypot(v[0] - p[0], v[1] - p[1])).toBeLessThan(2500)
-      expect(v[2]).toBeGreaterThan(500)
+    const check = async () => {
+      for (const [fly, p, height] of targets) {
+        api.cameraCalls = []
+        await fly()
+        expect(api.cameraCalls).toEqual([focusView(p, height)])
+        expect(api.cameraCalls[0][2]).toBe(height)
+      }
     }
+    // 默认：警情、防护区图层开着，摄像头图层关着
+    await check()
+    // 全部反过来，机位不变
+    await scene.setLayerVisible('incident', false)
+    await scene.setLayerVisible('fence', false)
+    await scene.setLayerVisible('camera', true)
+    await check()
+
     api.cameraCalls = []
     await scene.focusIncident('不存在')
     await scene.focusZone('不存在')

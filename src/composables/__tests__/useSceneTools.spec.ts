@@ -63,7 +63,7 @@ describe('useSceneTools', () => {
     return { tools, wrapper }
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
     store.dtsStore.sceneState = 'ready'
     Object.values(mocks).forEach(fn => fn.mockClear())
     mocks.downloadSnapshot.mockReturnValue(true)
@@ -77,6 +77,15 @@ describe('useSceneTools', () => {
     vi.stubGlobal('__xapi', xapi)
     vi.stubGlobal('CameraTourKeyFrame', CameraTourKeyFrame)
     vi.stubGlobal('CameraTourData', CameraTourData)
+
+    // 昼夜、天气、底图风格、云层是模块级的共享状态，会留到下一个用例：每个用例开始前通过公开接口拨回默认值
+    const { tools, wrapper } = mountHost()
+    for (const key of ['night', 'rain']) if (tools.active.value.includes(key)) await tools.onTool(key)
+    await tools.setBase('ambience', true)
+    await tools.setBase('cloud', false)
+    wrapper.unmount()
+    Object.values(mocks).forEach(fn => fn.mockClear())
+    Object.values(xapi).forEach(group => Object.values(group).forEach(fn => fn.mockClear()))
   })
 
   afterEach(() => {
@@ -374,6 +383,46 @@ describe('useSceneTools', () => {
     expect([...tools.active.value].sort()).toEqual(['layers', 'measure', 'night', 'rain'])
     await tools.onTool('measure')
     expect([...tools.active.value].sort()).toEqual(['layers', 'night', 'rain'])
+  })
+
+  describe('切换模块后保留的场景状态', () => {
+    it('keeps night and rain pressed for the next module without sending the commands again', async () => {
+      const first = mountHost()
+      await first.tools.onTool('night')
+      await first.tools.onTool('rain')
+      first.wrapper.unmount()
+      xapi.weather.setDarkMode.mockClear()
+      xapi.weather.setRainParam.mockClear()
+
+      const { tools } = mountHost()
+      expect([...tools.active.value].sort()).toEqual(['night', 'rain'])
+      expect(xapi.weather.setDarkMode).not.toHaveBeenCalled()
+      expect(xapi.weather.setRainParam).not.toHaveBeenCalled()
+      // 下一个模块里再点一次就是关掉
+      await tools.onTool('night')
+      expect(xapi.weather.setDarkMode).toHaveBeenLastCalledWith(false)
+      await tools.onTool('rain')
+      expect(xapi.weather.disableRainSnow).toHaveBeenCalledTimes(1)
+      expect(mountHost().tools.active.value).toEqual([])
+    })
+
+    it('keeps the ambience and cloud switches, but not the road network switch', async () => {
+      const first = mountHost()
+      await first.tools.setBase('ambience', false)
+      await first.tools.setBase('cloud', true)
+      await first.tools.setBase('roads', false)
+      first.wrapper.unmount()
+      expect(mountHost().tools.base).toEqual({ roads: true, ambience: false, cloud: true })
+    })
+
+    it('does not carry over the layer panel, the measurement or the tour', async () => {
+      const first = mountHost()
+      for (const key of ['layers', 'measure', 'tour']) await first.tools.onTool(key)
+      first.wrapper.unmount()
+      const { tools } = mountHost()
+      expect(tools.active.value).toEqual([])
+      expect(tools.showLayers.value).toBe(false)
+    })
   })
 
   describe('卸载', () => {

@@ -3,7 +3,7 @@ import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import type { CityGeo, XY } from '@/scene/geo'
 import { sliceLine } from '@/scene/geo'
-import { area, circleRing, COLOR, flowLine, LEVEL_COLOR, pin, plainLine, prepareFlowLines, RAMP, ripple, STATUS_RAMP } from '@/scene/kit'
+import { area, circleRing, COLOR, flowLine, focusView, LEVEL_COLOR, pin, plainLine, prepareFlowLines, RAMP, ripple, STATUS_RAMP } from '@/scene/kit'
 import type { LifelineData, PipeSegment, PipeSystem } from '@/types/lifeline'
 import { resolveAnchor, segmentBetween } from './anchor'
 
@@ -74,17 +74,17 @@ export class LifelineScene extends ModuleScene {
   private pipe(p: PipeSegment): { id: string } {
     const trunk = p.grade === 'trunk'
     const base = { id: 'll-pipe-' + p.id, groupId: 'sc_lifeline_' + p.system, path: this.path(p), color: PIPE_COLOR[p.system], height: PIPE_HEIGHT[p.system] }
-    if (p.system === 'drain') return plainLine({ ...base, width: trunk ? 44 : 32, brightness: 0.9, alpha: 0.85 })
+    if (p.system === 'drain') return plainLine({ ...base, width: trunk ? 70 : 50, brightness: 0.9, alpha: 0.85 })
     if (p.system === 'water') {
-      const o = { ...base, width: trunk ? 60 : 34, brightness: trunk ? 2.6 : 1.6 }
+      const o = { ...base, width: trunk ? 100 : 56, brightness: trunk ? 2.6 : 1.6 }
       return this.options.pak ? flowLine({ ...o, style: trunk ? 'pulse' : 'particles', spacing: trunk ? 150 : 110, speed: trunk ? 0.3 : 0.22 }) : plainLine({ ...o, flow: true })
     }
     if (p.system === 'power') {
-      const o = { ...base, width: trunk ? 46 : 32, brightness: trunk ? 1.8 : 1.3 }
+      const o = { ...base, width: trunk ? 76 : 50, brightness: trunk ? 1.8 : 1.3 }
       return this.options.pak ? flowLine({ ...o, style: 'dash', spacing: trunk ? 220 : 160, speed: 0.34 }) : plainLine({ ...o, flow: true })
     }
     // 燃气是唯一的暖色管网，亮度压低，不抢告警的注意力
-    const o = { ...base, width: 30, brightness: 0.9 }
+    const o = { ...base, width: 50, brightness: 0.9 }
     return this.options.pak ? flowLine({ ...o, style: 'dash', spacing: 180, speed: 0.18 }) : plainLine({ ...o, alpha: 0.8 })
   }
 
@@ -113,7 +113,7 @@ export class LifelineScene extends ModuleScene {
       token,
       'marker',
       data.substations.map(s =>
-        pin({ id: 'll-sub-' + s.id, groupId: 'sc_lifeline_substation', at: at(s.anchor), text: `${s.name} ${s.loadPercent}%`, color: STATUS_RAMP[s.status], userId: s.id, lineHeight: 30, fontSize: 12, priority: 2 + s.status })
+        pin({ id: 'll-sub-' + s.id, groupId: 'sc_lifeline_substation', at: at(s.anchor), text: s.status ? `${s.name} ${s.loadPercent}%` : `${s.loadPercent}%`, color: STATUS_RAMP[s.status], userId: s.id, lineHeight: 30, fontSize: 12, priority: 2 + s.status })
       ),
       'power'
     )
@@ -139,7 +139,7 @@ export class LifelineScene extends ModuleScene {
       token,
       'marker',
       data.alarms.map(a =>
-        pin({ id: 'll-alarm-' + a.id, groupId: 'sc_lifeline_alarm', at: this.alarmXY.get(a.id) as XY, text: `${LEVEL_TEXT[a.level]} · ${a.shortTitle}`, color: LEVEL_COLOR[a.level], userId: a.id, lineHeight: 60, priority: 20 - a.level })
+        pin({ id: 'll-alarm-' + a.id, groupId: 'sc_lifeline_alarm', at: this.alarmXY.get(a.id) as XY, text: `${LEVEL_TEXT[a.level]} · ${a.shortTitle}`, color: LEVEL_COLOR[a.level], userId: a.id, lineHeight: 60, priority: a.level <= 2 ? 20 - a.level : 9 - a.level })
       ),
       'alarm'
     )
@@ -201,34 +201,24 @@ export class LifelineScene extends ModuleScene {
     await super.setLayerVisible(layer, visible)
   }
 
-  /** 从西南方向俯瞰某个点的机位，distance 为相机到目标的大致距离 */
-  private viewOf(p: number[], distance: number): number[] {
-    return [p[0] - distance * 0.46, p[1] - distance * 0.58, distance * 0.67, -38, -38]
-  }
-
   /** 城市巡航的机位：先看一、二级告警（从重到轻），再看三座桥 */
   tourViews(): number[][] {
     const data = this.data
     if (!data) return []
     const alarms = data.alarms.filter(a => a.level <= 2).sort((a, b) => a.level - b.level || b.time.localeCompare(a.time))
     const points = [...alarms.map(a => this.alarmXY.get(a.id)), ...data.bridges.map(b => this.bridgeXY.get(b.id))]
-    return points.flatMap(p => (p ? [this.viewOf(p, 3270)] : []))
-  }
-
-  /** 图层开着时聚焦标注；图层关着（标注不在场景里）时直接飞到坐标 */
-  private async flyTo(layer: string, markerId: string, xy: XY | undefined, distance: number): Promise<void> {
-    if (!xy) return
-    if (this.hidden.has(layer)) await this.api.setCamera(this.viewOf(xy, distance))
-    else await this.api.focus('marker', markerId, distance)
+    return points.flatMap(p => (p ? [focusView(p)] : []))
   }
 
   /** 飞到某条告警 */
   async focusAlarm(id: string): Promise<void> {
-    await this.flyTo('alarm', 'll-alarm-' + id, this.alarmXY.get(id), 1500)
+    const p = this.alarmXY.get(id)
+    if (p) await this.api.setCamera(focusView(p), 1.5)
   }
 
   /** 飞到某座桥 */
   async focusBridge(id: string): Promise<void> {
-    await this.flyTo('bridge', 'll-bridge-' + id, this.bridgeXY.get(id), 2200)
+    const p = this.bridgeXY.get(id)
+    if (p) await this.api.setCamera(focusView(p, 3600), 1.5)
   }
 }

@@ -2,7 +2,7 @@ import { concentrationsAt, noiseDbAt, readingOf, stationReadingsAt, WATER_GRADE_
 import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi, SceneObjectType } from '@/scene/SceneApi'
 import { pointAt, type CityGeo } from '@/scene/geo'
-import { area, circleRing, COLOR, column, LEVEL_COLOR, pin, rampColor, regionLayer, ripple, STATUS_RAMP } from '@/scene/kit'
+import { area, circleRing, COLOR, column, focusView, LEVEL_COLOR, pin, rampColor, regionLayer, ripple, STATUS_RAMP } from '@/scene/kit'
 import type { AirIndex, AirLevel, EnvironmentData, PlaceRef, WaterGrade } from '@/types/environment'
 
 export interface EnvironmentSceneOptions {
@@ -193,7 +193,7 @@ export class EnvironmentScene extends ModuleScene {
           const at = this.locate(s.place)
           if (!at) return []
           const r = readingOf(concentrationsAt(s, this.hour), this.index)
-          return [pin({ id: 'station-' + s.id, groupId: 'sc_environment_station', at, text: `${s.shortName}  ${r.value}`, color: airColor(r.level), userId: s.id, lineHeight: 44, priority: 10 })]
+          return [pin({ id: 'station-' + s.id, groupId: 'sc_environment_station', at, text: `${s.shortName}  ${r.value}`, color: airColor(r.level), userId: s.id, lineHeight: 44, priority: r.level >= 2 ? 10 : 7 })]
         })
       ),
       this.replaceIfChanged(
@@ -220,7 +220,7 @@ export class EnvironmentScene extends ModuleScene {
     ]
     return places.flatMap(place => {
       const p = this.locate(place)
-      return p ? [[p[0] - 1500, p[1] - 1900, 2200, -38, -38]] : []
+      return p ? [focusView(p)] : []
     })
   }
 
@@ -230,20 +230,19 @@ export class EnvironmentScene extends ModuleScene {
     await super.setLayerVisible(layer, visible)
   }
 
-  /** 飞到某个位置：图层开着就对准标注，关着就把相机摆到同样的俯视角度 */
-  private async flyTo(layer: string, markerId: string, place: PlaceRef | undefined): Promise<void> {
-    if (!this.hidden.has(layer)) return this.api.focus('marker', markerId, 1600)
+  /** 飞到某个位置 */
+  private async flyTo(place: PlaceRef | undefined): Promise<void> {
     const p = place && this.locate(place)
-    if (p) await this.api.setCamera([p[0] - 800, p[1] - 1000, 1300, -38, -38])
+    if (p) await this.api.setCamera(focusView(p), 1.5)
   }
 
   /** 飞到某个监测站 */
   async focusStation(id: string): Promise<void> {
-    await this.flyTo('station', 'station-' + id, this.data?.stations.find(s => s.id === id)?.place)
+    await this.flyTo(this.data?.stations.find(s => s.id === id)?.place)
   }
 
   /** 飞到某个污染源 */
   async focusSource(id: string): Promise<void> {
-    await this.flyTo('source', 'source-' + id, this.data?.sources.find(s => s.id === id)?.place)
+    await this.flyTo(this.data?.sources.find(s => s.id === id)?.place)
   }
 }

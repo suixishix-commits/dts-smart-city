@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { arc, area, circleRing, COLOR, column, fence, flowLine, frustum, heatmap, LEVEL_COLOR, pin, plainLine, RAMP, rampColor, regionLayer, rgba, ripple, STATUS_RAMP } from '../kit'
+import { arc, area, circleRing, COLOR, column, fence, flowLine, focusView, frustum, heatmap, LEVEL_COLOR, pin, plainLine, RAMP, rampColor, regionLayer, rgba, ripple, STATUS_RAMP } from '../kit'
 
 describe('rgba', () => {
   it('converts #rrggbb to 0–1 components with alpha 1 by default', () => {
@@ -117,21 +117,73 @@ describe('pin', () => {
 })
 
 describe('arc', () => {
-  it('connects two points 10 m above ground', () => {
-    const a = arc({ id: 'a1', groupId: 'g', from: [0, 0], to: [100, 50], color: '#0000ff' })
-    expect(a.coordinates).toEqual([
-      [0, 0, 10],
-      [100, 50, 10]
-    ])
-    expect(a).toMatchObject({ id: 'a1', groupId: 'g', color: [0, 0, 1, 1], lineThickness: 30, flowPointSizeScale: 60, bendDegree: 0.35, intensity: 3 })
+  it('is a 25-point solid polyline that starts and ends exactly at the two points, 10 m above ground', () => {
+    const a = arc({ id: 'a1', groupId: 'g', from: [0, 0], to: [1000, 0], color: '#0000ff' })
+    expect(a.coordinates).toHaveLength(25)
+    expect(a.coordinates[0]).toEqual([0, 0, 10])
+    expect(a.coordinates[24]).toEqual([1000, 0, 10])
+    expect(a).toMatchObject({ id: 'a1', groupId: 'g', coordinateType: 0, color: [0, 0, 1, 1], style: 4, thickness: 30, intensity: 1.6, depthTest: false })
+    // 不再带迁徙线的参数
+    expect(a).not.toHaveProperty('lineThickness')
+    expect(a).not.toHaveProperty('bendDegree')
   })
 
-  it('scales the flow point with the width', () => {
-    const a = arc({ id: 'a1', from: [0, 0], to: [1, 1], color: '#0000ff', width: 50, bend: 0.6, brightness: 1 })
-    expect(a.lineThickness).toBe(50)
-    expect(a.flowPointSizeScale).toBe(100)
-    expect(a.bendDegree).toBe(0.6)
+  it('bends sideways (to the right of the direction of travel) and lifts in the middle', () => {
+    const a = arc({ id: 'a1', from: [0, 0], to: [1000, 0], color: '#0000ff' })
+    const mid = a.coordinates[12]
+    // 默认 bend 0.35：侧弯 = 1000 × 0.35 × 0.6，顶点高度 = 10 + 1000 × 0.35 × 0.5
+    expect(mid[0]).toBeCloseTo(500)
+    expect(mid[1]).toBeCloseTo(-210)
+    expect(mid[2]).toBeCloseTo(185)
+    // 中点最高，两端最低；所有中间点都离开直线
+    for (const p of a.coordinates.slice(1, 24)) {
+      expect(p[2]).toBeGreaterThan(10)
+      expect(p[2]).toBeLessThanOrEqual(mid[2])
+      expect(p[1]).toBeLessThan(0)
+    }
+  })
+
+  it('honours width, bend and brightness, clamping the brightness to 0.8–3', () => {
+    const a = arc({ id: 'a1', from: [0, 0], to: [1000, 0], color: '#0000ff', width: 50, bend: 0.6, brightness: 1 })
+    expect(a.thickness).toBe(50)
     expect(a.intensity).toBe(1)
+    expect(a.coordinates[12][1]).toBeCloseTo(-360)
+    expect(a.coordinates[12][2]).toBeCloseTo(310)
+    expect(arc({ id: 'a1', from: [0, 0], to: [1, 1], color: '#0000ff', brightness: 9 }).intensity).toBe(3)
+    expect(arc({ id: 'a1', from: [0, 0], to: [1, 1], color: '#0000ff', brightness: 0.1 }).intensity).toBe(0.8)
+  })
+
+  it('stays a finite flat line when both points coincide', () => {
+    const a = arc({ id: 'a1', from: [5, 5], to: [5, 5], color: '#0000ff' })
+    expect(a.coordinates).toHaveLength(25)
+    for (const p of a.coordinates) expect(p).toEqual([5, 5, 10])
+  })
+})
+
+describe('focusView', () => {
+  const tan42 = Math.tan((42 * Math.PI) / 180)
+  const yaw = (-38 * Math.PI) / 180
+
+  it('looks down at the point from 3000 m by default, pitch -42 and yaw -38', () => {
+    const v = focusView([1000, 2000])
+    const d = 3000 / tan42
+    expect(v).toHaveLength(5)
+    expect(v[0]).toBeCloseTo(1000 - Math.cos(yaw) * d)
+    expect(v[1]).toBeCloseTo(2000 + Math.sin(yaw) * d)
+    expect(v.slice(2)).toEqual([3000, -42, -38])
+  })
+
+  it('moves the camera further back as the height grows, keeping the point at screen centre', () => {
+    const p = [1000, 2000, 80]
+    const low = focusView(p, 2400)
+    const high = focusView(p, 3600)
+    expect(high[2]).toBe(3600)
+    // 水平距离 = 高度 / tan(42°)，与目标点的 z 无关
+    expect(Math.hypot(low[0] - p[0], low[1] - p[1])).toBeCloseTo(2400 / tan42)
+    expect(Math.hypot(high[0] - p[0], high[1] - p[1])).toBeCloseTo(3600 / tan42)
+    // 相机始终在目标点的同一个方位
+    expect((high[0] - p[0]) / (low[0] - p[0])).toBeCloseTo(1.5)
+    expect((high[1] - p[1]) / (low[1] - p[1])).toBeCloseTo(1.5)
   })
 })
 
@@ -389,6 +441,20 @@ describe('效果库图层（适配库为替身）', () => {
       await layer.setColors({ b: '#bbbbbb' })
       expect(regionLib.create).toHaveBeenCalledTimes(2)
       expect(regionLib.create.mock.calls[1][1].regions.map((r: any) => r.color)).toEqual(['#111111', '#bbbbbb'])
+    })
+
+    it('hides the layer again after recolouring while it is switched off, but not while it is shown', async () => {
+      const layer = await regionLayer('layer', regions)
+      await layer.setColors({ a: '#aaaaaa' })
+      expect(customObject.hideByGroupId).not.toHaveBeenCalled()
+      await layer.hide()
+      expect(customObject.hideByGroupId).toHaveBeenCalledTimes(1)
+      await layer.setColors({ a: '#cccccc' })
+      expect(customObject.hideByGroupId).toHaveBeenCalledTimes(2)
+      expect(customObject.hideByGroupId).toHaveBeenLastCalledWith('layer')
+      await layer.show()
+      await layer.setColors({ a: '#dddddd' })
+      expect(customObject.hideByGroupId).toHaveBeenCalledTimes(2)
     })
   })
 

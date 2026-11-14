@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { districtDensityAt, hotspotActivityAt } from '@/api/mock/population'
 import type { SceneApi, SceneObjectType } from '@/scene/SceneApi'
 import type { CityGeo } from '@/scene/geo'
-import { COLOR, rampColor, rgba } from '@/scene/kit'
+import { COLOR, focusView, rampColor, rgba } from '@/scene/kit'
 import { loadCityGeo, loadOverviewJson } from '@/scene/__tests__/fixtures'
 import type { OverviewData } from '@/types/smartCity'
 
@@ -334,11 +334,36 @@ describe('OverviewScene', () => {
   })
 
   describe('定位与巡航', () => {
-    it('focuses a hotspot or camera by id', async () => {
+    const xy = (position: number[]) => [position[0] * 1e5, position[1] * 1e5, 0]
+    const hotspot = (id: string) => data.hotspots.find(h => h.id === id)!
+    const camera = (id: string) => data.cameras.find(c => c.id === id)!
+
+    it('flies to the shared look-down view of a hotspot (3000 m) or camera (2400 m) instead of focusing the object', async () => {
       await scene.enter()
       await scene.focusHotspot('h1')
       await scene.focusCamera('CAM-0705')
-      expect(api.focusCalls).toEqual(['marker:hotspot-h1:1800', 'marker:camera-CAM-0705:1200'])
+      expect(api.cameraCalls).toEqual([focusView(xy(hotspot('h1').position)), focusView(xy(camera('CAM-0705').position), 2400)])
+      expect(api.cameraCalls[0].slice(2)).toEqual([3000, -42, -38])
+      expect(api.cameraCalls[1].slice(2)).toEqual([2400, -42, -38])
+      expect(api.focusCalls).toEqual([])
+    })
+
+    it('uses the same view when the layer is switched off', async () => {
+      await scene.enter()
+      await scene.setLayerVisible('hotspot', false)
+      await scene.setLayerVisible('camera', false)
+      await scene.focusHotspot('h1')
+      await scene.focusCamera('CAM-0705')
+      expect(api.cameraCalls).toEqual([focusView(xy(hotspot('h1').position)), focusView(xy(camera('CAM-0705').position), 2400)])
+      expect(api.focusCalls).toEqual([])
+    })
+
+    it('does nothing for an unknown id', async () => {
+      await scene.enter()
+      await scene.focusHotspot('不存在')
+      await scene.focusCamera('不存在')
+      expect(api.cameraCalls).toEqual([])
+      expect(api.focusCalls).toEqual([])
     })
 
     it('offers one tour view per hotspot, hottest first, looking from the south-west', async () => {
@@ -346,12 +371,11 @@ describe('OverviewScene', () => {
       await scene.enter()
       const ranked = [...data.hotspots].sort((a, b) => b.heat - a.heat)
       const views = scene.tourViews()
-      expect(views).toHaveLength(ranked.length)
+      expect(views).toEqual(ranked.map(h => focusView(xy(h.position))))
       views.forEach((v, i) => {
-        expect(v).toHaveLength(5)
-        expect(v[0]).toBeCloseTo(ranked[i].position[0] * 1e5 - 1500)
-        expect(v[1]).toBeCloseTo(ranked[i].position[1] * 1e5 - 1900)
-        expect(v.slice(2)).toEqual([2200, -38, -38])
+        expect(v[0]).toBeLessThan(ranked[i].position[0] * 1e5)
+        expect(v[1]).toBeLessThan(ranked[i].position[1] * 1e5)
+        expect(v.slice(2)).toEqual([3000, -42, -38])
       })
     })
   })

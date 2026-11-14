@@ -6,7 +6,8 @@
     <SceneTools class="tools" :active="tools.active.value" @tool="tools.onTool" />
     <BaseLayerPanel v-if="tools.showLayers.value" class="base-layers" :state="tools.base" @change="tools.setBase" />
 
-    <EnvStationCard v-if="activeStationData" class="card" :station="activeStationData" :hour="hour" :index="index" @close="activeStation = null" />
+    <EnvStationCard v-if="activeStationData" class="card" :station="activeStationData" :hour="hour" :index="index" @close="clearSelection" />
+    <DetailCard v-else-if="detail" class="card" :detail="detail" @close="clearSelection" />
 
     <!-- 图例只列当前打开的图层，和场景里看到的一一对应 -->
     <SceneLegend v-if="layers.length" class="legend">
@@ -28,7 +29,7 @@
       </span>
     </SceneLegend>
 
-    <TimeAxis class="axis" :model-value="hour" :peak-hour="peakHour" @update:model-value="onHour" />
+    <TimeAxis class="axis" subject="空气质量变化" :model-value="hour" :peak-hour="peakHour" @update:model-value="onHour" />
 
     <EnvIndexSwitch class="switch" :model-value="index" @update:model-value="onIndex" />
     <LayerToggle v-model="layers" class="layers" :layers="LAYERS" @change="onLayer" />
@@ -38,10 +39,13 @@
 <script setup lang="ts">
 import { getEnvironmentData } from '@/api/environment'
 import { AIR_INDEXES, AIR_LEVEL_NAMES, WATER_GRADE_NAMES, worstHour } from '@/api/mock/environment'
+import DetailCard from '@/components/panel/DetailCard.vue'
+import { useEscape } from '@/composables/useEscape'
 import { useSceneTools } from '@/composables/useSceneTools'
 import { cityBase } from '@/scene/CityBase'
 import { DtsSceneApi } from '@/scene/DtsSceneApi'
 import { COLOR, LEVEL_COLOR, RAMP } from '@/scene/kit'
+import type { DetailModel } from '@/types/detail'
 import type { AirIndex, EnvironmentData, WaterGrade } from '@/types/environment'
 import emitter from '@/utils/emitter'
 import TimeAxis from '@/views/overview/_components/TimeAxis.vue'
@@ -83,15 +87,37 @@ const sourceLevels = computed(() => [...new Set(data.value?.sources.map(s => s.l
 
 const shows = (key: string) => layers.value.includes(key)
 
-function selectStation(id: string) {
-  activeStation.value = id
+/** 污染源的详情（监测站有自己的卡片） */
+const detail = computed<DetailModel | null>(() => {
+  const source = data.value?.sources.find(s => s.id === activeSource.value)
+  if (!source) return null
+  return {
+    tag: { text: LEVEL_NAMES[source.level], color: LEVEL_COLOR[source.level] },
+    title: source.name,
+    rows: [
+      { label: '类型', value: source.type },
+      { label: '所在片区', value: source.districtName },
+      { label: '发现时间', value: source.time },
+      { label: '处置进度', value: source.note }
+    ]
+  }
+})
+
+function clearSelection() {
+  activeStation.value = null
   activeSource.value = null
+}
+useEscape(clearSelection)
+
+function selectStation(id: string) {
+  clearSelection()
+  activeStation.value = id
   scene?.focusStation(id)
 }
 
 function selectSource(id: string) {
+  clearSelection()
   activeSource.value = id
-  activeStation.value = null
   scene?.focusSource(id)
 }
 

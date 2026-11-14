@@ -1,13 +1,13 @@
 <template>
   <div class="time-axis">
-    <button type="button" class="play" :aria-label="playing ? '暂停' : '播放人口密度变化'" @click="togglePlay">
+    <button type="button" class="play" :aria-label="playing ? '暂停' : '播放' + subject" @click="togglePlay">
       <svg v-if="!playing" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l14 8-14 8V4z" /></svg>
       <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4h4v16H6zM14 4h4v16h-4z" /></svg>
     </button>
     <span class="now">{{ label }}</span>
     <div class="track">
       <input type="range" min="0" max="24" step="0.5" :value="modelValue" aria-label="时刻" @input="onInput" />
-      <span class="peak" :style="{ left: (peakHour / 24) * 100 + '%' }">峰值 {{ format(peakHour) }}</span>
+      <span class="peak" :style="{ left: (peakHour / 24) * 100 + '%' }">{{ peakLabel }} {{ format(peakHour) }}</span>
       <div class="ticks"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
     </div>
   </div>
@@ -16,7 +16,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 
-const props = defineProps<{ modelValue: number; peakHour: number }>()
+const props = withDefaults(defineProps<{ modelValue: number; peakHour: number; /** 播放的是什么，用于按钮的无障碍名称 */ subject?: string; /** 峰值刻度的文字 */ peakLabel?: string }>(), { subject: '人口密度变化', peakLabel: '峰值' })
 const emit = defineEmits<{ (e: 'update:modelValue', v: number): void }>()
 
 const STEP = 0.5

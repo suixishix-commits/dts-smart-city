@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { buildLifelineData } from '@/api/mock/lifeline'
 import type { SceneApi, SceneObjectType } from '@/scene/SceneApi'
 import { buildCityGeo, type CityGeo } from '@/scene/geo'
-import { COLOR, LEVEL_COLOR, rgba, STATUS_RAMP } from '@/scene/kit'
+import { COLOR, focusView, LEVEL_COLOR, rgba, STATUS_RAMP } from '@/scene/kit'
 import type { GeoData } from '@/types/geo'
 import geoJson from '../../../../public/data/smart-city/geo.json'
 import { fractionOf, resolveAnchor, segmentBetween } from '../anchor'
@@ -110,8 +110,11 @@ describe('LifelineScene', () => {
     const gas = api.get('polyline:ll-pipe-gas-delma')
     const drain = api.get('polyline:ll-pipe-drain-muroor')
     expect(water.color).toEqual(rgba(COLOR.accent))
-    expect(water.thickness).toBe(60)
-    expect(branch.thickness).toBe(34)
+    expect(water.thickness).toBe(100)
+    expect(branch.thickness).toBe(56)
+    // 线宽按管网和主次：供水 100/56、电力 76/50、燃气 50、排水 70/50
+    const WIDTH = { water: [100, 56], power: [76, 50], gas: [50, 50], drain: [70, 50] }
+    for (const p of data.pipes) expect(api.get('polyline:ll-pipe-' + p.id).thickness, p.id).toBe(WIDTH[p.system][p.grade === 'trunk' ? 0 : 1])
     expect(power.color).toEqual(rgba(COLOR.ice))
     expect(gas.color.slice(0, 3)).toEqual(rgba(COLOR.warn).slice(0, 3))
     expect(gas.intensity).toBeLessThan(power.intensity)
@@ -148,6 +151,9 @@ describe('LifelineScene', () => {
       expect(r.radius).toBeGreaterThanOrEqual(250)
       expect(r.radius).toBeLessThanOrEqual(800)
       expect(r.coordinate.slice(0, 2)).toEqual(m.coordinate.slice(0, 2))
+      // 一、二级告警始终显示（优先级 ≥ 10），三、四级参与避让
+      expect(m.priority).toBe(a.level <= 2 ? 20 - a.level : 9 - a.level)
+      expect(m.displayMode).toBe(a.level <= 2 ? 2 : 4)
     }
   })
 
@@ -155,7 +161,8 @@ describe('LifelineScene', () => {
     await scene.enter()
     for (const s of data.substations) {
       const m = api.get('marker:ll-sub-' + s.id)
-      expect(m.text).toContain(s.loadPercent + '%')
+      // 负荷正常的只显示负荷率，偏高或过载的才带站名
+      expect(m.text).toBe(s.status > 0 ? `${s.name} ${s.loadPercent}%` : `${s.loadPercent}%`)
       expect(m.lineColor.slice(0, 3)).toEqual(rgba(STATUS_RAMP[s.status]).slice(0, 3))
       expect(geo.intersections.some(i => i.xy[0] === m.coordinate[0] && i.xy[1] === m.coordinate[1])).toBe(true)
     }
@@ -237,30 +244,35 @@ describe('LifelineScene', () => {
     expect(api.cameraCalls).toEqual([[1, 2, 3, -38, -38]])
   })
 
-  it('定位告警和桥梁：图层开着聚焦标注，关着直接飞相机', async () => {
+  it('定位告警和桥梁：不论图层开关都飞到统一的俯瞰机位（告警 3000 米、桥梁 3600 米），不聚焦标注', async () => {
+    const alarmAt = (id: string) => resolveAnchor(geo, data.alarms.find(a => a.id === id)!.anchor)
+    const bridgeAt = (id: string) => resolveAnchor(geo, { kind: 'landmark', id })
     await scene.enter()
     await scene.focusAlarm('a1')
     await scene.focusBridge('maqta-bridge')
     await scene.focusAlarm('不存在')
-    expect(api.focusCalls).toEqual(['marker:ll-alarm-a1', 'marker:ll-bridge-maqta-bridge'])
+    await scene.focusBridge('不存在')
+    expect(api.cameraCalls).toEqual([focusView(alarmAt('a1')), focusView(bridgeAt('maqta-bridge'), 3600)])
+    expect(api.cameraCalls[0].slice(2)).toEqual([3000, -42, -38])
+    expect(api.cameraCalls[1].slice(2)).toEqual([3600, -42, -38])
 
+    api.cameraCalls = []
     await scene.setLayerVisible('alarm', false)
+    await scene.setLayerVisible('bridge', false)
     await scene.focusAlarm('a5')
-    expect(api.focusCalls).toHaveLength(2)
-    expect(api.cameraCalls).toHaveLength(1)
-    const target = resolveAnchor(geo, data.alarms.find(a => a.id === 'a5')!.anchor)
-    expect(api.cameraCalls[0][0]).toBeLessThan(target[0])
-    expect(api.cameraCalls[0].slice(3)).toEqual([-38, -38])
+    await scene.focusBridge('maqta-bridge')
+    expect(api.cameraCalls).toEqual([focusView(alarmAt('a5')), focusView(bridgeAt('maqta-bridge'), 3600)])
+    expect(api.cameraCalls[0][0]).toBeLessThan(alarmAt('a5')[0])
+    expect(api.focusCalls).toEqual([])
   })
 
-  it('巡航机位：先一、二级告警，再三座桥', () => {
+  it('巡航机位：先一、二级告警（从重到轻），再三座桥', () => {
     const views = scene.tourViews()
-    const urgent = data.alarms.filter(a => a.level <= 2)
-    expect(views).toHaveLength(urgent.length + 3)
-    const first = resolveAnchor(geo, urgent[0].anchor)
+    const urgent = data.alarms.filter(a => a.level <= 2).sort((a, b) => a.level - b.level || b.time.localeCompare(a.time))
     expect(urgent[0].id).toBe('a1')
-    expect(views[0]).toEqual([first[0] - 3270 * 0.46, first[1] - 3270 * 0.58, 3270 * 0.67, -38, -38])
-    views.forEach(v => expect(v).toHaveLength(5))
+    expect(data.bridges).toHaveLength(3)
+    expect(views).toEqual([...urgent.map(a => focusView(resolveAnchor(geo, a.anchor))), ...data.bridges.map(b => focusView(resolveAnchor(geo, { kind: 'landmark', id: b.id })))])
+    views.forEach(v => expect(v.slice(2)).toEqual([3000, -42, -38]))
   })
 
   it('进入过程中离开，不留下任何对象，路网恢复显示', async () => {
