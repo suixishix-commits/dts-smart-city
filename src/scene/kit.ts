@@ -401,6 +401,7 @@ export async function regionLayer(id: string, regions: { id: string; color: stri
     lib.create(__xapi, { id, groundZ: 3, style: full, regions: regions.map(r => ({ id: r.id, color: colors?.[r.id] ?? r.color, rings: [r.ring.map(p => [p[0], p[1]])] })) })
   await build()
   let current: Record<string, string> = Object.fromEntries(regions.map(r => [r.id, r.color]))
+  let removed = false
   let visible = true
   return {
     show: () => {
@@ -411,14 +412,24 @@ export async function regionLayer(id: string, regions: { id: string; color: stri
       visible = false
       return __xapi.customObject.hideByGroupId(id)
     },
-    remove: () => lib.remove(__xapi, id),
-    /** 换色（数值变化时）。颜色没变则不发指令 */
+    remove: () => {
+      removed = true
+      return lib.remove(__xapi, id)
+    },
+    /** 换色（数值变化时）。颜色没变或图层已删除则不发指令 */
     async setColors(colors) {
       const changed = Object.keys(colors).some(k => colors[k] !== current[k])
-      if (!changed) return
+      if (!changed || removed) return
       current = { ...current, ...colors }
-      // setColors 返回 false 表示要重建
-      if (!(await lib.setColors(__xapi, id, colors))) await build(current)
+      // setColors 返回 false 表示要重建；图层在库里已不存在（例如被别处清掉）时也重建
+      let ok = false
+      try {
+        ok = await lib.setColors(__xapi, id, colors)
+      } catch (e) {
+        console.warn('[regionLayer] 换色失败，重建图层', e)
+      }
+      if (removed) return
+      if (!ok) await build(current)
       // 换色或重建会让对象重新显示；图层关着时再藏回去
       if (!visible) await __xapi.customObject.hideByGroupId(id)
     }
