@@ -11,6 +11,7 @@ import App from './App.vue'
 import { i18n } from './i18n'
 import router from './router'
 import { vPop } from './utils/motion'
+import { ModuleScene } from './scene/ModuleScene'
 
 const app = createApp(App)
 const pinia = createPinia()
@@ -23,3 +24,6 @@ app.use(ElementPlus)
 // 弹窗卡片的弹出动效（GSAP）
 app.directive('pop', vPop)
 app.mount('#app')
+
+// 页面关闭或刷新时删掉当前模块画的场景对象：它们存在共享的渲染实例里，不删会出现在下一个打开的页面上
+window.addEventListener('pagehide', () => ModuleScene.active.forEach(scene => scene.abandon()))

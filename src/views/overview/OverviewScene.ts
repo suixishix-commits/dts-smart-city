@@ -216,6 +216,10 @@ export class OverviewScene extends ModuleScene {
     if (layer === 'heat') await this.heatField?.setVisible(visible)
   }
 
+  protected onAbandon(): void {
+    this.heatField?.abandon()
+  }
+
   /** 城市巡航的机位：依次从西南方向俯瞰各热点事件（按热度从高到低） */
   tourViews(): number[][] {
     const ranked = [...(this.data?.hotspots ?? [])].sort((a, b) => b.heat - a.heat)

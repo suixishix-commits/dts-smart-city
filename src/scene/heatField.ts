@@ -226,6 +226,15 @@ export class HeatFieldLayer {
     }
   }
 
+  /** 页面关闭时用：只发删除指令，不等待 */
+  abandon(): void {
+    this.cleared = true
+    this.pending = null
+    this.latest = null
+    if (this.id) void this.api.remove('customMesh', [this.id]).catch(() => {})
+    this.id = null
+  }
+
   get currentId(): string | null {
     return this.id
   }

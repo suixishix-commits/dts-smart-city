@@ -356,6 +356,10 @@ export class SecurityScene extends ModuleScene {
     if (layer === 'cone' && visible && this.entered) await this.createCones(this.token)
   }
 
+  protected onAbandon(): void {
+    this.heatField?.abandon()
+  }
+
   /** 城市巡航的机位：先看五个重点防护区，再看最严重的三条在办警情 */
   tourViews(): number[][] {
     const data = this.data

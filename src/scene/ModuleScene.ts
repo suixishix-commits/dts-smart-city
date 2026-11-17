@@ -57,6 +57,9 @@ export interface SceneEffect {
  * 注意：replaceLayer 会替换整个图层，不要在 onEnter 用 add() 填充同一图层的过程中调用。
  */
 export abstract class ModuleScene {
+  /** 当前进入着的模块场景。页面关闭时逐个 abandon()，见 abandonActiveScenes */
+  static readonly active = new Set<ModuleScene>()
+
   private layers = new Map<string, LayerState>()
   private generation = 0
   private active = false
@@ -72,12 +75,14 @@ export abstract class ModuleScene {
   async enter(): Promise<void> {
     const token = ++this.generation
     this.active = true
+    ModuleScene.active.add(this)
     await this.onEnter(token)
   }
 
   /** 删除本模块创建的全部对象。会等进行中的同步结束；某一批删除失败不影响其余图层 */
   async leave(): Promise<void> {
     this.active = false
+    ModuleScene.active.delete(this)
     const generation = ++this.generation
     // 先清空期望状态，进行中的同步不会再往已离开的场景里加对象
     this.layers.forEach(layer => (layer.wanted = []))
@@ -88,6 +93,28 @@ export abstract class ModuleScene {
     await Promise.all(effects.map(e => e.effect.remove().catch(err => console.error('[ModuleScene] 删除效果失败', err))))
     await Promise.all([...this.layers.values()].map(layer => this.clear(layer, generation)))
   }
+
+  /**
+   * 页面关闭时用：同步发出本模块全部对象的删除指令，不等回执（页面马上就没了，leave() 那样逐步等待会来不及）。
+   * 场景对象存在渲染实例里，不删就会留给下一个打开的页面（其它模块的飞线、标注出现在当前模块上）。
+   */
+  abandon(): void {
+    this.active = false
+    ++this.generation
+    ModuleScene.active.delete(this)
+    const fire = (p: Promise<unknown>) => void p.catch(() => {})
+    for (const { effect } of this.effects) fire(effect.remove())
+    this.effects = []
+    this.layers.forEach(layer => {
+      layer.wanted = []
+      for (const batch of byType(layer.live)) fire(this.api.remove(batch[0].type, idsOf(batch)))
+      layer.live = []
+    })
+    this.onAbandon()
+  }
+
+  /** 子类可覆盖：删除自己管理的对象（不经过图层登记的），同样只发指令不等待 */
+  protected onAbandon(): void {}
 
   protected isCurrent(token: number): boolean {
     return this.active && token === this.generation

@@ -115,6 +115,26 @@ describe('ModuleScene', () => {
     expect(scene.objectCount()).toBe(0)
   })
 
+  it('abandon() fires every removal at once without waiting, and leaves the active set', async () => {
+    await scene.enter()
+    expect(ModuleScene.active.has(scene)).toBe(true)
+    // 删除挂起：abandon 也要把两种类型的删除都发出去（页面关闭时等不到回执）
+    const gates = [api.hold('remove'), api.hold('remove')]
+    scene.abandon()
+    expect(ModuleScene.active.has(scene)).toBe(false)
+    expect(scene.objectCount()).toBe(0)
+    gates.forEach(g => g.resolve())
+    await flush()
+    await flush()
+    expect(api.objects.size).toBe(0)
+  })
+
+  it('drops a scene from the active set on leave', async () => {
+    await scene.enter()
+    await scene.leave()
+    expect(ModuleScene.active.has(scene)).toBe(false)
+  })
+
   it('does not add objects when leave happens before enter finishes', async () => {
     let open!: () => void
     scene.gate = new Promise<void>(resolve => (open = resolve))
