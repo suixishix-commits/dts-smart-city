@@ -336,6 +336,7 @@ onMounted(async () => {
     heatmapZ: gVar?.smartCity?.heatmapZ ?? [-50, 300],
     pak: cityBase.pak,
     beacons: cityBase.beacons,
+    heatField: cityBase.heatField,
     dimBaseRoads: dim => cityBase.setRoadsDimmed(dim)
   })
   scene.setData(loaded, period.value)

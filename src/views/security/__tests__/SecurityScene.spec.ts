@@ -208,6 +208,21 @@ describe('SecurityScene', () => {
     }
   })
 
+  it('热力场材质包可用时：图层关着不建对象，打开后建一张 UE 热力场，换周期仍只有一张，离开时删除', async () => {
+    scene = new SecurityScene(api, geo, { cameraView: null, heatmapZ: [-50, 300], pak: false, heatField: true })
+    scene.setData(data, 'today')
+    await scene.enter()
+    const fields = () => api.ids('customMesh').filter((k: string) => k.startsWith('customMesh:security-field'))
+    expect(fields()).toEqual([])
+    await scene.setLayerVisible('heat', true)
+    expect(api.ids('heatmap')).toEqual([])
+    expect(fields()).toHaveLength(1)
+    await scene.setPeriod('month')
+    expect(fields()).toHaveLength(1)
+    await scene.leave()
+    expect(fields()).toEqual([])
+  })
+
   it('热力在警情附近更高', async () => {
     await scene.enter()
     await scene.setLayerVisible('heat', true)

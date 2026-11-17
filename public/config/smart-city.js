@@ -6,6 +6,7 @@ Object.assign(gVar, {
     effectsPak: 'E:/Dts-Optimize/dts-effect-kit/effects/bundle/DTS-Effects-Bundle.pak',
     // 分级点位效果（UE 材质包，dts-effect-kit/projects/PointBeacon_20261117）：告警、事件点的地面光环和光柱。
     // 留空或挂载失败时，各模块的告警点退回 DTS 自带的扩散波纹
+    heatFieldPak: 'E:/Dts-Optimize/dts-effect-kit/projects/HeatField_20261117/Delivery/HeatField-V1-20261117-WindowsNoEditor.pak',
     pointBeaconPak: 'E:/Dts-Optimize/dts-effect-kit/projects/PointBeacon_20261117/Delivery/PointBeacon-V3-20261117-WindowsNoEditor.pak',
     // 底图风格：把影像压成偏冷的黄昏色调，让图层从底图里浮出来。
     // tint 乘到影像原色上；saturation 0~2；brightness 0.1~10；contrast 0.2~5；bloom 泛光 0~10

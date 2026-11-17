@@ -300,7 +300,8 @@ onMounted(async () => {
     cameraView: gVar?.smartCity?.cameras?.overview ?? null,
     heatmapZ: gVar?.smartCity?.heatmapZ ?? [-50, 300],
     pak: cityBase.pak,
-    beacons: cityBase.beacons
+    beacons: cityBase.beacons,
+    heatField: cityBase.heatField
   })
   scene.setData(loaded, hour.value)
   // 场景就绪前用户可能已经关掉了某些图层

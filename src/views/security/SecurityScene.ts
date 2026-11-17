@@ -1,4 +1,5 @@
 import { incidentHeatGrid, isActive } from '@/api/mock/security'
+import { HeatFieldLayer, sampleHeatField } from '@/scene/heatField'
 import { ModuleScene, type SceneEffect } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import { pointAt, sliceLine, type CityGeo, type XY } from '@/scene/geo'
@@ -16,6 +17,8 @@ export interface SecuritySceneOptions {
   dimBaseRoads?: (dim: boolean) => Promise<void>
   /** 分级点位材质包是否可用；不可用时警情点用扩散波纹 */
   beacons?: boolean
+  /** 热力场材质包是否可用；可用时警情热力用 UE 热力场（换周期交叉淡入淡出），否则用 DTS 热力图 */
+  heatField?: boolean
 }
 
 
@@ -43,6 +46,8 @@ export const SECURITY_GROUP = {
 
 /** 热力网格间距，米 */
 const HEAT_STEP = 500
+/** 热力场采样网格间距，米 */
+const FIELD_STEP = 160
 /** 波纹半径按警情等级，米 */
 const RIPPLE_RADIUS: Record<number, number> = { 1: 700, 2: 560, 3: 420, 4: 300 }
 const GUARD_TEXT: Record<number, string> = { 1: '一级防护', 2: '二级防护', 3: '三级防护' }
@@ -83,6 +88,8 @@ export class SecurityScene extends ModuleScene {
   private entered = false
   private token = 0
   private visible = new Map<string, boolean>(SECURITY_LAYERS.map(l => [l.key, l.on]))
+  /** UE 热力场图层；材质包不可用时为 null，用 DTS 热力图 */
+  private readonly heatField: HeatFieldLayer | null
   /** 视锥在视域图层第一次显示时才创建，避免默认关闭的图层闪一帧 */
   private conesCreated = false
   /** 当前投射的摄像头 id */
@@ -102,8 +109,10 @@ export class SecurityScene extends ModuleScene {
     private readonly options: SecuritySceneOptions
   ) {
     super(api)
+    this.heatField = options.heatField ? new HeatFieldLayer(api, { id: 'security-field', groupId: 'sc_security_heat', brightness: 0.85, levels: 5 }) : null
     // 把默认关闭的图层告诉基类（此时图层还没有对象，不会产生场景调用）
     SECURITY_LAYERS.filter(l => !l.on).forEach(l => void super.setLayerVisible(l.key, false))
+    if (SECURITY_LAYERS.some(l => l.key === 'heat' && !l.on)) void this.heatField?.setVisible(false)
   }
 
   /** 进入前设置数据和初始统计周期 */
@@ -158,6 +167,7 @@ export class SecurityScene extends ModuleScene {
     this.conesCreated = false
     await this.clearProjection()
     await this.options.dimBaseRoads?.(false)
+    await this.heatField?.clear()
   }
 
   private async addZones(token: number, data: SecurityData): Promise<void> {
@@ -331,6 +341,10 @@ export class SecurityScene extends ModuleScene {
     // 今日只看在办警情；更长的周期里已办结的也留有痕迹
     const incidents = data.incidents.filter(i => this.period !== 'today' || isActive(i)).map(i => ({ level: i.level, xy: this.incidentXY.get(i.id) as XY }))
     const points = incidentHeatGrid(this.period, this.grid, this.geo.districts, incidents, HEAT_STEP)
+    if (this.heatField) {
+      await this.heatField.show(sampleHeatField({ points, range: [0, 1], step: FIELD_STEP }))
+      return
+    }
     await this.replaceLayer('heat', 'heatmap', points.length ? [heatmap({ id: 'security-heat', groupId: 'sc_security_heat', points, range: [0, 1], z: this.options.heatmapZ })] : [])
   }
 
@@ -338,6 +352,7 @@ export class SecurityScene extends ModuleScene {
   async setLayerVisible(layer: string, visible: boolean): Promise<void> {
     this.visible.set(layer, visible)
     await super.setLayerVisible(layer, visible)
+    if (layer === 'heat') await this.heatField?.setVisible(visible)
     if (layer === 'cone' && visible && this.entered) await this.createCones(this.token)
   }
 

@@ -1,6 +1,6 @@
 import { getGeoData } from '@/api/geo'
 import { DtsSceneApi } from './DtsSceneApi'
-import { applyAmbience, mountEffectsPak, mountPointBeaconPak } from './effects'
+import { applyAmbience, mountEffectsPak, mountHeatFieldPak, mountPointBeaconPak } from './effects'
 import { buildCityGeo, type CityGeo } from './geo'
 import { lineScaler } from './lineScale'
 import { COLOR, plainLine, rgba } from './kit'
@@ -66,6 +66,8 @@ class CityBase {
   pak = false
   /** 分级点位效果的材质包是否挂上。没挂上时各模块的告警点用 DTS 自带的扩散波纹 */
   beacons = false
+  /** 热力场材质包是否挂上。没挂上时热力图用 DTS 自带的 heatmap */
+  heatField = false
   private starting: Promise<CityGeo | null> | null = null
   private roadIds: string[] = []
   private roadsShown = true
@@ -88,6 +90,7 @@ class CityBase {
     await applyAmbience()
     this.pak = await mountEffectsPak()
     this.beacons = await mountPointBeaconPak()
+    this.heatField = await mountHeatFieldPak()
     this.geo = await buildCityGeo(await getGeoData(), ll => api.project(ll))
     await this.drawRoads(api)
     lineScaler.start()

@@ -1,4 +1,5 @@
 import { districtDensityAt, heatGridAt, hotspotActivityAt } from '@/api/mock/population'
+import { HeatFieldLayer, sampleHeatField } from '@/scene/heatField'
 import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import type { CityGeo } from '@/scene/geo'
@@ -14,6 +15,8 @@ export interface OverviewSceneOptions {
   pak: boolean
   /** 分级点位材质包是否可用；可用时热点用光环 + 光柱（大小固定），否则用随时刻缩放的扩散波纹 */
   beacons?: boolean
+  /** 热力场材质包是否可用；可用时人口热力用 UE 热力场（换时刻交叉淡入淡出），否则用 DTS 热力图 */
+  heatField?: boolean
 }
 
 /** 密度色带的上限，万人/km² */
@@ -25,6 +28,8 @@ const DISTRICT_LAYER_ID = 'sc_overview_districts'
 const HEAT_IDS = ['population-heat', 'population-heat-b'] as const
 /** 热点相距多近（米）时错开标注高度 */
 const HOTSPOT_STAGGER = 1800
+/** 热力场采样网格间距，米 */
+const FIELD_STEP = 160
 
 /** 热度 → 分级点位的等级：90 以上一级（光柱 + 信标），75 以上二级，其余三级 */
 function heatLevel(heat: number): 1 | 2 | 3 {
@@ -52,6 +57,8 @@ export class OverviewScene extends ModuleScene {
   private districts: Awaited<ReturnType<typeof regionLayer>> | null = null
   private grid: { xy: number[]; districtId: string }[] = []
   private heatSlot = 1
+  /** UE 热力场图层；材质包不可用时为 null，用 DTS 热力图 */
+  private readonly heatField: HeatFieldLayer | null
 
   constructor(
     api: SceneApi,
@@ -59,6 +66,7 @@ export class OverviewScene extends ModuleScene {
     private readonly options: OverviewSceneOptions
   ) {
     super(api)
+    this.heatField = options.heatField ? new HeatFieldLayer(api, { id: 'population-field', groupId: 'sc_heat', brightness: 0.85, levels: 6 }) : null
   }
 
   /** 进入前设置数据和初始小时 */
@@ -177,6 +185,7 @@ export class OverviewScene extends ModuleScene {
   protected async onLeave(): Promise<void> {
     this.entered = false
     this.districts = null
+    await this.heatField?.clear()
   }
 
   /** 切换到某个小时。进入完成前只记录小时，由 onEnter 应用最新值 */
@@ -189,7 +198,7 @@ export class OverviewScene extends ModuleScene {
   private async applyHour(data: OverviewData): Promise<void> {
     const geo = this.geo
     await Promise.all([
-      this.replaceLayer('heat', 'heatmap', [this.buildHeatmap(data)]),
+      this.heatField ? this.heatField.show(this.buildHeatField(data)) : this.replaceLayer('heat', 'heatmap', [this.buildHeatmap(data)]),
       // 分级点位大小固定，进入时画一次；扩散波纹的半径随时刻的活跃度变化，每个时刻重画
       this.options.beacons
         ? undefined
@@ -210,6 +219,16 @@ export class OverviewScene extends ModuleScene {
     ])
   }
 
+  /** 人口热力场：陆地网格按片区密度取加权平均，热点事件叠加成局部峰值 */
+  private buildHeatField(data: OverviewData) {
+    const hotspots = data.hotspots.map((h) => ({ id: h.id, heat: h.heat, xy: this.hotspotXY.get(h.id) as number[] }))
+    const points = heatGridAt(this.hour, this.grid, this.geo.districts, hotspots, HEAT_STEP)
+    const isHot = (p: { id: string }) => p.id.startsWith('hot-')
+    // 热点只做局部抬升（强度和半径都收小）：整团饱和的峰值会盖住标注
+    const extra = points.filter(isHot).map((p) => ({ ...p, value: p.value * 0.4, radius: p.radius * 0.7 }))
+    return sampleHeatField({ points: points.filter((p) => !isHot(p)), extra, range: [0, 3.4], step: FIELD_STEP })
+  }
+
   private buildHeatmap(data: OverviewData) {
     const hotspots = data.hotspots.map((h) => ({ id: h.id, heat: h.heat, xy: this.hotspotXY.get(h.id) as number[] }))
     // 两个 id 交替：新热力图先加上、旧的再删（ModuleScene 先建后删），时间轴播放时不闪
@@ -227,6 +246,7 @@ export class OverviewScene extends ModuleScene {
   async setLayerVisible(layer: string, visible: boolean): Promise<void> {
     await super.setLayerVisible(layer, visible)
     if (layer === 'hotspot') await super.setLayerVisible('hotspot-ripple', visible)
+    if (layer === 'heat') await this.heatField?.setVisible(visible)
   }
 
   /** 城市巡航的机位：依次从西南方向俯瞰各热点事件（按热度从高到低） */

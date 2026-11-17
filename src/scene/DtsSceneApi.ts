@@ -41,6 +41,11 @@ export class DtsSceneApi implements SceneApi {
     check(await __xapi[type].delete(ids), `${type}.delete`, ids)
   }
 
+  async update(type: SceneObjectType, objects: { id: string }[]): Promise<void> {
+    if (objects.length === 0) return
+    check(await __xapi[type].update(objects), `${type}.update`, objects.map(o => o.id))
+  }
+
   async setVisible(type: SceneObjectType, ids: string[], visible: boolean): Promise<void> {
     if (visible) check(await __xapi[type].show(ids), `${type}.show`, ids)
     else check(await __xapi[type].hide(ids), `${type}.hide`, ids)

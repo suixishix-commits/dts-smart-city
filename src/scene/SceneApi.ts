@@ -17,6 +17,8 @@ export interface SceneApi {
   /** 添加对象，每个对象必须带字符串 id */
   add(type: SceneObjectType, objects: { id: string }[]): Promise<void>
   remove(type: SceneObjectType, ids: string[]): Promise<void>
+  /** 修改已有对象的部分字段（如 customMesh 的材质参数）。可选：测试替身可以不实现 */
+  update?(type: SceneObjectType, objects: { id: string }[]): Promise<void>
   setVisible(type: SceneObjectType, ids: string[], visible: boolean): Promise<void>
   /** view = [x, y, z, pitch, yaw] */
   setCamera(view: number[], flyTime?: number): Promise<void>

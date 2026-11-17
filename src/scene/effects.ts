@@ -1,4 +1,5 @@
 import { BEACON_MATERIAL } from './pointBeacon'
+import { HEAT_FIELD_MATERIAL } from './heatField'
 /**
  * 效果总包（UE pak）和它的前端适配库。
  *
@@ -70,6 +71,13 @@ async function mountMaterialPak(id: string, path: string, material: string): Pro
     console.warn('[effects] 挂载材质包失败', path, e)
     return false
   }
+}
+
+let heatMounted: Promise<boolean> | null = null
+/** 挂载热力场材质包（smart-city.js 的 heatFieldPak）；返回是否可用 */
+export function mountHeatFieldPak(): Promise<boolean> {
+  heatMounted ??= mountMaterialPak('sc_heat_loader', gVar?.smartCity?.heatFieldPak ?? '', HEAT_FIELD_MATERIAL)
+  return heatMounted
 }
 
 let beaconMounted: Promise<boolean> | null = null

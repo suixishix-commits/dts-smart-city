@@ -190,6 +190,20 @@ describe('OverviewScene', () => {
       }
     })
 
+    it('draws the population heat as a UE heat field instead of a DTS heatmap when the pak is mounted, and removes it on leave', async () => {
+      scene = new OverviewScene(api, geo, { cameraView: null, heatmapZ: [-50, 300], pak: false, heatField: true })
+      scene.setData(data, 12)
+      await scene.enter()
+      expect(heatIds(api)).toEqual([])
+      const meshes = api.ids('customMesh').filter(k => k.startsWith('customMesh:population-field'))
+      expect(meshes).toHaveLength(1)
+      const mesh = api.store.get(meshes[0])
+      expect(mesh.material).toContain('HeatField')
+      expect(mesh.colors.every((c: number[]) => c[3] >= 0 && c[3] <= 1)).toBe(true)
+      await scene.leave()
+      expect(api.ids('customMesh').filter(k => k.startsWith('customMesh:population-field'))).toEqual([])
+    })
+
     it('uses the configured heatmap z range', async () => {
       scene = new OverviewScene(api, geo, { cameraView: null, heatmapZ: [-10, 120], pak: false })
       scene.setData(data, 12)
