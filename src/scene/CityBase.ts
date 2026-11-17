@@ -6,7 +6,7 @@ import { lineScaler } from './lineScale'
 import { COLOR, plainLine, rgba } from './kit'
 import { whenSceneReady } from './sceneReady'
 
-const CLEARABLE = ['marker', 'marker3d', 'polygon', 'polygon3d', 'polyline', 'odline', 'beam', 'radiationPoint', 'heatmap', 'customObject'] as const
+const CLEARABLE = ['marker', 'marker3d', 'polygon', 'polygon3d', 'polyline', 'odline', 'beam', 'radiationPoint', 'heatmap', 'customObject', 'customMesh'] as const
 const ROAD_PREFIX = 'sc_base_road_'
 const COAST_ID = 'sc_base_coast'
 /** 真实街道按等级的样式：快速路/主干路最亮最粗，支路细而淡，只勾出街区肌理 */

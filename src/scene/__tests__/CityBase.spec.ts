@@ -29,7 +29,7 @@ async function load() {
 describe('cityBase', () => {
   const geoJson = loadGeoJson()
   /** CityBase 启动时逐类清空的接口对象类型 */
-  const TYPES = ['marker', 'marker3d', 'polygon', 'polygon3d', 'polyline', 'odline', 'beam', 'radiationPoint', 'heatmap', 'customObject']
+  const TYPES = ['marker', 'marker3d', 'polygon', 'polygon3d', 'polyline', 'odline', 'beam', 'radiationPoint', 'heatmap', 'customObject', 'customMesh']
   type ObjectApi = Record<'add' | 'delete' | 'show' | 'hide' | 'clear' | 'update', ReturnType<typeof vi.fn>>
   let objects: Record<string, ObjectApi>
   let polyline: ObjectApi
