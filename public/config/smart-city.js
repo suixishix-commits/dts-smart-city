@@ -4,12 +4,12 @@ Object.assign(gVar, {
     // UE 效果包统一放在渲染端资源目录 E:/Dts-Optimize/工程/demo_files/Resource 下，场景就绪后按绝对路径挂载，不需要改 Cloud 安装目录。
     // 效果总包：流动线材质、点阵流光、电子围栏、摄像头视域。留空则不挂载，依赖它的效果退回内置样式或不显示。
     effectsPak: 'E:/Dts-Optimize/工程/demo_files/Resource/DTS-Effects-Bundle.pak',
-    // 热力场（dts-effect-kit/projects/HeatField_20261117）：人口热力、警情热力。留空或挂载失败时退回 DTS 自带热力图
-    heatFieldPak: 'E:/Dts-Optimize/工程/demo_files/Resource/HeatField-V1-20261117-WindowsNoEditor.pak',
-    // 交通流光（dts-effect-kit/projects/TrafficFlow_20261117）：路况流光丝带、通勤 OD 弧线。留空或挂载失败时退回效果总包的流动线
-    trafficFlowPak: 'E:/Dts-Optimize/工程/demo_files/Resource/TrafficFlow-V1-20261117-WindowsNoEditor.pak',
-    // 分级点位（dts-effect-kit/projects/PointBeacon_20261117）：告警、事件点的地面光环。留空或挂载失败时退回 DTS 自带扩散波纹
-    pointBeaconPak: 'E:/Dts-Optimize/工程/demo_files/Resource/PointBeacon-V3-20261117-WindowsNoEditor.pak',
+    // 智慧城市效果材质（dts-effect-kit/projects/SmartCityFx_20261117）：热力场、交通流光、分级点位合在一个包里。
+    // 分开打的包都带同一个插件的资源索引，后挂的会让先挂的包里没在用的材质按路径找不到，所以只挂这一个。
+    // 三项可以分别留空；挂载失败时各自退回 DTS 自带热力图 / 效果总包流动线 / DTS 扩散波纹
+    heatFieldPak: 'E:/Dts-Optimize/工程/demo_files/Resource/SmartCityFx-V1-20261117-WindowsNoEditor.pak',
+    trafficFlowPak: 'E:/Dts-Optimize/工程/demo_files/Resource/SmartCityFx-V1-20261117-WindowsNoEditor.pak',
+    pointBeaconPak: 'E:/Dts-Optimize/工程/demo_files/Resource/SmartCityFx-V1-20261117-WindowsNoEditor.pak',
     // 底图风格：把影像压成偏冷的黄昏色调，让图层从底图里浮出来。
     // tint 乘到影像原色上；saturation 0~2；brightness 0.1~10；contrast 0.2~5；bloom 泛光 0~10
     ambience: { tint: [0.78, 0.88, 1, 1], saturation: 0.85, brightness: 0.3, contrast: 1.08, bloom: 0.6 },

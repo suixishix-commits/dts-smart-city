@@ -66,7 +66,9 @@ const HOME = [1, 2, 3, -38, -38]
 /** 全部图层打开、总包不可用时的对象数：路段 + OD + 事件(波纹+标注) + 信号(波纹+异常标注) + 车辆(标注+轨迹) */
 const abnormal = data.signals.filter(s => s.status !== 'normal')
 const V = data.vehicles.length
-const TOTAL = data.segments.length + data.odFlows.length + data.incidents.length * 2 + data.signals.length + abnormal.length + V * 2
+/** 通勤 OD 只画通勤量最大的 3 条 */
+const OD = Math.min(3, data.odFlows.length)
+const TOTAL = data.segments.length + OD + data.incidents.length * 2 + data.signals.length + abnormal.length + V * 2
 
 describe('TrafficScene', () => {
   let geo: CityGeo
@@ -99,8 +101,8 @@ describe('TrafficScene', () => {
     await scene.enter()
     // 路段、通勤飞线、车辆轨迹都是折线
     expect(segIds()).toHaveLength(data.segments.length)
-    expect(odIds()).toHaveLength(8)
-    expect(api.ids('polyline')).toHaveLength(data.segments.length + 8 + V)
+    expect(odIds()).toHaveLength(OD)
+    expect(api.ids('polyline')).toHaveLength(data.segments.length + OD + V)
     expect(api.ids('odline')).toEqual([])
     expect(api.ids('marker')).toHaveLength(data.incidents.length + abnormal.length + V)
     expect(api.ids('radiationPoint')).toHaveLength(data.incidents.length + geo.intersections.length)
@@ -179,7 +181,7 @@ describe('TrafficScene', () => {
     expect(api.addCalls.length).toBe(before)
   })
 
-  it('OD 飞线上午从居住区指向商务区，下午反向；只有最重的两条是暖色', async () => {
+  it('OD 飞线只画最重的 3 条，上午从居住区指向商务区，下午反向；最重的两条是暖色', async () => {
     create({}, 8)
     await scene.enter()
     const top = data.odFlows[0]
@@ -201,7 +203,7 @@ describe('TrafficScene', () => {
 
     await scene.setHour(18)
     expect(ends()).toEqual([work, home])
-    expect(odIds()).toHaveLength(8)
+    expect(odIds()).toHaveLength(OD)
     expect(api.ids('odline')).toEqual([])
   })
 

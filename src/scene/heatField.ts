@@ -10,7 +10,7 @@
  */
 import type { SceneApi } from './SceneApi'
 
-export const HEAT_FIELD_MATERIAL = '/JC_CustomAssets/HeatField/MI_HeatField_V1'
+export const HEAT_FIELD_MATERIAL = '/JC_CustomAssets/HeatField/MI_HeatField_V1_FX'
 
 export interface HeatSource {
   /** 投影坐标 [x, y]（米） */

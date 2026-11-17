@@ -1,21 +1,21 @@
 /**
- * 交通流光（UE 材质 TrafficFlow V1，dts-effect-kit/projects/TrafficFlow_20261117）：路况流光丝带和通勤 OD 弧线。
+ * 交通流光（UE 材质 TrafficFlow V2，设计稿方案 D，dts-effect-kit/projects/TrafficFlow_20261117）：路况流光丝带和通勤 OD 弧线。
  *
  * 两种线都是 customMesh 丝带，材质没有 UV，用顶点颜色带数据（RGB 经 sRGB 转换只能放 0/1，A 是线性 8 位值）：
- * - 路况：R = 横向 0/1，G、B = 拥堵等级的两位，A = 一个流动周期内的相位（0→1）。材质画细中心线 + 柔光，
- *   彗星状光点沿通行方向流动，越堵越慢；严重拥堵缓慢呼吸。
- * - OD：R = 横向 0/1，G = 暖色标记（最重的几条），A = 沿弧长 0→1（起点 → 终点）。材质画淡底线，光点从起点流向终点。
+ * - 路况：R = 横向 0/1，G、B = 拥堵等级的两位，A = 一个流动周期内的相位（0→1）。材质画细实线 + 柔光，
+ *   每个周期一个短白光点沿通行方向流动，越堵越慢；严重拥堵缓慢呼吸。
+ * - OD：R = 横向 0/1，A = 沿弧长 0→1（起点 → 终点）。材质从起点冷蓝渐变到终点暖色，一个光点从起点流向终点。
  *
  * 网格只建一次：路按流动周期从两端各切一遍（再加折点），所以通行方向翻转、拥堵等级变化都只改顶点颜色
  * （customMesh.update），不新增、不删除对象，换时刻时不闪。
  */
 import type { SceneApi } from './SceneApi'
 
-export const ROAD_FLOW_MATERIAL = '/JC_CustomAssets/TrafficFlow/MI_RoadFlow_V1'
-export const OD_ARC_MATERIAL = '/JC_CustomAssets/TrafficFlow/MI_OdArc_V1'
+export const ROAD_FLOW_MATERIAL = '/JC_CustomAssets/TrafficFlow/MI_RoadFlow_V2_FX'
+export const OD_ARC_MATERIAL = '/JC_CustomAssets/TrafficFlow/MI_OdArc_V2_FX'
 
-/** 一个流动周期的长度，米（彗星光点的间距） */
-export const FLOW_PERIOD = 170
+/** 一个流动周期的长度，米（白色光点的间距：稀疏，只指示方向） */
+export const FLOW_PERIOD = 600
 /** 路况丝带离地高度，米（材质关了深度测试） */
 const ROAD_Z = 4
 

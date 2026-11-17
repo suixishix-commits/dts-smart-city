@@ -29,8 +29,9 @@
         <template v-for="(name, i) in CONGESTION_TEXT" :key="name"><i class="bar" :style="{ background: STATUS_RAMP[i] }"></i>{{ name }}</template>
       </span>
       <span v-if="layers.includes('od')" class="legend-item">
-        <b>通勤 {{ inbound ? '进城' : '出城' }}</b>
-        <i class="bar thin" :style="{ background: COLOR.accentLight }"></i>一般<i class="bar thin" :style="{ background: COLOR.warn }"></i>最大两条
+        <b>通勤</b>
+        <template v-if="flowPak"><i class="bar grad"></i>{{ inbound ? '居住区 → 商务区' : '商务区 → 居住区' }}</template>
+        <template v-else><i class="bar thin" :style="{ background: COLOR.accentLight }"></i>一般<i class="bar thin" :style="{ background: COLOR.warn }"></i>最大两条</template>
       </span>
       <span v-if="layers.includes('vehicle')" class="legend-item">
         <b>车辆</b>
@@ -77,8 +78,8 @@ const LAYERS = [
   { key: 'incident', name: '交通事件' },
   { key: 'signal', name: '信号路口' }
 ]
-/** 默认打开的图层；车辆轨迹、信号路口默认关闭，避免画面过满 */
-const DEFAULT_ON = ['road', 'od', 'incident']
+/** 默认打开的图层；通勤 OD、车辆轨迹、信号路口默认关闭，避免和路况抢视线 */
+const DEFAULT_ON = ['road', 'incident']
 const SIGNAL_KEYS: SignalStatus[] = ['normal', 'offline', 'manual']
 const VEHICLE_KINDS: VehicleKind[] = ['bus', 'patrol', 'ambulance', 'wrecker']
 /** 信号路口详情里可切换的周边路口数 */
@@ -106,6 +107,8 @@ const unmounting = new AbortController()
 
 const peak = computed(() => (data.value ? networkPeak(data.value.segments) : { hour: 18, value: 0 }))
 const inbound = computed(() => commuteAt(hour.value) === 'in')
+/** 交通流光材质包挂上了：通勤图例画渐变（出发端冷蓝 → 到达端暖色） */
+const flowPak = ref(false)
 const activeIncidentData = computed(() => data.value?.incidents.find(i => i.id === activeIncident.value) ?? null)
 const activeSignalData = computed(() => data.value?.signals.find(s => s.id === activeSignal.value) ?? null)
 const activeSegmentData = computed(() => data.value?.segments.find(s => s.id === activeSegment.value) ?? null)
@@ -331,6 +334,7 @@ onMounted(async () => {
   emitter.on('sc_traffic_vehicle', onVehicleClick)
 
   const geo = await cityBase.start()
+  flowPak.value = cityBase.trafficFlow
   if (!geo || unmounting.signal.aborted) return
   scene = new TrafficScene(new DtsSceneApi(), geo, {
     cameraView: HOME,
@@ -426,6 +430,11 @@ $axis-bottom: 100px;
     border-radius: 2px;
     &.thin {
       height: 2px;
+    }
+    &.grad {
+      width: 40px;
+      height: 3px;
+      background: linear-gradient(90deg, #8cc8ff, #ffd4a8);
     }
   }
   .dot {

@@ -42,8 +42,10 @@ export const DETOUR_COLOR = COLOR.ice
 const FLOW_SPEED = [0.34, 0.22, 0.13, 0.07]
 /** 各等级道路的线宽，米 */
 const ROAD_WIDTH: Record<number, number> = { 1: 100, 2: 64, 3: 44 }
-/** 流光丝带的宽度，米（中心线约占 1/6，其余是柔光） */
-const FLOW_WIDTH: Record<number, number> = { 1: 40, 2: 30, 3: 22 }
+/** 流光丝带的宽度，米（中心线约占 1/10，其余是柔光） */
+const FLOW_WIDTH: Record<number, number> = { 1: 56, 2: 44, 3: 34 }
+/** 通勤 OD 只画通勤量最大的几条：多了会在画面上交错成一片 */
+const OD_TOP = 3
 /** 车辆轨迹由标注和轨迹线两个图层组成，图层开关 vehicle 同时控制两者 */
 const VEHICLE_LAYER = 'vehicle'
 const VEHICLE_TRAIL_LAYER = 'vehicleTrail'
@@ -304,21 +306,21 @@ export class TrafficScene extends ModuleScene {
     })
   }
 
-  /** 通勤 OD 弧线：几何固定为居住区 → 商务区，下午只翻转光点方向。宽度随通勤量，最重的两条用暖色 */
+  /** 通勤 OD 弧线：只留通勤量最大的几条；几何固定为居住区 → 商务区，下午只翻转方向（渐变色和光点跟着翻转）。宽度随通勤量 */
   private flowArcs(data: TrafficData, inbound: boolean) {
-    const flows = [...data.odFlows].sort((a, b) => b.volume - a.volume)
+    const flows = [...data.odFlows].sort((a, b) => b.volume - a.volume).slice(0, OD_TOP)
     const max = flows.length ? flows[0].volume : 1
     return flows.flatMap((f, i) => {
       const home = this.geo.district(f.homeId)?.centerXY
       const work = this.geo.district(f.workId)?.centerXY
       if (!home || !work) return []
-      return [{ id: f.id, from: home, to: work, width: 14 + 14 * (f.volume / max), warm: i < 2, reverse: !inbound }]
+      return [{ id: f.id, from: home, to: work, width: 22 + 16 * (f.volume / max), warm: i < 2, reverse: !inbound }]
     })
   }
 
   /** 通勤飞线：上午居住区 → 商务区，下午反向。只有最重的两条用暖色 */
   private buildOd(data: TrafficData, inbound: boolean): { id: string }[] {
-    const flows = [...data.odFlows].sort((a, b) => b.volume - a.volume)
+    const flows = [...data.odFlows].sort((a, b) => b.volume - a.volume).slice(0, OD_TOP)
     const max = flows.length ? flows[0].volume : 1
     return flows.flatMap((f, i) => {
       const home = this.geo.district(f.homeId)?.centerXY

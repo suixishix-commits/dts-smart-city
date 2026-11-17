@@ -8,7 +8,7 @@
  * A 是等级 / 4（A 是线性 8 位值，RGB 会做 sRGB 转换只能放 0/1）。坐标是投影坐标的绝对米数。
  */
 
-export const BEACON_MATERIAL = '/JC_CustomAssets/PointBeacon/MI_PointBeacon_V3'
+export const BEACON_MATERIAL = '/JC_CustomAssets/PointBeacon/MI_PointBeacon_V3_FX'
 
 export interface BeaconPoint {
   /** 投影坐标 [x, y] 或 [x, y, z]（米） */

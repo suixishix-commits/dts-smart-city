@@ -54,24 +54,34 @@ const LOADER_ID = 'sc_pak_loader'
 const LOADER_ASSET = '/JC_CustomAssets/ObjectLibrary/Exhibition/ElectronicFenceV1/BP_ElectronicFence_V1'
 let mounted: Promise<boolean> | null = null
 
+/** 挂载材质包：整体尝试次数；每次挂载后确认材质可用的查询次数和间隔 */
+const MOUNT_ATTEMPTS = 3
+const MOUNT_CHECKS = 6
+const MOUNT_RETRY_MS = 1000
+
 /**
  * 挂载只有材质的 PAK（没有蓝图）。customObject 用 pakFilePath 创建时渲染端会先挂载整个包，
  * 再按 assetPath 生成对象——材质不是蓝图，生成会报错，但包已经挂上了。用 misc.getMaterial 能列出参数来确认。
  */
 async function mountMaterialPak(id: string, path: string, material: string): Promise<boolean> {
   if (!path) return false
-  try {
-    await __xapi.customObject.delete([id])
-    await __xapi.customObject.add({ id, pakFilePath: path, assetPath: material, location: [0, 0, -10000], coordinateType: 0, rotation: [0, 0, 0], scale: [1, 1, 1] })
-    await __xapi.customObject.delete([id])
-    const res = await __xapi.misc.getMaterial(material)
-    const ok = !!res?.data?.[0]?.params?.length
-    if (!ok) console.warn('[effects] 材质包没有挂载上：', path)
-    return ok
-  } catch (e) {
-    console.warn('[effects] 挂载材质包失败', path, e)
-    return false
+  // 渲染端忙（启动、刚重启）时请求可能超时，连挂载请求本身都可能丢：挂载 + 确认整体重试几次，免得误判后整页退回旧画法
+  for (let attempt = 0; attempt < MOUNT_ATTEMPTS; attempt++) {
+    try {
+      await __xapi.customObject.delete([id])
+      await __xapi.customObject.add({ id, pakFilePath: path, assetPath: material, location: [0, 0, -10000], coordinateType: 0, rotation: [0, 0, 0], scale: [1, 1, 1] })
+      await __xapi.customObject.delete([id])
+      for (let check = 0; check < MOUNT_CHECKS; check++) {
+        const res = await __xapi.misc.getMaterial(material).catch(() => null)
+        if (res?.data?.[0]?.params?.length) return true
+        await new Promise(resolve => setTimeout(resolve, MOUNT_RETRY_MS))
+      }
+    } catch (e) {
+      console.warn('[effects] 挂载材质包出错，重试', path, e)
+    }
   }
+  console.warn('[effects] 材质包没有挂载上：', path)
+  return false
 }
 
 let trafficMounted: Promise<boolean> | null = null
