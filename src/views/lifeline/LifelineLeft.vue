@@ -273,8 +273,7 @@ const chartOption = computed(() => {
   width: 16px;
   height: 0;
   border-top: 3px solid $accent;
-  // 电力和燃气在场景里是流动虚线
-  &.power,
+  // 燃气在场景里是虚线（其余管网是实线，靠流速区分）
   &.gas {
     border-top-style: dashed;
   }

@@ -7,9 +7,10 @@ Object.assign(gVar, {
     // 智慧城市效果材质（dts-effect-kit/projects/SmartCityFx_20261117）：热力场、交通流光、分级点位合在一个包里。
     // 分开打的包都带同一个插件的资源索引，后挂的会让先挂的包里没在用的材质按路径找不到，所以只挂这一个。
     // 三项可以分别留空；挂载失败时各自退回 DTS 自带热力图 / 效果总包流动线 / DTS 扩散波纹
-    heatFieldPak: 'E:/Dts-Optimize/工程/demo_files/Resource/SmartCityFx-V1-20261117-WindowsNoEditor.pak',
-    trafficFlowPak: 'E:/Dts-Optimize/工程/demo_files/Resource/SmartCityFx-V1-20261117-WindowsNoEditor.pak',
-    pointBeaconPak: 'E:/Dts-Optimize/工程/demo_files/Resource/SmartCityFx-V1-20261117-WindowsNoEditor.pak',
+    heatFieldPak: 'E:/Dts-Optimize/工程/demo_files/Resource/SmartCityFx-V2-20261118-WindowsNoEditor.pak',
+    trafficFlowPak: 'E:/Dts-Optimize/工程/demo_files/Resource/SmartCityFx-V2-20261118-WindowsNoEditor.pak',
+    lineFlowPak: 'E:/Dts-Optimize/工程/demo_files/Resource/SmartCityFx-V2-20261118-WindowsNoEditor.pak',
+    pointBeaconPak: 'E:/Dts-Optimize/工程/demo_files/Resource/SmartCityFx-V2-20261118-WindowsNoEditor.pak',
     // 底图风格：把影像压成偏冷的黄昏色调，让图层从底图里浮出来。
     // tint 乘到影像原色上；saturation 0~2；brightness 0.1~10；contrast 0.2~5；bloom 泛光 0~10
     ambience: { tint: [0.78, 0.88, 1, 1], saturation: 0.85, brightness: 0.3, contrast: 1.08, bloom: 0.6 },

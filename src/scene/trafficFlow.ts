@@ -49,19 +49,19 @@ const r2 = (v: number) => Math.round(v * 100) / 100
 const r3 = (v: number) => Math.round(v * 1000) / 1000
 
 /** 一条路的切分：每个四边形的起止弧长，以及它所在折线段 */
-interface RoadQuad {
+export interface RoadQuad {
   d0: number
   d1: number
 }
 
-function cumulative(path: number[][]): number[] {
+export function cumulative(path: number[][]): number[] {
   const out = [0]
   for (let i = 1; i < path.length; i++) out.push(out[i - 1] + Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]))
   return out
 }
 
 /** 断点：折点 + 从起点、从终点按周期各切一遍。这样两种方向的相位在每个四边形内都单调落在 [0, 1] */
-function roadQuads(cum: number[], period: number): RoadQuad[] {
+export function roadQuads(cum: number[], period: number): RoadQuad[] {
   const L = cum[cum.length - 1]
   if (L <= 0) return []
   const cuts = new Set<number>(cum.map(r2))
@@ -78,7 +78,7 @@ function roadQuads(cum: number[], period: number): RoadQuad[] {
 }
 
 /** 弧长 d 处的位置和半宽方向（折点处用斜接方向，长度按 1/cos 放大，转角不断不叠） */
-function frameAt(path: number[][], cum: number[], d: number): { p: number[]; n: number[] } {
+export function frameAt(path: number[][], cum: number[], d: number): { p: number[]; n: number[] } {
   const last = path.length - 1
   let i = 1
   while (i < last && cum[i] < d - 1e-6) i++

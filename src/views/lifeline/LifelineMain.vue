@@ -34,7 +34,7 @@
     <!-- 图例只列当前打开的图层和选中告警带出的对象，和场景里看到的一一对应 -->
     <SceneLegend v-if="layers.length || valvesShown || impactDrawn" class="legend">
       <span v-if="on('water')" class="legend-item"><i class="line" :style="{ borderTopColor: PIPE_COLOR.water }"></i>供水</span>
-      <span v-if="on('power')" class="legend-item"><i class="line dashed" :style="{ borderTopColor: PIPE_COLOR.power }"></i>电力</span>
+      <span v-if="on('power')" class="legend-item"><i class="line" :style="{ borderTopColor: PIPE_COLOR.power }"></i>电力</span>
       <span v-if="on('gas')" class="legend-item"><i class="line dashed" :style="{ borderTopColor: PIPE_COLOR.gas }"></i>燃气</span>
       <span v-if="on('drain')" class="legend-item"><i class="line" :style="{ borderTopColor: PIPE_COLOR.drain }"></i>排水</span>
       <span v-if="on('cooling')" class="legend-item"><i class="line" :style="{ borderTopColor: PIPE_COLOR.cooling }"></i>区域供冷</span>
@@ -283,6 +283,7 @@ onMounted(async () => {
     cameraView: HOME,
     pak: cityBase.pak,
     beacons: cityBase.beacons,
+    lineFlow: cityBase.lineFlow,
     roads: cityBase
   })
   scene.setData(loaded)

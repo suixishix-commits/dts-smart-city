@@ -1,6 +1,7 @@
 import { BEACON_MATERIAL } from './pointBeacon'
 import { HEAT_FIELD_MATERIAL } from './heatField'
 import { ROAD_FLOW_MATERIAL } from './trafficFlow'
+import { LINE_FLOW_MATERIAL } from './lineFlow'
 /**
  * 效果总包（UE pak）和它的前端适配库。
  *
@@ -89,6 +90,13 @@ let trafficMounted: Promise<boolean> | null = null
 export function mountTrafficFlowPak(): Promise<boolean> {
   trafficMounted ??= mountMaterialPak('sc_traffic_loader', gVar?.smartCity?.trafficFlowPak ?? '', ROAD_FLOW_MATERIAL)
   return trafficMounted
+}
+
+let lineMounted: Promise<boolean> | null = null
+/** 挂载通用流光线材质包（smart-city.js 的 lineFlowPak）；返回是否可用 */
+export function mountLineFlowPak(): Promise<boolean> {
+  lineMounted ??= mountMaterialPak('sc_line_loader', gVar?.smartCity?.lineFlowPak ?? '', LINE_FLOW_MATERIAL)
+  return lineMounted
 }
 
 let heatMounted: Promise<boolean> | null = null

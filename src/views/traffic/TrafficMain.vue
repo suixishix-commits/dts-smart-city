@@ -341,6 +341,7 @@ onMounted(async () => {
     pak: cityBase.pak,
     beacons: cityBase.beacons,
     trafficFlow: cityBase.trafficFlow,
+    lineFlow: cityBase.lineFlow,
     setBaseRoads: visible => cityBase.setRoadsVisible(visible)
   })
   scene.setData(loaded, hour.value)

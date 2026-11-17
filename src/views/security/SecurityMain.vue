@@ -337,6 +337,7 @@ onMounted(async () => {
     pak: cityBase.pak,
     beacons: cityBase.beacons,
     heatField: cityBase.heatField,
+    lineFlow: cityBase.lineFlow,
     dimBaseRoads: dim => cityBase.setRoadsDimmed(dim)
   })
   scene.setData(loaded, period.value)

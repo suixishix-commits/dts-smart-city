@@ -1,4 +1,5 @@
 import { bridgeStatus } from '@/api/mock/lifeline'
+import { lineFlowMesh, type LineFlowStyle } from '@/scene/lineFlow'
 import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import type { CityGeo, XY } from '@/scene/geo'
@@ -16,6 +17,8 @@ export interface LifelineSceneOptions {
   roads?: { setRoadsVisible(visible: boolean): Promise<void>; setRoadsDimmed?(dim: boolean): Promise<void> }
   /** 分级点位材质包是否可用；不可用时告警点用扩散波纹 */
   beacons?: boolean
+  /** 通用流光线材质包是否可用；可用时管网画成流光线（每张管网一个网格），否则用 DTS 自带线 */
+  lineFlow?: boolean
 }
 
 /** 各管网的离地高度（米）：错开后彼此不闪面，也不和底座路网闪面 */
@@ -42,6 +45,22 @@ const PIPE_STYLE: Record<PipeSystem, { width: [number, number]; brightness: [num
   drain: { width: [70, 50], brightness: [0.55, 0.5], alpha: 0.85 },
   gas: { width: [50, 50], brightness: [0.45, 0.45], alpha: 0.8 }
 }
+/**
+ * 流光线材质下各管网的线型：每张管网一种「流动方式」，不靠颜色也能分得开。
+ * 供水稳定中速流；电力快而短的光点（电流）；燃气虚线慢流、亮度最低；排水慢流；供冷中慢流。
+ * width 是丝带宽度 [主干, 支线]（线芯约占 12%，其余是柔光）。
+ */
+const PIPE_FLOW: Record<PipeSystem, { width: [number, number]; style: Omit<LineFlowStyle, 'color'> }> = {
+  water: { width: [130, 84], style: { period: 520, speed: 0.32, light: 1, brightness: 0.9 } },
+  power: { width: [110, 74], style: { period: 360, speed: 0.75, light: 1.2, lightLen: 0.06, brightness: 0.85 } },
+  cooling: { width: [110, 74], style: { period: 480, speed: 0.22, light: 0.9, brightness: 0.8 } },
+  drain: { width: [110, 74], style: { period: 600, speed: 0.12, light: 0.7, brightness: 0.7 } },
+  gas: { width: [90, 90], style: { period: 400, speed: 0.1, light: 0.5, dash: 6, brightness: 0.7 } }
+}
+/** 流光线下受影响管段的离地高度，米：高过所有管网 */
+const ALARM_FLOW_Z = 70
+/** 受影响管段：红色、呼吸、快速光点 */
+const ALARM_PIPE_FLOW: LineFlowStyle = { color: COLOR.danger, period: 240, speed: 0.6, light: 1.3, breath: 0.35, brightness: 1.3, coreWidth: 0.18, glow: 0.4 }
 /** 阀门标注的颜色 */
 export const VALVE_COLOR = COLOR.white
 /** 告警波纹半径，米 */
@@ -117,7 +136,23 @@ export class LifelineScene extends ModuleScene {
   }
 
   private pipes(system: PipeSystem): { id: string }[] {
-    return (this.data?.pipes ?? []).filter(p => p.system === system).map(p => this.pipe(p))
+    const segments = (this.data?.pipes ?? []).filter(p => p.system === system)
+    if (this.options.lineFlow) {
+      const flow = PIPE_FLOW[system]
+      const mesh = lineFlowMesh(
+        'll-pipes-' + system,
+        segments.map(p => ({ id: p.id, path: this.path(p), width: flow.width[p.grade === 'trunk' ? 0 : 1], minor: p.grade !== 'trunk' })),
+        { ...flow.style, color: PIPE_COLOR[system] },
+        { groupId: 'sc_lifeline_' + system, z: PIPE_HEIGHT[system] }
+      )
+      return mesh ? [mesh] : []
+    }
+    return segments.map(p => this.pipe(p))
+  }
+
+  /** 管网对象的类型：流光线是 customMesh，否则是 DTS 折线 */
+  private get pipeType(): 'customMesh' | 'polyline' {
+    return this.options.lineFlow ? 'customMesh' : 'polyline'
   }
 
   protected async onEnter(token: number): Promise<void> {
@@ -133,10 +168,10 @@ export class LifelineScene extends ModuleScene {
     if (this.options.pak) await prepareFlowLines()
 
     // 供水
-    await this.add(token, 'polyline', this.pipes('water'), 'water')
+    await this.add(token, this.pipeType, this.pipes('water'), 'water')
 
     // 电力：电缆 + 变电站
-    await this.add(token, 'polyline', this.pipes('power'), 'power')
+    await this.add(token, this.pipeType, this.pipes('power'), 'power')
     await this.add(
       token,
       'marker',
@@ -147,16 +182,25 @@ export class LifelineScene extends ModuleScene {
     )
 
     // 运行告警：受影响管段 + 波纹 + 标注
-    await this.add(
-      token,
-      'polyline',
-      data.alarms.flatMap(a => {
-        if (!a.segment) return []
-        const o = { id: 'll-alarm-pipe-' + a.id, groupId: 'sc_lifeline_alarm_pipe', path: segmentBetween(geo, a.segment.roadId, a.segment.from, a.segment.to), color: COLOR.danger, width: 80, brightness: 1.2, height: ALARM_PIPE_HEIGHT }
-        return [this.options.pak ? flowLine({ ...o, style: 'pulse', spacing: 140, speed: 0.4 }) : plainLine({ ...o, flow: true })]
-      }),
-      'alarm'
-    )
+    const affected = data.alarms.flatMap(a => (a.segment ? [{ id: a.id, path: segmentBetween(geo, a.segment.roadId, a.segment.from, a.segment.to) }] : []))
+    if (this.options.lineFlow) {
+      // 每段一个小网格、抬得比管网高：半透明按包围盒远近排序，小而近的网格后画，红线压在整网的供水线上面
+      const meshes = affected.flatMap(a => {
+        const mesh = lineFlowMesh('ll-alarm-pipe-' + a.id, [{ ...a, width: 170 }], ALARM_PIPE_FLOW, { groupId: 'sc_lifeline_alarm_pipe', z: ALARM_FLOW_Z })
+        return mesh ? [mesh] : []
+      })
+      await this.add(token, 'customMesh', meshes, 'alarm')
+    } else {
+      await this.add(
+        token,
+        'polyline',
+        affected.map(a => {
+          const o = { id: 'll-alarm-pipe-' + a.id, groupId: 'sc_lifeline_alarm_pipe', path: a.path, color: COLOR.danger, width: 80, brightness: 1.2, height: ALARM_PIPE_HEIGHT }
+          return this.options.pak ? flowLine({ ...o, style: 'pulse', spacing: 140, speed: 0.4 }) : plainLine({ ...o, flow: true })
+        }),
+        'alarm'
+      )
+    }
     const marks = alarmPoints({
       id: 'll-alarm-ripple',
       groupId: 'sc_lifeline_alarm_ripple',
@@ -178,7 +222,7 @@ export class LifelineScene extends ModuleScene {
     )
 
     // 燃气：管线 + 调压站（默认关闭）
-    await this.add(token, 'polyline', this.pipes('gas'), 'gas')
+    await this.add(token, this.pipeType, this.pipes('gas'), 'gas')
     await this.add(
       token,
       'marker',
@@ -187,7 +231,7 @@ export class LifelineScene extends ModuleScene {
     )
 
     // 排水与内涝：管线 + 易涝点 + 泵站（默认关闭）
-    await this.add(token, 'polyline', this.pipes('drain'), 'drain')
+    await this.add(token, this.pipeType, this.pipes('drain'), 'drain')
     await this.add(
       token,
       'polygon',
@@ -220,7 +264,7 @@ export class LifelineScene extends ModuleScene {
     )
 
     // 区域供冷：主管 / 支管 + 供冷站（默认关闭）
-    await this.add(token, 'polyline', this.pipes('cooling'), 'cooling')
+    await this.add(token, this.pipeType, this.pipes('cooling'), 'cooling')
     await this.add(
       token,
       'marker',

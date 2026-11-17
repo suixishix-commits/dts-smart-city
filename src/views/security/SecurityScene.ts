@@ -1,5 +1,6 @@
 import { incidentHeatGrid, isActive } from '@/api/mock/security'
 import { HeatFieldLayer, sampleHeatField } from '@/scene/heatField'
+import { lineFlowMesh } from '@/scene/lineFlow'
 import { ModuleScene, type SceneEffect } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import { pointAt, sliceLine, type CityGeo, type XY } from '@/scene/geo'
@@ -19,6 +20,8 @@ export interface SecuritySceneOptions {
   beacons?: boolean
   /** 热力场材质包是否可用；可用时警情热力用 UE 热力场（换周期交叉淡入淡出），否则用 DTS 热力图 */
   heatField?: boolean
+  /** 通用流光线材质包是否可用；可用时巡逻路线用流光虚线 */
+  lineFlow?: boolean
 }
 
 
@@ -210,6 +213,22 @@ export class SecurityScene extends ModuleScene {
   }
 
   private async addPatrols(token: number, data: SecurityData): Promise<void> {
+    if (this.options.lineFlow) {
+      const lines: { id: string; path: number[][]; width: number }[] = []
+      const units: { id: string }[] = []
+      for (const route of data.patrols) {
+        const road = this.geo.road(route.roadId)
+        if (!road) continue
+        const path = sliceLine(road.line, route.from, route.to)
+        lines.push({ id: route.id, path, width: 96 })
+        for (const u of route.units) units.push(pin({ id: 'unit-' + u.id, icon: 'person', groupId: SECURITY_GROUP.unit, at: pointAt(path, u.at), text: u.id, color: COLOR.ok, userId: u.id, lineHeight: 16, fontSize: 11, priority: -1 }))
+      }
+      // 巡逻路线：绿色虚线，光点慢速沿巡逻方向走（「有人在巡」），和警情的暖色、防护区的蓝色分开
+      const mesh = lineFlowMesh('patrol-routes', lines, { color: COLOR.ok, period: 480, dash: 6, speed: 0.14, light: 0.9, lightLen: 0.12, brightness: 0.95 }, { groupId: 'sc_security_patrol', z: 16 })
+      await this.add(token, 'customMesh', mesh ? [mesh] : [], 'patrol')
+      await this.add(token, 'marker', units, 'patrol')
+      return
+    }
     let flow = this.options.pak
     if (flow) {
       try {

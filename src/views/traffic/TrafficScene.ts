@@ -1,4 +1,5 @@
 import { commuteAt, congestionAt, congestionLevel, INCIDENT_TEXT, rankSegmentsAt, vehicleStateAt } from '@/api/mock/traffic'
+import { lineFlowMesh, type LineFlowStyle } from '@/scene/lineFlow'
 import { ModuleScene } from '@/scene/ModuleScene'
 import { odArcMeshDirected, RecolorMeshLayer, roadFlowMesh, type RoadFlow } from '@/scene/trafficFlow'
 import type { SceneApi } from '@/scene/SceneApi'
@@ -15,6 +16,8 @@ export interface TrafficSceneOptions {
   beacons?: boolean
   /** 交通流光材质包是否可用；可用时路况和通勤 OD 用 UE 流光丝带（换时刻只改顶点颜色），否则用效果总包或 DTS 线 */
   trafficFlow?: boolean
+  /** 通用流光线材质包是否可用；可用时绕行路线、车辆轨迹用流光线 */
+  lineFlow?: boolean
   /** 显示/隐藏底座路网（cityBase.setRoadsVisible）。本模块自己画路况，进入时隐藏、离开时恢复 */
   setBaseRoads?: (visible: boolean) => Promise<void>
 }
@@ -47,6 +50,10 @@ const FLOW_WIDTH: Record<number, number> = { 1: 56, 2: 44, 3: 34 }
 /** 通勤 OD 只画通勤量最大的几条：多了会在画面上交错成一片 */
 const OD_TOP = 3
 /** 车辆轨迹由标注和轨迹线两个图层组成，图层开关 vehicle 同时控制两者 */
+/** 绕行路线：冰白色、较宽，光点沿绕行方向快速流动 */
+const DETOUR_FLOW: Omit<LineFlowStyle, 'color'> = { period: 320, speed: 0.55, light: 1.4, lightLen: 0.14, brightness: 1.1, coreWidth: 0.14 }
+/** 车辆轨迹：整条一个周期，尾部渐隐，光点流向车辆当前位置 */
+const TRAIL_FLOW: Omit<LineFlowStyle, 'color'> = { period: 'whole', speed: 0.6, light: 1.1, lightLen: 0.3, tail: 1, brightness: 1 }
 const VEHICLE_LAYER = 'vehicle'
 const VEHICLE_TRAIL_LAYER = 'vehicleTrail'
 const DETOUR_LAYER = 'detour'
@@ -204,7 +211,7 @@ export class TrafficScene extends ModuleScene {
     if (String(this.hour) !== this.drawn.vehicle) {
       this.drawn.vehicle = String(this.hour)
       const { pins, trails } = this.buildVehicles(data)
-      tasks.push(this.replaceLayer(VEHICLE_LAYER, 'marker', pins), this.replaceLayer(VEHICLE_TRAIL_LAYER, 'polyline', trails))
+      tasks.push(this.replaceLayer(VEHICLE_LAYER, 'marker', pins), this.replaceLayer(VEHICLE_TRAIL_LAYER, this.lineType, trails))
     }
     await Promise.all(tasks)
   }
@@ -233,7 +240,10 @@ export class TrafficScene extends ModuleScene {
       const trail = this.along(v.roadId, state.trail[0], state.trail[1])
       if (!at || !trail) continue
       const color = VEHICLE_COLOR[v.kind]
-      trails.push(flowLine({ id: 'vehicle-trail-' + v.id, groupId: 'sc_traffic_vehicle_trail', path: trail, color, width: 56, style: 'pulse', brightness: 1.1, speed: 0.3, height: 16 }))
+      if (this.options.lineFlow) {
+        const mesh = lineFlowMesh('vehicle-trail-' + v.id, [{ id: v.id, path: trail, width: 70 }], { ...TRAIL_FLOW, color }, { groupId: 'sc_traffic_vehicle_trail', z: 16 })
+        if (mesh) trails.push(mesh)
+      } else trails.push(flowLine({ id: 'vehicle-trail-' + v.id, groupId: 'sc_traffic_vehicle_trail', path: trail, color, width: 56, style: 'pulse', brightness: 1.1, speed: 0.3, height: 16 }))
       pins.push(pin({ id: 'vehicle-' + v.id, groupId: 'sc_traffic_vehicle', at, text: v.name, value: `${state.speed} km/h`, icon: 'vehicle', color, userId: v.id, lineHeight: 30, fontSize: 12, priority: 5 }))
     }
     return { pins, trails }
@@ -253,7 +263,9 @@ export class TrafficScene extends ModuleScene {
     const start = path[0]
     const end = path[path.length - 1]
     await Promise.all([
-      this.replaceLayer(DETOUR_LAYER, 'polyline', [flowLine({ id: 'detour-' + incidentId, groupId: 'sc_traffic_detour', path, color: DETOUR_COLOR, width: 84, style: 'pulse', brightness: 1.2, height: 20 })]),
+      this.options.lineFlow
+        ? this.replaceLayer(DETOUR_LAYER, 'customMesh', [lineFlowMesh('detour-' + incidentId, [{ id: incidentId, path, width: 150 }], { ...DETOUR_FLOW, color: DETOUR_COLOR }, { groupId: 'sc_traffic_detour', z: 20 })].filter(m => m !== null))
+        : this.replaceLayer(DETOUR_LAYER, 'polyline', [flowLine({ id: 'detour-' + incidentId, groupId: 'sc_traffic_detour', path, color: DETOUR_COLOR, width: 84, style: 'pulse', brightness: 1.2, height: 20 })]),
       this.replaceLayer(DETOUR_PIN_LAYER, 'marker', [
         pin({ id: 'detour-from-' + incidentId, groupId: 'sc_traffic_detour_pin', at: start, text: '绕行起点 · ' + plan.fromName, color: DETOUR_COLOR, lineHeight: 40, fontSize: 12 }),
         pin({ id: 'detour-to-' + incidentId, groupId: 'sc_traffic_detour_pin', at: end, text: '汇入点 · ' + plan.toName, color: DETOUR_COLOR, lineHeight: 40, fontSize: 12 })
@@ -268,11 +280,16 @@ export class TrafficScene extends ModuleScene {
     return true
   }
 
+  /** 绕行、轨迹这类线的对象类型：流光线是 customMesh，否则是 DTS 折线 */
+  private get lineType(): 'customMesh' | 'polyline' {
+    return this.options.lineFlow ? 'customMesh' : 'polyline'
+  }
+
   /** 删除绕行方案 */
   async clearDetour(): Promise<void> {
     if (!this.detourId) return
     this.detourId = null
-    await Promise.all([this.replaceLayer(DETOUR_LAYER, 'polyline', []), this.replaceLayer(DETOUR_PIN_LAYER, 'marker', [])])
+    await Promise.all([this.replaceLayer(DETOUR_LAYER, this.lineType, []), this.replaceLayer(DETOUR_PIN_LAYER, 'marker', [])])
   }
 
   /** 当前画着绕行方案的事件 id */
