@@ -135,8 +135,8 @@ export function plainLine(o: { id: string; groupId?: string; path: number[][]; c
   }
 }
 
-/** 分级点位的亮度（材质默认 3，叠上泛光太亮；1.4 时光环颜色清楚、不发白） */
-const BEACON_BRIGHTNESS = 1.4
+/** 分级点位的亮度（V3 材质默认 1.5；泛光会放大它，0.9 时细线清楚、颜色不发白） */
+const BEACON_BRIGHTNESS = 0.9
 
 /**
  * 告警 / 事件点的地面效果：分级点位材质包（cityBase.beacons）可用时，整层合成一个 customMesh——
@@ -330,6 +330,17 @@ export function circleRing(at: number[], radius: number, segments = 48): number[
 }
 
 /** 平面热力图（内置对象）。points 的 value 须在 range 内；只画陆地上的点才不会漫到海里 */
+/** 热力色带：深蓝（透明）→ 蓝 → 青 → 黄 → 橙 → 红。图例取 alpha > 0 的几档 */
+export const HEAT_STOPS: { value: number; color: string; alpha: number }[] = [
+  { value: 0, color: RAMP[0], alpha: 0 },
+  { value: 0.35, color: RAMP[0], alpha: 0.16 },
+  { value: 0.55, color: RAMP[1], alpha: 0.28 },
+  { value: 0.68, color: '#38c6d9', alpha: 0.38 },
+  { value: 0.8, color: COLOR.caution, alpha: 0.5 },
+  { value: 0.9, color: RAMP[4], alpha: 0.6 },
+  { value: 1, color: RAMP[5], alpha: 0.7 }
+]
+
 export function heatmap(o: { id: string; groupId?: string; points: { id: string; at: number[]; radius: number; value: number }[]; range: [number, number]; z?: [number, number]; stops?: { value: number; color: number[] }[] }) {
   const xs = o.points.map(p => p.at[0])
   const ys = o.points.map(p => p.at[1])
@@ -343,24 +354,16 @@ export function heatmap(o: { id: string; groupId?: string; points: { id: string;
     data: o.points.map(p => ({ id: p.id, coordinate: [p.at[0], p.at[1], 0], radius: p.radius, heatValue: Math.min(o.range[1], Math.max(o.range[0], p.value)) })),
     style: 0,
     textureSize: 1024,
-    // 白天影像很亮：叠加混合（blendMode 1）会把热力冲成一片发白的淡色，所以用普通混合 + 更高的不透明度
+    // 普通混合；低值近乎透明、中值是低透明度的冷色，只有高值才出现暖色：近景下城市和光效不会被一整片黄色盖住
     opacityMode: 1,
-    opacityRange: [0.12, 0.78],
+    opacityRange: [0.04, 0.62],
     blur: 0.9,
     blendMode: 0,
     light: false,
     colors: {
       gradient: true,
       invalidColor: [0, 0, 0, 0],
-      // 蓝和橙是互补色，渐变中点是灰白：冷暖之间只留很窄的过渡，并垫一档黄，高值区不会发白
-      colorStops: o.stops ?? [
-        { value: 0, color: rgba(RAMP[0], 0) },
-        { value: 0.3, color: rgba(RAMP[1], 0.5) },
-        { value: 0.6, color: rgba(RAMP[2], 0.68) },
-        { value: 0.66, color: rgba(COLOR.caution, 0.74) },
-        { value: 0.8, color: rgba(RAMP[4], 0.8) },
-        { value: 1, color: rgba(RAMP[5], 0.88) }
-      ]
+      colorStops: o.stops ?? HEAT_STOPS.map(s => ({ value: s.value, color: rgba(s.color, s.alpha) }))
     },
     updateTime: 0.8
   }

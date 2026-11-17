@@ -42,7 +42,7 @@ import { getOverviewData } from '@/api/overview'
 import DetailCard from '@/components/panel/DetailCard.vue'
 import { useEscape } from '@/composables/useEscape'
 import { useSceneTools } from '@/composables/useSceneTools'
-import { COLOR, LEVEL_COLOR, RAMP, rampColor } from '@/scene/kit'
+import { COLOR, HEAT_STOPS, LEVEL_COLOR, RAMP, rampColor } from '@/scene/kit'
 import { DtsSceneApi } from '@/scene/DtsSceneApi'
 import { cityBase } from '@/scene/CityBase'
 import store from '@/stores'
@@ -63,9 +63,9 @@ const LAYERS = [
   { key: 'district', name: '片区密度' }
 ]
 
-/** 热力图例：与 kit.heatmap 的默认色带一致（蓝 → 黄 → 橙 → 红） */
 const LEVEL_TEXT: Record<number, string> = { 1: '一级', 2: '二级', 3: '三级', 4: '四级' }
-const HEAT_STEPS = [RAMP[1], RAMP[2], COLOR.caution, RAMP[4], RAMP[5]]
+/** 热力图例：与 kit.heatmap 的色带一致 */
+const HEAT_STEPS = HEAT_STOPS.slice(2).map(s => s.color)
 const peak = populationPeak()
 const data = ref<OverviewData | null>(null)
 // 当前真实时刻，取整到半小时

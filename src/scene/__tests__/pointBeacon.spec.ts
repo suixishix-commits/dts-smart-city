@@ -7,7 +7,7 @@ describe('beaconMesh', () => {
     expect(beaconMesh('x', [])).toBeNull()
   })
 
-  it('puts a ground quad under every point and crossed beam quads only on levels 1-3', () => {
+  it('puts a ground quad under every point and crossed beam quads only on level 1', () => {
     const mesh = beaconMesh('layer', [
       { at: [1000, 2000], level: 1 },
       { at: [3000, 4000], level: 4 }
@@ -26,12 +26,12 @@ describe('beaconMesh', () => {
   })
 
   it('encodes quad corners in R/G, ground or beam in B and the level in A', () => {
-    const mesh = beaconMesh('layer', [{ at: [0, 0], level: 2 }]) as { colors: number[][] }
+    const mesh = beaconMesh('layer', [{ at: [0, 0], level: 1 }]) as { colors: number[][] }
     expect(mesh.colors.slice(0, 4)).toEqual([
-      [0, 0, 0, 0.5],
-      [1, 0, 0, 0.5],
-      [1, 1, 0, 0.5],
-      [0, 1, 0, 0.5]
+      [0, 0, 0, 0.25],
+      [1, 0, 0, 0.25],
+      [1, 1, 0, 0.25],
+      [0, 1, 0, 0.25]
     ])
     expect(mesh.colors[4][2]).toBe(1)
   })

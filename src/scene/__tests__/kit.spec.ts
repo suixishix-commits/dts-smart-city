@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { arc, area, circleRing, COLOR, column, fence, flowLine, focusView, frustum, heatmap, LEVEL_COLOR, pin, plainLine, RAMP, rampColor, regionLayer, rgba, ripple, staggerHeights, STATUS_RAMP } from '../kit'
+import { arc, area, circleRing, COLOR, column, fence, flowLine, focusView, frustum, heatmap, HEAT_STOPS, LEVEL_COLOR, pin, plainLine, RAMP, rampColor, regionLayer, rgba, ripple, staggerHeights, STATUS_RAMP } from '../kit'
 
 describe('rgba', () => {
   it('converts #rrggbb to 0–1 components with alpha 1 by default', () => {
@@ -286,7 +286,9 @@ describe('heatmap', () => {
   it('has a transparent lowest colour stop by default and accepts custom stops', () => {
     const stops = heatmap({ id: 'h', points, range: [0, 4] }).colors.colorStops
     expect(stops[0].color[3]).toBe(0)
-    expect(stops.map(s => s.value)).toEqual([0, 0.3, 0.6, 0.66, 0.8, 1])
+    expect(stops.map(s => s.value)).toEqual(HEAT_STOPS.map(s => s.value))
+    // 只有高值才出现暖色：中段透明度压低，城市和光效不被盖住
+    expect(stops.find(s => s.value === 0.55)?.color[3]).toBeLessThan(0.35)
     const custom = [{ value: 0, color: [0, 0, 0, 0] }]
     expect(heatmap({ id: 'h', points, range: [0, 4], stops: custom }).colors.colorStops).toBe(custom)
   })
