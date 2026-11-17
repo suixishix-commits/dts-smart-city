@@ -429,7 +429,14 @@ export async function regionLayer(id: string, regions: { id: string; color: stri
         console.warn('[regionLayer] 换色失败，重建图层', e)
       }
       if (removed) return
-      if (!ok) await build(current)
+      if (!ok) {
+        try {
+          await build(current)
+        } catch (e) {
+          console.warn('[regionLayer] 重建图层失败', e)
+          return
+        }
+      }
       // 换色或重建会让对象重新显示；图层关着时再藏回去
       if (!visible) await __xapi.customObject.hideByGroupId(id)
     }

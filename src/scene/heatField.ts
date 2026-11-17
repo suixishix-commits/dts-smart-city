@@ -2,9 +2,11 @@
  * 热力场（UE 材质 HeatField V1，dts-effect-kit/projects/HeatField_20261117），替代 DTS 自带热力图。
  *
  * DTS 热力图每次换数据都要整张重新生成纹理，时间轴播放时一直闪。这里改成：
- * - 前端把热力点在规则网格上采样成一张平滑的密度面，作为一个 customMesh 发给渲染端（只发陆地上有热度的格子）；
+ * - 前端把热力点在规则网格上采样成一张平滑的密度面，作为一个 customMesh 发给渲染端；
  * - 顶点颜色的 A 是密度 0–1（线性 8 位，三角形内插值后就是连续的面），色带、等值线、高值呼吸都在材质里算；
- * - 换数据时新面以透明度 0 加上，和旧面交叉淡入淡出后再删旧面：画面始终有一张完整的热力面，不闪。
+ * - 网格只建一次：哪些格子要发只取决于热力点的位置（覆盖范围），和数值无关，所以换时刻时形状不变；
+ * - 换数据只用 customMesh.update 改顶点颜色（实测约 40 ms、几十 KB），并从当前显示值分几帧插值到新值。
+ *   不新增、不删除对象，画面上始终是同一张面，不会闪。
  */
 import type { SceneApi } from './SceneApi'
 
@@ -18,14 +20,20 @@ export interface HeatSource {
   value: number
 }
 
-/** 规则网格上的密度场，values 按行排列（row * cols + col），已归一化到 0–1 */
+/** 规则网格上的密度场，按行排列（row * cols + col） */
 export interface HeatField {
   origin: [number, number]
   step: number
   cols: number
   rows: number
+  /** 归一化到 0–1 的密度 */
   values: Float32Array
+  /** 1 表示该格点在热力点的覆盖范围内（只由位置决定，换时刻不变） */
+  covered: Uint8Array
 }
+
+/** 覆盖度阈值：核权重之和低于它的格点不在任何热力点附近 */
+const COVER_MIN = 0.02
 
 /**
  * 在规则网格上采样热力点。
@@ -34,9 +42,9 @@ export interface HeatField {
  */
 export function sampleHeatField(o: { points: HeatSource[]; extra?: HeatSource[]; range: [number, number]; step: number }): HeatField {
   const all = [...o.points, ...(o.extra ?? [])]
-  if (all.length === 0) return { origin: [0, 0], step: o.step, cols: 0, rows: 0, values: new Float32Array(0) }
-  const pad = Math.max(...all.map(p => p.radius)) * 1.5
   const step = o.step
+  if (all.length === 0) return { origin: [0, 0], step, cols: 0, rows: 0, values: new Float32Array(0), covered: new Uint8Array(0) }
+  const pad = Math.max(...all.map(p => p.radius)) * 1.5
   const x0 = Math.floor((Math.min(...all.map(p => p.at[0])) - pad) / step) * step
   const y0 = Math.floor((Math.min(...all.map(p => p.at[1])) - pad) / step) * step
   const cols = Math.ceil((Math.max(...all.map(p => p.at[0])) + pad - x0) / step) + 1
@@ -45,6 +53,7 @@ export function sampleHeatField(o: { points: HeatSource[]; extra?: HeatSource[];
   const wsum = new Float32Array(n)
   const vsum = new Float32Array(n)
   const add = new Float32Array(n)
+  const reachW = new Float32Array(n)
   const splat = (p: HeatSource, target: 'avg' | 'add') => {
     const sigma = p.radius * 0.6
     const reach = sigma * 2.6
@@ -59,6 +68,7 @@ export function sampleHeatField(o: { points: HeatSource[]; extra?: HeatSource[];
         const dx = x0 + c * step - p.at[0]
         const w = Math.exp((dx * dx + dy * dy) * k)
         const i = r * cols + c
+        reachW[i] += w
         if (target === 'avg') {
           wsum[i] += w
           vsum[i] += w * p.value
@@ -73,40 +83,60 @@ export function sampleHeatField(o: { points: HeatSource[]; extra?: HeatSource[];
   const [lo, hi] = o.range
   const span = hi - lo || 1
   const values = new Float32Array(n)
+  const covered = new Uint8Array(n)
   for (let i = 0; i < n; i++) {
     // 覆盖度不足 1 时（陆地边缘、海上）按覆盖度淡出，而不是把边上的一个点放大成整片
-    const base = wsum[i] > 0 ? (vsum[i] / Math.max(wsum[i], 1)) : 0
+    const base = wsum[i] > 0 ? vsum[i] / Math.max(wsum[i], 1) : 0
     values[i] = Math.min(1, Math.max(0, (base + add[i] - lo) / span))
+    covered[i] = reachW[i] >= COVER_MIN ? 1 : 0
   }
-  return { origin: [x0, y0], step, cols, rows, values }
+  return { origin: [x0, y0], step, cols, rows, values, covered }
 }
 
-/** 低于它的格子不发（四个角都低于时整格省掉） */
-const CUTOFF = 0.03
 /** 离地高度，米（材质关了深度测试，只影响透视下的位置） */
 const FIELD_Z = 8
 
-/** 把密度场转成 customMesh 参数；没有任何格子有热度时返回 null */
-export function heatFieldMesh(id: string, field: HeatField, o: { groupId?: string; opacity?: number; brightness?: number; levels?: number } = {}): Record<string, unknown> | null {
-  const { cols, rows, values, step } = field
+/** 网格的拓扑：发了哪些格点（顶点顺序）。同一拓扑的两张场可以只换颜色 */
+export interface HeatFieldLayout {
+  key: string
+  /** 第 k 个顶点对应的格点下标 */
+  vertices: Int32Array
+}
+
+const round3 = (v: number) => Math.round(v * 1000) / 1000
+
+/** 顶点颜色：RGB 不用（白），A 是密度 */
+export function heatFieldColors(field: HeatField, layout: HeatFieldLayout, values: Float32Array = field.values): number[][] {
+  return Array.from(layout.vertices, i => [1, 1, 1, round3(values[i])])
+}
+
+/**
+ * 把密度场转成 customMesh 参数和它的拓扑。只发覆盖范围内的格子（四个角都在覆盖范围内）；一个都没有时返回 null。
+ */
+export function heatFieldMesh(
+  id: string,
+  field: HeatField,
+  o: { groupId?: string; brightness?: number; levels?: number } = {}
+): { mesh: Record<string, unknown> & { id: string }; layout: HeatFieldLayout } | null {
+  const { cols, rows, covered, step } = field
   const [x0, y0] = field.origin
   const index = new Int32Array(cols * rows).fill(-1)
+  const vertices: number[] = []
   const coordinates: number[][] = []
-  const colors: number[][] = []
   const indices: number[] = []
   const vertex = (r: number, c: number) => {
     const i = r * cols + c
     if (index[i] < 0) {
-      index[i] = coordinates.length
+      index[i] = vertices.length
+      vertices.push(i)
       coordinates.push([x0 + c * step, y0 + r * step, FIELD_Z])
-      colors.push([1, 1, 1, Math.round(values[i] * 1000) / 1000])
     }
     return index[i]
   }
   for (let r = 0; r + 1 < rows; r++) {
     for (let c = 0; c + 1 < cols; c++) {
       const a = r * cols + c
-      if (Math.max(values[a], values[a + 1], values[a + cols], values[a + cols + 1]) < CUTOFF) continue
+      if (!(covered[a] && covered[a + 1] && covered[a + cols] && covered[a + cols + 1])) continue
       const v00 = vertex(r, c)
       const v10 = vertex(r, c + 1)
       const v11 = vertex(r + 1, c + 1)
@@ -115,20 +145,24 @@ export function heatFieldMesh(id: string, field: HeatField, o: { groupId?: strin
     }
   }
   if (indices.length === 0) return null
-  const scalarParameters = [{ name: 'Opacity', value: o.opacity ?? 1 }]
+  const layout: HeatFieldLayout = { key: `${x0},${y0},${step},${cols},${rows},${vertices.length},${indices.length}`, vertices: Int32Array.from(vertices) }
+  const scalarParameters = [{ name: 'Opacity', value: 1 }]
   if (o.brightness !== undefined) scalarParameters.push({ name: 'Brightness', value: o.brightness })
   if (o.levels !== undefined) scalarParameters.push({ name: 'Levels', value: o.levels })
   return {
-    id,
-    groupId: o.groupId,
-    coordinateType: 0,
-    coordinates,
-    colors,
-    indices,
-    color: [1, 1, 1, 1],
-    createCollision: false,
-    material: HEAT_FIELD_MATERIAL,
-    scalarParameters
+    mesh: {
+      id,
+      groupId: o.groupId,
+      coordinateType: 0,
+      coordinates,
+      colors: heatFieldColors(field, layout),
+      indices,
+      color: [1, 1, 1, 1],
+      createCollision: false,
+      material: HEAT_FIELD_MATERIAL,
+      scalarParameters
+    },
+    layout
   }
 }
 
@@ -136,27 +170,31 @@ const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms
 const ease = (t: number) => t * t * (3 - 2 * t)
 
 /**
- * 一个热力场图层：show() 换数据时交叉淡入淡出，重叠调用只保留最新一次。
- * 需要 SceneApi.update（改材质参数）；没有时直接替换。
+ * 一个热力场图层。第一次 show() 建网格；之后数据只要拓扑不变，就原地改顶点颜色，并从当前显示值插值过去。
+ * 重叠调用只保留最新一次（从当前显示到最新目标继续过渡）；图层关着时不建对象，打开时用最新数据创建。
+ * 需要 SceneApi.update；没有时每次整张替换。
  */
 export class HeatFieldLayer {
-  private live: string | null = null
-  private slot = 0
+  private id: string | null = null
+  private layout: HeatFieldLayout | null = null
+  /** 当前画面上的值（按格点） */
+  private shown: Float32Array | null = null
   private pending: HeatField | null = null
   private running: Promise<void> | null = null
   private visible = true
   private cleared = false
-  /** 图层关着时收到的最新数据：不创建对象（创建后再隐藏会闪一帧），打开时再创建 */
-  private deferred: HeatField | null = null
+  private slot = 0
+  private latest: HeatField | null = null
 
   constructor(
     private readonly api: SceneApi,
-    private readonly o: { id: string; groupId?: string; brightness?: number; levels?: number; fadeMs?: number; fadeSteps?: number }
+    private readonly o: { id: string; groupId?: string; brightness?: number; levels?: number; tweenMs?: number; tweenSteps?: number }
   ) {}
 
-  /** 换成新的密度场（第一次直接出现，之后交叉淡入淡出） */
   show(field: HeatField): Promise<void> {
     this.cleared = false
+    this.latest = field
+    if (!this.visible) return this.running ?? Promise.resolve()
     this.pending = field
     this.running ??= this.loop()
     return this.running
@@ -165,30 +203,31 @@ export class HeatFieldLayer {
   async setVisible(visible: boolean): Promise<void> {
     this.visible = visible
     await this.running
-    if (visible && this.deferred) {
-      const field = this.deferred
-      this.deferred = null
-      await this.show(field)
-      return
+    if (this.id) {
+      await this.api.setVisible('customMesh', [this.id], visible)
+      // 关着期间数据变了：打开时直接跳到最新值
+      if (visible && this.latest) await this.show(this.latest)
+    } else if (visible && this.latest) {
+      await this.show(this.latest)
     }
-    if (this.live) await this.api.setVisible('customMesh', [this.live], visible)
   }
 
-  /** 删除图层（离开模块时） */
   async clear(): Promise<void> {
     this.cleared = true
     this.pending = null
-    this.deferred = null
+    this.latest = null
     await this.running
-    if (this.live) {
-      const id = this.live
-      this.live = null
+    if (this.id) {
+      const id = this.id
+      this.id = null
+      this.layout = null
+      this.shown = null
       await this.api.remove('customMesh', [id])
     }
   }
 
   get currentId(): string | null {
-    return this.live
+    return this.id
   }
 
   private async loop(): Promise<void> {
@@ -196,49 +235,53 @@ export class HeatFieldLayer {
       while (this.pending && !this.cleared) {
         const field = this.pending
         this.pending = null
-        await this.swap(field)
+        await this.apply(field)
       }
     } finally {
       this.running = null
     }
   }
 
-  private async swap(field: HeatField): Promise<void> {
-    if (!this.visible) {
-      // 关着的图层：删掉旧面，记住最新数据，打开时再建
-      this.deferred = field
-      if (this.live) {
-        const id = this.live
-        this.live = null
-        await this.api.remove('customMesh', [id])
-      }
+  private async apply(field: HeatField): Promise<void> {
+    const built = heatFieldMesh(`${this.o.id}-${this.slot ? 'a' : 'b'}`, field, { groupId: this.o.groupId, brightness: this.o.brightness, levels: this.o.levels })
+    const sameShape = !!built && !!this.id && !!this.layout && built.layout.key === this.layout.key
+    if (sameShape && this.api.update && this.shown) {
+      await this.tween(field)
       return
     }
-    const old = this.live
-    const fade = !!old && !!this.api.update
-    this.slot = 1 - this.slot
-    const id = `${this.o.id}-${this.slot ? 'b' : 'a'}`
-    const mesh = heatFieldMesh(id, field, { groupId: this.o.groupId, opacity: fade ? 0 : 1, brightness: this.o.brightness, levels: this.o.levels })
-    if (mesh) {
-      await this.api.add('customMesh', [mesh as { id: string }])
-      this.live = id
-      if (fade && old) await this.crossFade(id, old)
+    // 第一次或拓扑变了：建新网格（先建后删）
+    const old = this.id
+    if (built) {
+      await this.api.add('customMesh', [built.mesh])
+      this.id = built.mesh.id
+      this.layout = built.layout
+      this.shown = Float32Array.from(field.values)
+      this.slot = 1 - this.slot
     } else {
-      this.live = null
+      this.id = null
+      this.layout = null
+      this.shown = null
     }
     if (old) await this.api.remove('customMesh', [old])
   }
 
-  private async crossFade(inId: string, outId: string): Promise<void> {
-    const steps = this.o.fadeSteps ?? 6
-    const pause = (this.o.fadeMs ?? 480) / steps
+  /** 从当前显示值插值到 field：每步发一次顶点颜色 */
+  private async tween(field: HeatField): Promise<void> {
+    const id = this.id as string
+    const layout = this.layout as HeatFieldLayout
+    const from = this.shown as Float32Array
+    const to = field.values
+    const steps = this.o.tweenSteps ?? 5
+    const pause = (this.o.tweenMs ?? 320) / steps
+    const now = new Float32Array(to.length)
     for (let k = 1; k <= steps; k++) {
-      // 已有更新的数据在等：直接跳到终态，马上换下一张
-      const a = this.pending || this.cleared ? 1 : ease(k / steps)
-      const opacity = (id: string, value: number) => ({ id, scalarParameters: [{ name: 'Opacity', value }] })
-      await this.api.update?.('customMesh', [opacity(inId, a), opacity(outId, 1 - a)])
-      if (a >= 1) return
-      await wait(pause)
+      // 新数据到了：从当前值出发继续过渡到最新目标（外层循环处理）
+      if (this.pending || this.cleared) return
+      const t = ease(k / steps)
+      for (let i = 0; i < to.length; i++) now[i] = from[i] + (to[i] - from[i]) * t
+      await this.api.update?.('customMesh', [{ id, colors: heatFieldColors(field, layout, now) } as { id: string }])
+      this.shown = Float32Array.from(now)
+      if (k < steps) await wait(pause)
     }
   }
 }

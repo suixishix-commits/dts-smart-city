@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HEAT_FIELD_MATERIAL, HeatFieldLayer, heatFieldMesh, sampleHeatField } from '../heatField'
+import { HEAT_FIELD_MATERIAL, heatFieldColors, HeatFieldLayer, heatFieldMesh, sampleHeatField } from '../heatField'
 import type { SceneApi, SceneObjectType } from '../SceneApi'
 
 const at = (field: ReturnType<typeof sampleHeatField>, x: number, y: number) => {
@@ -37,20 +37,26 @@ describe('sampleHeatField', () => {
 })
 
 describe('heatFieldMesh', () => {
-  it('emits only the cells that carry heat, with the density in vertex alpha', () => {
-    const f = { origin: [0, 0] as [number, number], step: 10, cols: 4, rows: 2, values: new Float32Array([0, 0, 0, 0.5, 0, 0, 0, 0.5]) }
-    const mesh = heatFieldMesh('m', f, { opacity: 0 }) as { coordinates: number[][]; colors: number[][]; indices: number[]; material: string; scalarParameters: unknown[] }
-    // 只有最右一格（第 3 列）有热度：4 个顶点、2 个三角形
+  const grid = (values: number[], covered: number[]) => ({ origin: [0, 0] as [number, number], step: 10, cols: 4, rows: 2, values: new Float32Array(values), covered: new Uint8Array(covered) })
+
+  it('emits the covered cells with the density in vertex alpha, independent of the values', () => {
+    const f = grid([0, 0, 0, 0.5, 0, 0, 0, 0.5], [0, 0, 1, 1, 0, 0, 1, 1])
+    const built = heatFieldMesh('m', f) as NonNullable<ReturnType<typeof heatFieldMesh>>
+    const mesh = built.mesh as unknown as { coordinates: number[][]; colors: number[][]; indices: number[]; material: string; scalarParameters: unknown[] }
+    // 只有最右一格（第 2–3 列）四角都被覆盖：4 个顶点、2 个三角形；值为 0 的格点也要发（换时刻时形状不变）
     expect(mesh.indices).toHaveLength(6)
-    expect(mesh.coordinates).toHaveLength(4)
     expect(mesh.coordinates.map(c => c[0]).sort()).toEqual([20, 20, 30, 30])
     expect(mesh.colors.map(c => c[3]).sort()).toEqual([0, 0, 0.5, 0.5])
     expect(mesh.material).toBe(HEAT_FIELD_MATERIAL)
-    expect(mesh.scalarParameters).toEqual([{ name: 'Opacity', value: 0 }])
+    expect(mesh.scalarParameters).toEqual([{ name: 'Opacity', value: 1 }])
+    // 同样覆盖、不同数值：拓扑相同
+    const other = heatFieldMesh('m', grid([0, 0, 1, 1, 0, 0, 1, 1], [0, 0, 1, 1, 0, 0, 1, 1])) as NonNullable<ReturnType<typeof heatFieldMesh>>
+    expect(other.layout.key).toBe(built.layout.key)
+    expect(heatFieldColors(f, built.layout).map(c => c[3])).toEqual(mesh.colors.map(c => c[3]))
   })
 
-  it('returns null when nothing is hot', () => {
-    expect(heatFieldMesh('m', { origin: [0, 0], step: 10, cols: 2, rows: 2, values: new Float32Array(4) })).toBeNull()
+  it('returns null when nothing is covered', () => {
+    expect(heatFieldMesh('m', grid([1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 0, 0, 0, 0, 0, 0]))).toBeNull()
   })
 })
 
@@ -60,8 +66,7 @@ class FakeApi implements SceneApi {
   async add(type: SceneObjectType, objects: { id: string }[]) {
     for (const o of objects) {
       this.ids.add(o.id)
-      const op = (o as { scalarParameters?: { value: number }[] }).scalarParameters?.[0]?.value
-      this.log.push(`add ${o.id} ${op}`)
+      this.log.push(`add ${o.id}`)
     }
   }
   async remove(type: SceneObjectType, ids: string[]) {
@@ -69,7 +74,10 @@ class FakeApi implements SceneApi {
     this.log.push('remove ' + ids.join(','))
   }
   async update(type: SceneObjectType, objects: { id: string }[]) {
-    this.log.push('update ' + objects.map(o => `${o.id}=${(o as { scalarParameters: { value: number }[] }).scalarParameters[0].value.toFixed(2)}`).join(' '))
+    for (const o of objects) {
+      const colors = (o as unknown as { colors: number[][] }).colors
+      this.log.push(`update ${o.id} max=${Math.max(...colors.map(c => c[3])).toFixed(2)}`)
+    }
   }
   async setVisible(type: SceneObjectType, ids: string[], visible: boolean) {
     this.log.push(`visible ${ids.join(',')} ${visible}`)
@@ -84,50 +92,57 @@ class FakeApi implements SceneApi {
 const field = (v: number) => sampleHeatField({ points: [{ at: [0, 0], radius: 300, value: v }], range: [0, 1], step: 100 })
 
 describe('HeatFieldLayer', () => {
-  it('shows the first field at once, then cross-fades to the next and removes the old one', async () => {
+  it('builds the mesh once, then only tweens the vertex colours towards the new values', async () => {
     const api = new FakeApi()
-    const layer = new HeatFieldLayer(api, { id: 'h', fadeMs: 0, fadeSteps: 2 })
+    const layer = new HeatFieldLayer(api, { id: 'h', tweenMs: 0, tweenSteps: 2 })
     await layer.show(field(1))
-    expect(api.log).toEqual(['add h-b 1'])
+    expect(api.log).toEqual(['add h-b'])
     api.log = []
-    await layer.show(field(0.5))
-    expect(api.log).toEqual(['add h-a 0', 'update h-a=0.50 h-b=0.50', 'update h-a=1.00 h-b=0.00', 'remove h-b'])
-    expect([...api.ids]).toEqual(['h-a'])
+    await layer.show(field(0))
+    // 不新增、不删除：两步插值 1 → 0.5 → 0
+    expect(api.log).toEqual(['update h-b max=0.50', 'update h-b max=0.00'])
+    expect([...api.ids]).toEqual(['h-b'])
   })
 
-  it('keeps only the latest of overlapping updates', async () => {
+  it('keeps only the latest of overlapping updates and continues from what is on screen', async () => {
     const api = new FakeApi()
-    const layer = new HeatFieldLayer(api, { id: 'h', fadeMs: 0, fadeSteps: 4 })
+    const layer = new HeatFieldLayer(api, { id: 'h', tweenMs: 0, tweenSteps: 4 })
     await layer.show(field(1))
-    const runs = [layer.show(field(0.2)), layer.show(field(0.3)), layer.show(field(0.4))]
+    const runs = [layer.show(field(0.2)), layer.show(field(0.3)), layer.show(field(0))]
     await Promise.all(runs)
-    // 第一次切换进行中又来了两次：中间那次被丢掉，只再切换一次到最新
-    expect(api.log.filter(l => l.startsWith('add'))).toEqual(['add h-b 1', 'add h-a 0', 'add h-b 0'])
+    expect(api.log.filter(l => l.startsWith('add'))).toEqual(['add h-b'])
+    expect(api.log.at(-1)).toBe('update h-b max=0.00')
     expect(api.ids.size).toBe(1)
   })
 
-  it('swaps without fading when the api cannot update, and clears on leave', async () => {
+  it('replaces the mesh (make before break) when the coverage changes', async () => {
     const api = new FakeApi()
-    const plain: SceneApi = { ...api, add: api.add.bind(api), remove: api.remove.bind(api), setVisible: api.setVisible.bind(api), setCamera: api.setCamera, focus: api.focus, project: api.project }
-    delete (plain as { update?: unknown }).update
+    const layer = new HeatFieldLayer(api, { id: 'h', tweenMs: 0 })
+    await layer.show(field(1))
+    await layer.show(sampleHeatField({ points: [{ at: [5000, 0], radius: 300, value: 1 }], range: [0, 1], step: 100 }))
+    expect(api.log).toEqual(['add h-b', 'add h-a', 'remove h-b'])
+  })
+
+  it('swaps whole meshes when the api cannot update, and clears on leave', async () => {
+    const api = new FakeApi()
+    const plain: SceneApi = { add: api.add.bind(api), remove: api.remove.bind(api), setVisible: api.setVisible.bind(api), setCamera: api.setCamera, focus: api.focus, project: api.project }
     const layer = new HeatFieldLayer(plain, { id: 'h' })
     await layer.show(field(1))
     await layer.show(field(0.5))
-    expect(api.log).toEqual(['add h-b 1', 'add h-a 1', 'remove h-b'])
+    expect(api.log).toEqual(['add h-b', 'add h-a', 'remove h-b'])
     await layer.clear()
     expect(api.ids.size).toBe(0)
   })
 
   it('creates nothing while the layer is switched off and shows the latest field when it is switched on', async () => {
     const api = new FakeApi()
-    const layer = new HeatFieldLayer(api, { id: 'h', fadeMs: 0 })
+    const layer = new HeatFieldLayer(api, { id: 'h', tweenMs: 0 })
     await layer.setVisible(false)
     await layer.show(field(1))
     await layer.show(field(0.5))
     expect(api.log).toEqual([])
     await layer.setVisible(true)
-    expect(api.log).toEqual(['add h-b 1'])
-    // 再关上：隐藏现有的面
+    expect(api.log).toEqual(['add h-b'])
     await layer.setVisible(false)
     expect(api.log.at(-1)).toBe('visible h-b false')
   })
