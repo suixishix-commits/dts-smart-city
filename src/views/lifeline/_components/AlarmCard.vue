@@ -1,5 +1,5 @@
 <template>
-  <div class="alarm-card">
+  <div v-pop="alarm.id" class="alarm-card">
     <div class="head">
       <LevelTag :level="alarm.level" />
       <h3 class="name">{{ SYSTEM_NAME[alarm.system] }} · {{ alarm.type }}</h3>

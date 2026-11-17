@@ -76,5 +76,15 @@ export function withTooltip<T extends ChartOption>(option: T): T & { tooltip: Re
     axisPointer: { type: 'line', lineStyle: { color: 'rgba(255,255,255,0.35)', type: 'dashed', width: 1 } },
     formatter: (params: TooltipParam | TooltipParam[]) => tooltipHtml(Array.isArray(params) ? params : [params], hourAxis)
   }
+  // 环形、玫瑰图没有坐标轴：按数据项提示「名称 · 数值 · 占比」
+  const series = Array.isArray(option.series) ? (option.series as { type?: string }[]) : []
+  if (series.some(s => s.type === 'pie')) {
+    Object.assign(base, {
+      trigger: 'item',
+      axisPointer: undefined,
+      formatter: (p: { name: string; value: number; percent: number; color: string }) =>
+        tooltipHtml([{ seriesName: p.name, color: p.color, value: p.value, axisValue: p.name, axisValueLabel: p.percent.toFixed(1) + '%' }], false)
+    })
+  }
   return { ...option, tooltip: { ...base, ...(option.tooltip ?? {}) } }
 }

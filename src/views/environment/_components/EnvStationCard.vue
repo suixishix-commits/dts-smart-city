@@ -1,5 +1,5 @@
 <template>
-  <div class="station-card">
+  <div v-pop="station.id" class="station-card">
     <div class="head">
       <i class="dot" :style="{ background: color }"></i>
       <h3 class="name">{{ station.name }}</h3>

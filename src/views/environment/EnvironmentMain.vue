@@ -242,7 +242,7 @@ onMounted(async () => {
 
   const geo = await cityBase.start()
   if (!geo || unmounting.signal.aborted) return
-  scene = new EnvironmentScene(new DtsSceneApi(), geo, { cameraView: HOME, pak: cityBase.pak })
+  scene = new EnvironmentScene(new DtsSceneApi(), geo, { cameraView: HOME, pak: cityBase.pak, beacons: cityBase.beacons })
   scene.setData(loaded, hour.value, index.value)
   // 场景就绪前用户可能已经改过图层开关
   for (const l of LAYERS) scene.setLayerVisible(l.key, layers.value.includes(l.key))

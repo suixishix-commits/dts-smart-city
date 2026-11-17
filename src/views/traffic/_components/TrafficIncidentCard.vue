@@ -1,5 +1,5 @@
 <template>
-  <div class="traffic-incident-card">
+  <div v-pop="incident.id" class="traffic-incident-card">
     <div class="head">
       <span class="tag" :style="{ background: INCIDENT_COLOR[incident.type] }">{{ INCIDENT_TEXT[incident.type] }}</span>
       <h3 class="name">{{ incident.title }}</h3>

@@ -1,5 +1,5 @@
 <template>
-  <div class="detail-card">
+  <div v-pop="detail.title" class="detail-card">
     <div class="head">
       <span v-if="detail.tag" class="tag" :style="{ background: detail.tag.color }">{{ detail.tag.text }}</span>
       <h3 class="name">{{ detail.title }}</h3>

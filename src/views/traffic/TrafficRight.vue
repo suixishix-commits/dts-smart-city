@@ -14,14 +14,15 @@
     </PanelCard>
 
     <PanelCard title="信号路口" :extra="'共 ' + data.signals.length + ' 个 · 手动放行 ' + manualCount">
-      <div class="split" role="img" :aria-label="CONTROL_KEYS.map(k => k + ' ' + counts[k]).join('，')">
-        <span v-for="k in CONTROL_KEYS" :key="k" :style="{ flexGrow: counts[k], background: CONTROL_COLOR[k] }"></span>
-      </div>
+      <!-- 控制方式：左边环形图（中间是路口总数），右边三项计数 -->
+      <div class="signal-split">
+        <LineChart class="donut" :option="signalOption" :height="104" :label="CONTROL_KEYS.map(k => k + ' ' + counts[k]).join('，')" />
       <div class="counts">
         <div v-for="k in CONTROL_KEYS" :key="k" class="count">
           <span class="label"><i :style="{ background: CONTROL_COLOR[k] }"></i>{{ k }}</span>
           <span class="num">{{ counts[k] }}</span>
         </div>
+      </div>
       </div>
       <div class="list">
         <button v-for="s in abnormal" :key="s.id" type="button" class="row compact" :class="{ active: s.id === activeSignal }" :title="s.name + '：' + SIGNAL_TEXT[s.status] + '，' + s.note" @click="emit('signal', s.id)">
@@ -44,21 +45,18 @@
       </div>
       <template v-if="transitTab === 'modes'">
         <div class="list-note">分方式客流 · 今日累计 {{ modesTotal.toFixed(1) }} 万人次</div>
-        <div class="modes">
-          <BarRow v-for="m in modes" :key="m.key" :name="m.name" :value="m.value.toFixed(1)" :percent="m.percent" :color="COLOR.accent" />
-        </div>
+        <LineChart :option="modesOption" :height="150" label="各公共交通方式今日累计客流，万人次" />
       </template>
       <template v-else>
         <div class="list-note">停车场占用率 · 余位</div>
-        <div class="parkings">
-          <BarRow v-for="p in parkings" :key="p.id" :name="p.name" :value="p.value" :percent="p.percent" :color="p.color" :note="p.free" />
-        </div>
+        <LineChart :option="parkingOption" :height="150" label="各停车场占用率与余位" />
       </template>
     </PanelCard>
   </aside>
 </template>
 
 <script setup lang="ts">
+import { NUM_FONT, TEXT_FONT } from '@/components/chart/chartTheme'
 import { INCIDENT_TEXT, parkingOccupancyAt, signalControlCount, transitModesAt, transitStatsAt } from '@/api/mock/traffic'
 import { COLOR } from '@/scene/kit'
 import type { SignalControl, TrafficData } from '@/types/traffic'
@@ -93,6 +91,55 @@ const modes = computed(() => {
 })
 const modesTotal = computed(() => modes.value.reduce((n, m) => n + m.value, 0))
 
+
+/** 信号控制方式环形图：中间是路口总数 */
+const signalOption = computed(() => ({
+  title: {
+    text: String(props.data.signals.length),
+    subtext: '路口',
+    left: 'center',
+    top: '30%',
+    itemGap: 2,
+    textStyle: { color: '#f3f5f8', fontSize: 22, fontWeight: 600, fontFamily: NUM_FONT },
+    subtextStyle: { color: '#9aa4b2', fontSize: 11 }
+  },
+  series: [
+    {
+      type: 'pie',
+      radius: ['68%', '90%'],
+      center: ['50%', '50%'],
+      padAngle: 3,
+      itemStyle: { borderRadius: 3 },
+      label: { show: false },
+      emphasis: { scale: true, scaleSize: 4 },
+      data: CONTROL_KEYS.map(k => ({ name: k, value: counts.value[k], itemStyle: { color: CONTROL_COLOR[k], shadowColor: CONTROL_COLOR[k], shadowBlur: 8 } }))
+    }
+  ]
+}))
+
+/** 分方式客流：竖向渐变柱，柱顶标数值 */
+const modesOption = computed(() => ({
+  grid: { left: 8, right: 8, top: 22, bottom: 22 },
+  xAxis: {
+    type: 'category',
+    data: modes.value.map(m => m.name),
+    axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } },
+    axisTick: { show: false },
+    axisLabel: { color: '#9aa4b2', fontSize: 12, fontFamily: TEXT_FONT }
+  },
+  yAxis: { type: 'value', show: false, splitLine: { show: false } },
+  series: [
+    {
+      name: '今日累计',
+      type: 'bar',
+      barWidth: 22,
+      color: COLOR.accent,
+      label: { show: true, position: 'top', color: '#f3f5f8', fontSize: 14, fontWeight: 600, fontFamily: NUM_FONT, formatter: (p: { value: number }) => p.value.toFixed(1) },
+      data: modes.value.map(m => Number(m.value.toFixed(1)))
+    }
+  ]
+}))
+
 const parkings = computed(() =>
   props.data.parkings.map(p => {
     const rate = parkingOccupancyAt(p, props.hour)
@@ -107,6 +154,30 @@ const parkings = computed(() =>
     }
   })
 )
+
+/** 停车场占用率：横向柱，接近满位转暖色；标签是占用率和余位 */
+const parkingOption = computed(() => {
+  const list = [...parkings.value].reverse()
+  return {
+    grid: { left: 92, right: 96, top: 4, bottom: 4 },
+    xAxis: { type: 'value', min: 0, max: 100, show: false },
+    yAxis: { type: 'category', data: list.map(p => p.name), axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#e6eaf0', fontSize: 13, fontFamily: TEXT_FONT, width: 84, overflow: 'truncate' } },
+    series: [
+      {
+        name: '占用率',
+        type: 'bar',
+        barWidth: 8,
+        showBackground: true,
+        backgroundStyle: { color: 'rgba(255,255,255,0.05)', borderRadius: 4 },
+        data: list.map(p => ({
+          value: p.percent,
+          itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: p.color + '40' }, { offset: 1, color: p.color }] }, borderRadius: 4, shadowColor: p.color, shadowBlur: 6 },
+          label: { show: true, position: 'right', formatter: `{v|${p.value}} {f|余 ${p.free}}`, rich: { v: { color: '#f3f5f8', fontSize: 14, fontWeight: 600, fontFamily: NUM_FONT }, f: { color: '#9aa4b2', fontSize: 11 } } }
+        }))
+      }
+    ]
+  }
+})
 </script>
 
 <style lang="scss" scoped>
@@ -196,18 +267,19 @@ const parkings = computed(() =>
 .time {
   flex-shrink: 0;
 }
-.split {
+.signal-split {
   display: flex;
-  gap: 2px;
-  height: 8px;
-  border-radius: 4px;
-  overflow: hidden;
-  span {
-    // 数量为 0 的状态不占宽度；很少的也至少留一小段能看见
-    flex-basis: 0;
-    min-width: 6px;
+  align-items: center;
+  gap: 16px;
+  .donut {
+    width: 104px;
+    flex-shrink: 0;
+  }
+  .counts {
+    flex-grow: 1;
   }
 }
+
 .counts {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

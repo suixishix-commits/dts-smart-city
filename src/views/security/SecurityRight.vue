@@ -39,14 +39,8 @@
       </template>
       <div v-if="areaTab === 'district'" class="list-note">今日 · 起 / 办结率</div>
       <div v-else class="list-note">驻守 {{ guardTotal }} 人</div>
-      <div v-if="areaTab === 'district'" class="list scroll short">
-        <button v-for="d in districts" :key="d.districtId" type="button" class="row district" :class="{ active: d.districtId === activeDistrict }" @click="emit('district', d.districtId)">
-          <span class="d-name">{{ d.name }}</span>
-          <span class="track"><span class="fill" :style="{ width: (d.total / districtMax) * 100 + '%' }"></span></span>
-          <span class="d-total">{{ d.total }}</span>
-          <span class="d-rate">{{ (d.closeRate * 100).toFixed(1) }}%</span>
-        </button>
-      </div>
+      <!-- 柱：事件量；折线：办结率（右轴）。点柱子定位片区 -->
+      <LineChart v-if="areaTab === 'district'" :option="districtOption" :height="182" label="各片区今日事件量与办结率" @select="onDistrict" />
       <div v-else class="list scroll short">
         <button v-for="z in data.zones" :key="z.id" type="button" class="row" :class="{ active: z.id === activeZone }" @click="emit('zone', z.id)">
           <span class="guard">{{ GUARD_TEXT[z.guardLevel] }}</span>
@@ -68,6 +62,8 @@
 </template>
 
 <script setup lang="ts">
+import { NUM_FONT, TEXT_FONT } from '@/components/chart/chartTheme'
+import { COLOR } from '@/scene/kit'
 import { isActive } from '@/api/mock/security'
 import type { AiAlarmStatus, SecurityData } from '@/types/security'
 import type { Camera } from '@/types/smartCity'
@@ -119,7 +115,44 @@ const activeCount = computed(() => props.data.incidents.filter(isActive).length)
 const pendingAlarms = computed(() => props.data.aiAlarms.filter(a => a.status === '待确认').length)
 /** 事件量最多的几个片区 */
 const districts = computed(() => props.data.eventStats.districts.slice(0, DISTRICT_ROWS))
-const districtMax = computed(() => Math.max(1, ...districts.value.map(d => d.total)))
+const districtOption = computed(() => {
+  const list = districts.value
+  const active = props.activeDistrict
+  return {
+    grid: { left: 8, right: 8, top: 24, bottom: 24 },
+    legend: { show: false },
+    xAxis: { type: 'category', data: list.map(d => d.name), axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } }, axisTick: { show: false }, axisLabel: { color: '#9aa4b2', fontSize: 12, fontFamily: TEXT_FONT, interval: 0 } },
+    yAxis: [
+      { type: 'value', show: false, splitLine: { show: false } },
+      { type: 'value', min: 0, max: 100, show: false, splitLine: { show: false } }
+    ],
+    series: [
+      {
+        name: '事件量',
+        type: 'bar',
+        barWidth: 14,
+        color: COLOR.accent,
+        label: { show: true, position: 'top', color: '#f3f5f8', fontSize: 13, fontWeight: 600, fontFamily: NUM_FONT },
+        data: list.map(d => ({ value: d.total, itemStyle: active && d.districtId !== active ? { opacity: 0.35 } : undefined }))
+      },
+      {
+        name: '办结率 %',
+        type: 'line',
+        yAxisIndex: 1,
+        color: '#66d9e8',
+        symbol: 'circle',
+        symbolSize: 6,
+        lineStyle: { width: 1.5, color: '#66d9e8', type: 'dashed' },
+        data: list.map(d => Math.round(d.closeRate * 1000) / 10)
+      }
+    ]
+  }
+})
+
+function onDistrict(item: { dataIndex: number; seriesIndex: number }) {
+  const d = districts.value[item.dataIndex]
+  if (d) emit('district', d.districtId)
+}
 const guardTotal = computed(() => props.data.zones.reduce((n, z) => n + z.guards, 0))
 const onlineCount = computed(() => props.data.cameras.filter(c => c.online).length)
 const onlineRate = computed(() => (props.data.cameras.length ? ((onlineCount.value / props.data.cameras.length) * 100).toFixed(1) : '0.0'))

@@ -53,16 +53,14 @@
           </span>
         </button>
       </div>
-      <div v-else class="bridges">
-        <button v-for="b in data.bridges" :key="b.id" type="button" class="bridge" :class="{ active: b.id === activeBridge }" :aria-label="b.name + ' 健康评分 ' + b.score" @click="emit('bridge', b.id)">
-          <BarRow :name="b.shortName" :value="b.score" :percent="b.score" :color="bridgeColor(b.score)" :note="b.grade" />
-        </button>
-      </div>
+      <!-- 桥梁健康：横向柱，85 分及格线；点柱子定位桥梁 -->
+      <LineChart v-else :option="bridgeOption" :height="200" :label="data.bridges.map(b => b.name + ' 健康评分 ' + b.score).join('，')" @select="onBridge" />
     </PanelCard>
   </aside>
 </template>
 
 <script setup lang="ts">
+import { NUM_FONT, TEXT_FONT } from '@/components/chart/chartTheme'
 import { bridgeStatus } from '@/api/mock/lifeline'
 import { COLOR, LEVEL_COLOR } from '@/scene/kit'
 import type { LifelineAlarm, LifelineData, WorkOrder } from '@/types/lifeline'
@@ -102,6 +100,40 @@ const orders = computed(() => props.data.orders.slice(0, 4))
 const openCount = computed(() => props.data.orders.filter(o => o.progress < 100).length)
 
 /** 与场景里桥梁标注的颜色一致 */
+/** 桥梁健康：从上到下按数据顺序；选中的桥梁高亮，其余变淡 */
+const bridgeOption = computed(() => {
+  const list = [...props.data.bridges].reverse()
+  const active = props.activeBridge
+  return {
+    grid: { left: 70, right: 70, top: 8, bottom: 8 },
+    xAxis: { type: 'value', min: 0, max: 100, show: false },
+    yAxis: { type: 'category', data: list.map(b => b.shortName), axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#e6eaf0', fontSize: 13, fontFamily: TEXT_FONT } },
+    series: [
+      {
+        name: '健康评分',
+        type: 'bar',
+        barWidth: 10,
+        showBackground: true,
+        backgroundStyle: { color: 'rgba(255,255,255,0.05)', borderRadius: 5 },
+        data: list.map(b => {
+          const c = bridgeColor(b.score)
+          return {
+            value: b.score,
+            itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: c + '40' }, { offset: 1, color: c }] }, borderRadius: 5, shadowColor: c, shadowBlur: 6, opacity: active && b.id !== active ? 0.35 : 1 },
+            label: { show: true, position: 'right', formatter: `{v|${b.score}} {g|${b.grade}}`, rich: { v: { color: '#f3f5f8', fontSize: 15, fontWeight: 600, fontFamily: NUM_FONT }, g: { color: '#9aa4b2', fontSize: 11 } } }
+          }
+        }),
+        markLine: { silent: true, symbol: 'none', label: { show: false }, lineStyle: { color: 'rgba(255,212,59,0.6)', type: 'dashed' }, data: [{ xAxis: 85 }] }
+      }
+    ]
+  }
+})
+
+function onBridge(item: { dataIndex: number }) {
+  const b = [...props.data.bridges].reverse()[item.dataIndex]
+  if (b) emit('bridge', b.id)
+}
+
 function bridgeColor(score: number): string {
   return bridgeStatus(score) === 0 ? COLOR.ok : COLOR.caution
 }

@@ -1,5 +1,5 @@
 <template>
-  <div class="hotspot-card">
+  <div v-pop="hotspot.id" class="hotspot-card">
     <div class="head">
       <span class="no">{{ rank }}</span>
       <h3 class="name">{{ hotspot.name }}</h3>

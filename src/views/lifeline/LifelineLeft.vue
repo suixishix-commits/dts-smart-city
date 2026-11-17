@@ -12,11 +12,17 @@
       </div>
       <template v-else>
         <div class="list-note">合计 {{ data.summary.totalKm.toFixed(1) }} km · 含区域供冷 {{ data.summary.kmBySystem.cooling.toFixed(1) }} km</div>
-        <div class="scale">
-          <div v-for="s in SCALE" :key="s.key" class="scale-item">
-            <i class="swatch" :class="s.key" :style="{ borderTopColor: PIPE_COLOR[s.key] }"></i>
-            <StatItem :label="s.name" :value="data.summary.kmBySystem[s.key].toFixed(1)" unit="km" />
-          </div>
+        <!-- 各系统管线长度占比：环形图（颜色同场景里的管线），中间是总长 -->
+        <div class="scale-split">
+          <LineChart class="scale-donut" :option="scaleOption" :height="112" :label="SCALE.map(s => s.name + ' ' + data.summary.kmBySystem[s.key].toFixed(1) + ' km').join('，')" />
+          <ul class="scale-legend">
+            <li v-for="s in SCALE" :key="s.key">
+              <i :style="{ background: PIPE_COLOR[s.key] }"></i>
+              <span class="s-name">{{ s.name }}</span>
+              <b>{{ data.summary.kmBySystem[s.key].toFixed(1) }}</b>
+              <span class="s-unit">km</span>
+            </li>
+          </ul>
         </div>
       </template>
       <div class="list-note time">数据时刻 {{ formatHour(data.hour) }}</div>
@@ -70,6 +76,7 @@
 </template>
 
 <script setup lang="ts">
+import { NUM_FONT } from '@/components/chart/chartTheme'
 import { lifelineSeries, powerLoadAt, powerLoadPeak, waterPressureAt } from '@/api/mock/lifeline'
 import { COLOR, LEVEL_COLOR } from '@/scene/kit'
 import type { LifelineData, PipeSystem } from '@/types/lifeline'
@@ -87,6 +94,29 @@ const TREND_TABS = [
   { key: 'pressure', name: '压力与负荷' }
 ]
 const overviewTab = ref('summary')
+
+/** 管网规模环形图 */
+const scaleOption = computed(() => ({
+  title: {
+    text: props.data.summary.totalKm.toFixed(0),
+    subtext: 'km',
+    left: 'center',
+    top: '32%',
+    itemGap: 0,
+    textStyle: { color: '#f3f5f8', fontSize: 20, fontWeight: 600, fontFamily: NUM_FONT },
+    subtextStyle: { color: '#9aa4b2', fontSize: 11 }
+  },
+  series: [
+    {
+      type: 'pie',
+      radius: ['70%', '92%'],
+      padAngle: 2,
+      itemStyle: { borderRadius: 2 },
+      label: { show: false },
+      data: SCALE.map(s => ({ name: s.name, value: props.data.summary.kmBySystem[s.key], itemStyle: { color: PIPE_COLOR[s.key], shadowColor: PIPE_COLOR[s.key], shadowBlur: 8 } }))
+    }
+  ]
+}))
 const trendTab = ref('supply')
 
 /** 管网规模卡片列出的四张管网 */
@@ -332,6 +362,46 @@ const chartOption = computed(() => {
   &.time {
     margin: -6px 0 0;
     text-align: right;
+  }
+}
+.scale-split {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  .scale-donut {
+    width: 112px;
+    flex-shrink: 0;
+  }
+}
+.scale-legend {
+  flex-grow: 1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  li {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: $fs-aux;
+    color: $text-muted;
+  }
+  i {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    align-self: center;
+  }
+  .s-name {
+    flex-grow: 1;
+  }
+  b {
+    font-family: $font-num;
+    font-size: 16px;
+    font-weight: 600;
+    color: $text-strong;
   }
 }
 </style>

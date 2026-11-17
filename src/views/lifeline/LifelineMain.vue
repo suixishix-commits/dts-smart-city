@@ -282,6 +282,7 @@ onMounted(async () => {
   scene = new LifelineScene(new DtsSceneApi(), geo, {
     cameraView: HOME,
     pak: cityBase.pak,
+    beacons: cityBase.beacons,
     roads: cityBase
   })
   scene.setData(loaded)

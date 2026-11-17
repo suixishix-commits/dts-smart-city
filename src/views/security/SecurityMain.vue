@@ -335,6 +335,7 @@ onMounted(async () => {
     cameraView: HOME,
     heatmapZ: gVar?.smartCity?.heatmapZ ?? [-50, 300],
     pak: cityBase.pak,
+    beacons: cityBase.beacons,
     dimBaseRoads: dim => cityBase.setRoadsDimmed(dim)
   })
   scene.setData(loaded, period.value)

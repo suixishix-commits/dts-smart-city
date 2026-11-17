@@ -24,40 +24,7 @@
   padding: $panel-padding;
   border-radius: $radius-pane;
 }
-// 入场：进入模块时两侧卡片从外侧依次滑入，节奏轻快，不抢场景开场动画的戏
-@keyframes pane-in-left {
-  from {
-    opacity: 0;
-    transform: translateX(-24px);
-  }
-}
-@keyframes pane-in-right {
-  from {
-    opacity: 0;
-    transform: translateX(24px);
-  }
-}
-#layout-container aside {
-  @for $i from 1 through 6 {
-    > .panel-card:nth-child(#{$i}) {
-      animation-delay: #{80 + ($i - 1) * 90}ms;
-    }
-  }
-  > .panel-card {
-    animation: 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-  }
-  &[class$='-left'] > .panel-card {
-    animation-name: pane-in-left;
-  }
-  &[class$='-right'] > .panel-card {
-    animation-name: pane-in-right;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  #layout-container aside > .panel-card {
-    animation: none;
-  }
-}
+// 入场动效改由 GSAP 驱动（utils/motion.ts 的 panelsEnter，Layout 在切换模块时调用）
 // 场景上的浮层：工具栏、图例、图层开关、时间轴、详情卡片
 #layout-container {
   .scene-tools,

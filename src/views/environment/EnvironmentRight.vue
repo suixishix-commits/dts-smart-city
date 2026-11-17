@@ -25,17 +25,8 @@
     </PanelCard>
 
     <PanelCard title="噪声监测" :extra="'dB(A) / 限值 · 干线达标率 ' + noise.compliance.toFixed(1) + '%'">
-      <div class="noise">
-        <div v-for="z in zones" :key="z.name" class="zone">
-          <span class="zone-name">{{ z.name }}</span>
-          <span v-for="r in z.rows" :key="r.id" class="period">
-            <span class="period-name">{{ r.period }}</span>
-            <span class="track"><span class="fill" :style="{ width: Math.min(100, (r.db / 80) * 100) + '%', background: r.over ? COLOR.warn : COLOR.accent }"></span></span>
-            <span class="period-value" :style="r.over ? { color: COLOR.warn } : undefined">{{ r.db.toFixed(1) }}</span>
-            <span class="period-limit">{{ r.limit }}</span>
-          </span>
-        </div>
-      </div>
+      <!-- 各功能区昼、夜两根柱；短横线是限值，超标的柱子用警示色 -->
+      <LineChart :option="noiseOption" :height="150" label="各功能区昼间、夜间噪声与限值，dB(A)" />
     </PanelCard>
 
     <PanelCard title="超标告警" :extra="'当前 ' + alarms.length + ' 条 · 待处置 ' + pending" grow>
@@ -57,6 +48,7 @@
 </template>
 
 <script setup lang="ts">
+import { NUM_FONT, TEXT_FONT } from '@/components/chart/chartTheme'
 import { noiseSummary, noiseZoneRows, WATER_GRADE_NAMES, waterDistribution, waterSummary, type NoiseZoneRow } from '@/api/mock/environment'
 import { COLOR } from '@/scene/kit'
 import type { AlarmKind, EnvAlarm, EnvironmentData } from '@/types/environment'
@@ -86,6 +78,42 @@ const zones = computed(() => {
   const groups = new Map<string, NoiseZoneRow[]>()
   for (const r of noiseZoneRows(props.data)) groups.set(r.name, [...(groups.get(r.name) ?? []), r])
   return [...groups].map(([name, rows]) => ({ name, rows }))
+})
+
+const NIGHT_COLOR = '#8fc0ff'
+
+const noiseOption = computed(() => {
+  const list = zones.value
+  const periodRow = (rows: NoiseZoneRow[], period: string) => rows.find(r => r.period === period)
+  const bar = (period: string, color: string) => ({
+    name: period === '昼' ? '昼间' : '夜间',
+    type: 'bar',
+    barWidth: 12,
+    barGap: '30%',
+    color,
+    label: { show: true, position: 'top', fontSize: 11, fontFamily: NUM_FONT, color: '#e6eaf0', formatter: (p: { value: number }) => p.value.toFixed(1) },
+    data: list.map(z => {
+      const r = periodRow(z.rows, period)
+      return r ? { value: r.db, itemStyle: r.over ? { color: COLOR.warn } : undefined } : null
+    })
+  })
+  // 限值：每根柱子上方一条短横线
+  const limits = (period: string, offset: number) => ({
+    name: (period === '昼' ? '昼间' : '夜间') + '限值',
+    type: 'scatter',
+    symbol: 'rect',
+    symbolSize: [16, 2],
+    symbolOffset: [offset, 0],
+    itemStyle: { color: 'rgba(255,255,255,0.75)' },
+    z: 5,
+    data: list.map(z => periodRow(z.rows, period)?.limit ?? null)
+  })
+  return {
+    grid: { left: 8, right: 8, top: 26, bottom: 22 },
+    xAxis: { type: 'category', data: list.map(z => z.name), axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } }, axisTick: { show: false }, axisLabel: { color: '#9aa4b2', fontSize: 12, fontFamily: TEXT_FONT } },
+    yAxis: { type: 'value', min: 30, show: false, splitLine: { show: false } },
+    series: [bar('昼', COLOR.accent), bar('夜', NIGHT_COLOR), limits('昼', -8), limits('夜', 8)]
+  }
 })
 
 const pending = computed(() => props.alarms.filter(a => a.status === '待处置').length)

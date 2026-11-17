@@ -46,25 +46,26 @@
       </template>
       <div v-if="statTab === 'type'" class="list-note">{{ trend.currentName }} · 占比 · 起数</div>
       <div v-else class="list-note">平均处置时长 · 分钟 · 超 {{ DEPT_WARN_MINUTES }} 标黄</div>
-      <div v-if="statTab === 'type'" class="rows">
-        <BarRow v-for="r in typeRows" :key="r.name" :name="r.name" :value="r.share" :percent="r.percent" :color="COLOR.accent" :note="r.count" />
+      <!-- 类型分布：玫瑰图 + 图例（占比、起数） -->
+      <div v-if="statTab === 'type'" class="type-split">
+        <LineChart class="rose" :option="typeOption" :height="260" :label="typeRows.map(r => r.name + ' ' + r.share).join('，')" />
+        <ul class="type-legend">
+          <li v-for="(r, i) in typeRows" :key="r.name">
+            <i :style="{ background: TYPE_COLORS[i % TYPE_COLORS.length] }"></i>
+            <span class="t-name">{{ r.name }}</span>
+            <b>{{ r.share }}</b>
+            <span class="t-count">{{ r.count }} 起</span>
+          </li>
+        </ul>
       </div>
-      <div v-else class="rows">
-        <BarRow
-          v-for="d in data.eventStats.departments"
-          :key="d.department"
-          :name="d.department"
-          :value="d.avgMinutes"
-          :percent="(d.avgMinutes / DEPT_SCALE) * 100"
-          :color="d.avgMinutes > DEPT_WARN_MINUTES ? COLOR.warn : COLOR.accent"
-          :note="d.events + ' 件'"
-        />
-      </div>
+      <!-- 部门效率：横向柱，超时限的用警示色，竖虚线是时限 -->
+      <LineChart v-else :option="deptOption" :height="220" label="各部门平均处置时长，分钟" />
     </PanelCard>
   </aside>
 </template>
 
 <script setup lang="ts">
+import { NUM_FONT, TEXT_FONT } from '@/components/chart/chartTheme'
 import { DEPT_WARN_MINUTES, EVENT_TIME_LIMIT, incidentTrend, isActive, typeDistribution } from '@/api/mock/security'
 import { COLOR } from '@/scene/kit'
 import type { SecurityData, SecurityPeriod } from '@/types/security'
@@ -98,6 +99,57 @@ const currentTotal = computed(() => trend.value.current.reduce<number>((n, v) =>
 const previousTotal = computed(() => (props.period === 'today' ? trend.value.previous.slice(0, comparable.value) : trend.value.previous).reduce((n, v) => n + v, 0))
 const change = computed(() => (previousTotal.value ? (currentTotal.value - previousTotal.value) / previousTotal.value : 0))
 const changeText = computed(() => (change.value >= 0 ? '+' : '') + (change.value * 100).toFixed(1) + '%')
+
+/** 类型分布的配色：从主色到冷暖相间，五类以内一眼分得开 */
+const TYPE_COLORS = ['#4c9aff', '#66d9e8', '#8fc0ff', '#ffa94d', '#c58bff', '#51cf66']
+
+const typeOption = computed(() => ({
+  series: [
+    {
+      type: 'pie',
+      roseType: 'radius',
+      radius: ['22%', '92%'],
+      center: ['50%', '50%'],
+      itemStyle: { borderRadius: 4, borderColor: 'rgba(10,14,20,0.9)', borderWidth: 2 },
+      label: { show: false },
+      emphasis: { scaleSize: 6 },
+      data: typeRows.value.map((r, i) => ({ name: r.name, value: Number(r.count), itemStyle: { color: TYPE_COLORS[i % TYPE_COLORS.length], shadowColor: TYPE_COLORS[i % TYPE_COLORS.length], shadowBlur: 10 } }))
+    }
+  ]
+}))
+
+const deptOption = computed(() => {
+  const rows = [...props.data.eventStats.departments].reverse()
+  return {
+    grid: { left: 84, right: 56, top: 8, bottom: 8 },
+    xAxis: { type: 'value', max: DEPT_SCALE, show: false },
+    yAxis: { type: 'category', data: rows.map(d => d.department), axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#e6eaf0', fontSize: 13, fontFamily: TEXT_FONT } },
+    series: [
+      {
+        name: '平均处置时长',
+        type: 'bar',
+        barWidth: 10,
+        showBackground: true,
+        backgroundStyle: { color: 'rgba(255,255,255,0.05)', borderRadius: 5 },
+        data: rows.map(d => {
+          const c = d.avgMinutes > DEPT_WARN_MINUTES ? COLOR.warn : COLOR.accent
+          return {
+            value: d.avgMinutes,
+            itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: c + '40' }, { offset: 1, color: c }] }, borderRadius: 5, shadowColor: c, shadowBlur: 6 },
+            label: { show: true, position: 'right', formatter: `{v|${d.avgMinutes}} {u|分 · ${d.events} 件}`, rich: { v: { color: '#f3f5f8', fontSize: 15, fontWeight: 600, fontFamily: NUM_FONT }, u: { color: '#9aa4b2', fontSize: 11 } } }
+          }
+        }),
+        markLine: {
+          silent: true,
+          symbol: 'none',
+          label: { show: true, position: 'end', formatter: '时限 ' + DEPT_WARN_MINUTES, color: '#ffc078', fontSize: 11 },
+          lineStyle: { color: 'rgba(255,169,77,0.7)', type: 'dashed', width: 1 },
+          data: [{ xAxis: DEPT_WARN_MINUTES }]
+        }
+      }
+    ]
+  }
+})
 
 const typeRows = computed(() => {
   const rows = typeDistribution(props.period, props.nowHour)
@@ -230,5 +282,52 @@ const chartOption = computed(() => {
   margin: -8px 0 -4px;
   font-size: $fs-aux;
   color: $text-muted;
+}
+.type-split {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  .rose {
+    width: 200px;
+    flex-shrink: 0;
+  }
+}
+.type-legend {
+  flex-grow: 1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: $fs-body;
+  }
+  i {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .t-name {
+    flex-grow: 1;
+    color: $text;
+    white-space: nowrap;
+  }
+  b {
+    font-family: $font-num;
+    font-size: 16px;
+    font-weight: 600;
+    color: $text-strong;
+  }
+  .t-count {
+    width: 44px;
+    text-align: right;
+    font-size: $fs-aux;
+    color: $text-muted;
+  }
 }
 </style>

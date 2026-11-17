@@ -39,6 +39,8 @@ $heat-low: #ffd43b;
 
 // 字体
 $font-family: Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+// 数字字体：窄体等宽数字，大屏指标、时刻、坐标轴数字用它，比正文字体更醒目、更省宽度
+$font-num: 'Barlow Semi Condensed', Inter, 'Microsoft YaHei', sans-serif;
 $fs-title: 16px;
 $fs-body: 14px;
 $fs-aux: 13px;

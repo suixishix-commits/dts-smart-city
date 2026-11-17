@@ -339,6 +339,7 @@ onMounted(async () => {
   scene = new TrafficScene(new DtsSceneApi(), geo, {
     cameraView: HOME,
     pak: cityBase.pak,
+    beacons: cityBase.beacons,
     setBaseRoads: visible => cityBase.setRoadsVisible(visible)
   })
   scene.setData(loaded, hour.value)

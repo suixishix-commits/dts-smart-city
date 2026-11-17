@@ -19,26 +19,14 @@
     </PanelCard>
 
     <PanelCard title="片区人口密度" extra="前 8 · 万人/km² · 较 1 小时前" grow>
-      <div class="rows">
-        <BarRow
-          v-for="r in densityRows"
-          :key="r.id"
-          :name="r.name"
-          :value="r.value"
-          :percent="r.percent"
-          :color="r.color"
-          :note="r.delta"
-          :note-color="r.deltaColor"
-          clickable
-          :active="r.id === activeDistrict"
-          @select="emit('district', r.id)"
-        />
-      </div>
+      <!-- 横向渐变柱：颜色同场景里的密度色带；点柱子下钻到片区 -->
+      <LineChart class="density" :option="densityOption" :height="330" label="密度最高的 8 个片区及较 1 小时前的变化" @select="onDensity" />
     </PanelCard>
   </aside>
 </template>
 
 <script setup lang="ts">
+import { NUM_FONT, TEXT_FONT } from '@/components/chart/chartTheme'
 import { districtDensityAt, islandPopulationAt, populationPeak, populationSeries, populationSeriesYesterday } from '@/api/mock/population'
 import { rampColor } from '@/scene/kit'
 import type { OverviewData } from '@/types/smartCity'
@@ -77,6 +65,58 @@ const densityRows = computed(() => {
     deltaColor: r.delta > 0.005 ? '#ffa94d' : '#9aa4b2'
   }))
 })
+
+/** 片区人口密度：横向柱状图，从上到下由高到低；右侧标签是读数和较 1 小时前的变化 */
+const densityOption = computed(() => {
+  const rows = [...densityRows.value].reverse()
+  const active = props.activeDistrict
+  return {
+    grid: { left: 78, right: 16, top: 4, bottom: 4 },
+    tooltip: { show: false },
+    xAxis: { type: 'value', max: Math.max(...densityRows.value.map(r => Number(r.value)), 0.1) * 1.3, show: false },
+    yAxis: {
+      type: 'category',
+      data: rows.map(r => r.name),
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { color: '#e6eaf0', fontSize: 14, fontFamily: TEXT_FONT }
+    },
+    series: [
+      {
+        type: 'bar',
+        barWidth: 10,
+        // 柱子背后的浅色轨道
+        showBackground: true,
+        backgroundStyle: { color: 'rgba(255,255,255,0.05)', borderRadius: 5 },
+        data: rows.map(r => ({
+          value: Number(r.value),
+          itemStyle: {
+            color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: r.color + '40' }, { offset: 1, color: r.color }] },
+            borderRadius: 5,
+            shadowColor: r.color,
+            shadowBlur: r.id === active ? 14 : 6,
+            opacity: active && r.id !== active ? 0.4 : 1
+          },
+          label: {
+            show: true,
+            position: 'right',
+            distance: 10,
+            formatter: `{v|${r.value}}  {d|${r.delta}}`,
+            rich: {
+              v: { color: '#f3f5f8', fontSize: 16, fontWeight: 600, fontFamily: NUM_FONT },
+              d: { color: r.deltaColor, fontSize: 13, fontFamily: NUM_FONT }
+            }
+          }
+        }))
+      }
+    ]
+  }
+})
+
+function onDensity(item: { dataIndex: number }) {
+  const row = [...densityRows.value].reverse()[item.dataIndex]
+  if (row) emit('district', row.id)
+}
 
 const maxDensity = computed(() => Math.max(...props.data.districts.map(d => districtDensityAt(d, props.hour)), 0))
 
@@ -147,14 +187,10 @@ const chartOption = computed(() => {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
 }
-.rows {
+.density {
   flex-grow: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 4px;
-  // 窗口比 16:9 更高时面板会变长，限制行距不让列表被拉散
-  max-height: 360px;
+  min-height: 0;
+  cursor: pointer;
 }
 .legend {
   display: flex;

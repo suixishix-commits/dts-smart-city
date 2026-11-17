@@ -1,5 +1,5 @@
 <template>
-  <div class="incident-card">
+  <div v-pop="incident.id" class="incident-card">
     <div class="head">
       <LevelTag :level="incident.level" />
       <h3 class="name">{{ incident.title }}</h3>
