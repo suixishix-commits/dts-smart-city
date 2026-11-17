@@ -303,7 +303,8 @@ onMounted(async () => {
   scene.setData(loaded, hour.value)
   // 场景就绪前用户可能已经关掉了某些图层
   for (const l of LAYERS) scene.setLayerVisible(l.key, layers.value.includes(l.key))
-  await scene.enter()
+  // 渲染端断开时场景调用会抛错：只记日志，面板照常可用
+  await scene.enter().catch(e => console.warn('[城市总览] 场景图层创建失败', e))
   // 场景就绪前从告警通知跳过来的：现在补上飞到片区
   if (activeAlarm.value) selectAlarm(activeAlarm.value)
 })
@@ -322,7 +323,7 @@ onBeforeUnmount(async () => {
   unmounting.abort()
   emitter.off('sc_hotspot', onHotspotClick)
   emitter.off('sc_camera', onCameraClick)
-  await scene?.leave()
+  await scene?.leave().catch(e => console.warn('[城市总览] 场景图层清理失败', e))
   scene = null
 })
 </script>

@@ -343,7 +343,8 @@ onMounted(async () => {
   scene.setData(loaded, period.value)
   // 场景就绪前用户可能已经切换了某些图层
   for (const l of SECURITY_LAYERS) scene.setLayerVisible(l.key, layers.value.includes(l.key))
-  await scene.enter()
+  // 渲染端断开时场景调用会抛错：只记日志，面板照常可用
+  await scene.enter().catch(e => console.warn('[公共安全] 场景图层创建失败', e))
 })
 
 onBeforeUnmount(async () => {
@@ -351,7 +352,7 @@ onBeforeUnmount(async () => {
   emitter.off(SECURITY_GROUP.incident, onIncidentClick)
   emitter.off(SECURITY_GROUP.zone, onZoneClick)
   emitter.off(SECURITY_GROUP.camera, onCameraClick)
-  await scene?.leave()
+  await scene?.leave().catch(e => console.warn('[公共安全] 场景图层清理失败', e))
   scene = null
 })
 </script>

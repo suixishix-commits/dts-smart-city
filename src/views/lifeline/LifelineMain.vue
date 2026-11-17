@@ -290,7 +290,8 @@ onMounted(async () => {
   // 默认关闭的图层、以及场景就绪前用户已经切换过的图层
   for (const l of LAYERS) if (l.key !== UNDERGROUND) scene.setLayerVisible(l.key, on(l.key))
   scene.setUnderground(on(UNDERGROUND))
-  await scene.enter()
+  // 渲染端断开时场景调用会抛错：只记日志，面板照常可用
+  await scene.enter().catch(e => console.warn('[城市生命线] 场景图层创建失败', e))
 })
 
 onBeforeUnmount(async () => {
@@ -300,7 +301,7 @@ onBeforeUnmount(async () => {
   // leave() 会同步发出「恢复底座路网」，排在下一个模块进入之前
   const leaving = scene?.leave()
   scene = null
-  await leaving
+  await leaving?.catch(e => console.warn('[城市生命线] 场景图层清理失败', e))
 })
 </script>
 

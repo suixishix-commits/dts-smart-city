@@ -349,7 +349,8 @@ onMounted(async () => {
   for (const l of LAYERS) scene.setLayerVisible(l.key, layers.value.includes(l.key))
   // 本模块自己画路况，底座路网在进入时隐藏；让「图层管理」里的开关显示真实状态
   tools.base.roads = false
-  await scene.enter()
+  // 渲染端断开时场景调用会抛错：只记日志，面板照常可用
+  await scene.enter().catch(e => console.warn('[智慧交通] 场景图层创建失败', e))
 })
 
 onBeforeUnmount(async () => {
@@ -357,7 +358,7 @@ onBeforeUnmount(async () => {
   emitter.off('sc_traffic_incident', onIncidentClick)
   emitter.off('sc_traffic_signal', onSignalClick)
   emitter.off('sc_traffic_vehicle', onVehicleClick)
-  await scene?.leave()
+  await scene?.leave().catch(e => console.warn('[智慧交通] 场景图层清理失败', e))
   scene = null
 })
 </script>

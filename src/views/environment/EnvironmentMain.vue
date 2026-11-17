@@ -246,7 +246,8 @@ onMounted(async () => {
   scene.setData(loaded, hour.value, index.value)
   // 场景就绪前用户可能已经改过图层开关
   for (const l of LAYERS) scene.setLayerVisible(l.key, layers.value.includes(l.key))
-  await scene.enter()
+  // 渲染端断开时场景调用会抛错：只记日志，面板照常可用
+  await scene.enter().catch(e => console.warn('[生态环境] 场景图层创建失败', e))
 })
 
 onBeforeUnmount(async () => {
@@ -254,7 +255,7 @@ onBeforeUnmount(async () => {
   emitter.off(STATION_EVENT, onStationClick)
   emitter.off(SOURCE_EVENT, onSourceClick)
   emitter.off(WATER_EVENT, onWaterClick)
-  await scene?.leave()
+  await scene?.leave().catch(e => console.warn('[生态环境] 场景图层清理失败', e))
   scene = null
 })
 </script>
