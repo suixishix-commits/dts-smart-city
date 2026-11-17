@@ -164,13 +164,13 @@ describe('focusView', () => {
   const tan42 = Math.tan((42 * Math.PI) / 180)
   const yaw = (-38 * Math.PI) / 180
 
-  it('looks down at the point from 3000 m by default, pitch -42 and yaw -38', () => {
+  it('looks down at the point from 1700 m by default, pitch -42 and yaw -38', () => {
     const v = focusView([1000, 2000])
-    const d = 3000 / tan42
+    const d = 1700 / tan42
     expect(v).toHaveLength(5)
     expect(v[0]).toBeCloseTo(1000 - Math.cos(yaw) * d)
     expect(v[1]).toBeCloseTo(2000 + Math.sin(yaw) * d)
-    expect(v.slice(2)).toEqual([3000, -42, -38])
+    expect(v.slice(2)).toEqual([1700, -42, -38])
   })
 
   it('moves the camera further back as the height grows, keeping the point at screen centre', () => {

@@ -124,6 +124,7 @@ export class OverviewScene extends ModuleScene {
           at: this.hotspotXY.get(h.id) as number[],
           tag: String(i + 1),
           text: h.shortName,
+          value: `热度 ${h.heat}`,
           color: heatColor(h.heat),
           userId: h.id,
           lineHeight: heights[i],

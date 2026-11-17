@@ -310,7 +310,7 @@ describe('SecurityScene', () => {
     expect(other.cameraCalls).toEqual([[1, 2, 3, -45, 0]])
   })
 
-  it('巡航机位：五个防护区（3600 米）+ 最严重的三条在办警情（3000 米），都是统一的俯瞰机位', async () => {
+  it('巡航机位：五个防护区（3600 米）+ 最严重的三条在办警情（1700 米），都是统一的俯瞰机位', async () => {
     expect(scene.tourViews()).toEqual([])
     await scene.enter()
     const views = scene.tourViews()
@@ -325,13 +325,13 @@ describe('SecurityScene', () => {
     expect(views[0][0]).toBeLessThan(first[0])
     expect(views[0][1]).toBeLessThan(first[1])
     expect(views[0].slice(2)).toEqual([3600, -42, -38])
-    expect(views[data.zones.length].slice(2)).toEqual([3000, -42, -38])
+    expect(views[data.zones.length].slice(2)).toEqual([1700, -42, -38])
   })
 
   it('定位警情、防护区、摄像头：不论图层开关都飞到统一的俯瞰机位，高度按对象大小；未知 id 不动相机', async () => {
     await scene.enter()
     const targets: [() => Promise<void>, number[], number][] = [
-      [() => scene.focusIncident(data.incidents[0].id), geo.xy(data.incidents[0].position), 3000],
+      [() => scene.focusIncident(data.incidents[0].id), geo.xy(data.incidents[0].position), 1700],
       [() => scene.focusZone(data.zones[2].id), geo.xy(data.zones[2].position), 3600],
       [() => scene.focusCamera(data.cameras[5].id), geo.xy(data.cameras[5].position), 2400]
     ]

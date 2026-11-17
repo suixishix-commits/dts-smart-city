@@ -48,10 +48,13 @@ const FOCUS_YAW = -38
 
 /**
  * 俯瞰某一点的机位 [x, y, z, pitch, yaw]，目标点落在画面正中。五个模块的列表定位、标注点击、巡航都用它，
- * 保证飞过去的角度和远近一致。height 为相机高度：点位默认 3000 米（再近影像会糊，线和波纹显得过大），
+ * 保证飞过去的角度和远近一致。height 为相机高度：点位默认 1700 米（街区尺度，能看清事件周边的路口和建筑），
  * 范围较大的对象（防护区、长路段、桥）传更高的值。
  */
-export function focusView(p: number[], height = 3000): number[] {
+/** 点位定位的默认相机高度，米 */
+export const FOCUS_HEIGHT = 1700
+
+export function focusView(p: number[], height = FOCUS_HEIGHT): number[] {
   const d = height / Math.tan((-FOCUS_PITCH * Math.PI) / 180)
   const yaw = (FOCUS_YAW * Math.PI) / 180
   return [p[0] - Math.cos(yaw) * d, p[1] + Math.sin(yaw) * d, height, FOCUS_PITCH, FOCUS_YAW]

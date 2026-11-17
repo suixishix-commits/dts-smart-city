@@ -362,7 +362,7 @@ describe('LifelineScene', () => {
     expect(api.cameraCalls).toEqual([[1, 2, 3, -38, -38]])
   })
 
-  it('定位告警和桥梁：不论图层开关都飞到统一的俯瞰机位（告警 3000 米、桥梁 3600 米），不聚焦标注', async () => {
+  it('定位告警和桥梁：不论图层开关都飞到统一的俯瞰机位（告警 1700 米、桥梁 3600 米），不聚焦标注', async () => {
     const alarmAt = (id: string) => resolveAnchor(geo, data.alarms.find(a => a.id === id)!.anchor)
     const bridgeAt = (id: string) => resolveAnchor(geo, { kind: 'landmark', id })
     await scene.enter()
@@ -371,7 +371,7 @@ describe('LifelineScene', () => {
     await scene.focusAlarm('不存在')
     await scene.focusBridge('不存在')
     expect(api.cameraCalls).toEqual([focusView(alarmAt('a1')), focusView(bridgeAt('maqta-bridge'), 3600)])
-    expect(api.cameraCalls[0].slice(2)).toEqual([3000, -42, -38])
+    expect(api.cameraCalls[0].slice(2)).toEqual([1700, -42, -38])
     expect(api.cameraCalls[1].slice(2)).toEqual([3600, -42, -38])
 
     api.cameraCalls = []
@@ -390,7 +390,7 @@ describe('LifelineScene', () => {
     expect(urgent[0].id).toBe('a1')
     expect(data.bridges).toHaveLength(3)
     expect(views).toEqual([...urgent.map(a => focusView(resolveAnchor(geo, a.anchor))), ...data.bridges.map(b => focusView(resolveAnchor(geo, { kind: 'landmark', id: b.id })))])
-    views.forEach(v => expect(v.slice(2)).toEqual([3000, -42, -38]))
+    views.forEach(v => expect(v.slice(2)).toEqual([1700, -42, -38]))
   })
 
   it('进入过程中离开，不留下任何对象，路网恢复显示', async () => {

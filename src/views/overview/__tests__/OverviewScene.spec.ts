@@ -144,7 +144,7 @@ describe('OverviewScene', () => {
       const ranked = [...data.hotspots].sort((a, b) => b.heat - a.heat)
       ranked.forEach((h, i) => {
         const m = api.store.get('marker:hotspot-' + h.id)
-        expect(m.text).toBe(`${i + 1} · ${h.shortName}`)
+        expect(m.text).toBe(`${i + 1} · ${h.shortName}  热度 ${h.heat}`)
         expect(m.groupId).toBe('sc_hotspot')
         expect(JSON.parse(m.userData)).toEqual({ id: h.id })
         expect(m.coordinate[0]).toBeCloseTo(h.position[0] * 1e5)
@@ -341,12 +341,12 @@ describe('OverviewScene', () => {
     const hotspot = (id: string) => data.hotspots.find(h => h.id === id)!
     const camera = (id: string) => data.cameras.find(c => c.id === id)!
 
-    it('flies to the shared look-down view of a hotspot (3000 m) or camera (2400 m) instead of focusing the object', async () => {
+    it('flies to the shared look-down view of a hotspot (1700 m) or camera (2400 m) instead of focusing the object', async () => {
       await scene.enter()
       await scene.focusHotspot('h1')
       await scene.focusCamera('CAM-0705')
       expect(api.cameraCalls).toEqual([focusView(xy(hotspot('h1').position)), focusView(xy(camera('CAM-0705').position), 2400)])
-      expect(api.cameraCalls[0].slice(2)).toEqual([3000, -42, -38])
+      expect(api.cameraCalls[0].slice(2)).toEqual([1700, -42, -38])
       expect(api.cameraCalls[1].slice(2)).toEqual([2400, -42, -38])
       expect(api.focusCalls).toEqual([])
     })
@@ -387,7 +387,7 @@ describe('OverviewScene', () => {
       views.forEach((v, i) => {
         expect(v[0]).toBeLessThan(ranked[i].position[0] * 1e5)
         expect(v[1]).toBeLessThan(ranked[i].position[1] * 1e5)
-        expect(v.slice(2)).toEqual([3000, -42, -38])
+        expect(v.slice(2)).toEqual([1700, -42, -38])
       })
     })
   })

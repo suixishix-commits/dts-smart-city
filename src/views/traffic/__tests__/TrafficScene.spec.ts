@@ -275,7 +275,7 @@ describe('TrafficScene', () => {
     await scene.focusSegment('airport-2')
     expect(api.cameraCalls).toEqual(expected)
     expect(api.cameraCalls[0][0]).toBeLessThan(xy(incident.intersectionId)[0])
-    expect(api.cameraCalls[0].slice(2)).toEqual([3000, -42, -38])
+    expect(api.cameraCalls[0].slice(2)).toEqual([1700, -42, -38])
     expect(api.cameraCalls[1][2]).toBe(2600)
 
     // 路段越长相机越高，限制在 3000–5200 米
@@ -311,7 +311,7 @@ describe('TrafficScene', () => {
     await scene.enter()
     const views = scene.tourViews()
     expect(views).toHaveLength(5)
-    views.forEach(v => expect(v.slice(2)).toEqual([3000, -42, -38]))
+    views.forEach(v => expect(v.slice(2)).toEqual([1700, -42, -38]))
     expect(new Set(views.map(String)).size).toBe(5)
     // 依次是最堵的路段（跳过已经取过的道路），机位是路段中点的统一俯瞰机位
     const seen = new Set<string>()
@@ -425,7 +425,7 @@ describe('TrafficScene', () => {
       expect(api.visible.get('polyline:seg-' + data.segments[0].id)).toBe(true)
     })
 
-    it('定位车辆：3000 米俯瞰所选小时的位置；摄像头定位 2400 米', async () => {
+    it('定位车辆：1700 米俯瞰所选小时的位置；摄像头定位 2400 米', async () => {
       await scene.enter()
       const v = data.vehicles[2]
       await scene.focusVehicle(v.id)

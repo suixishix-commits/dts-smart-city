@@ -225,13 +225,13 @@ describe('EnvironmentScene', () => {
     expect(api.ids('polygon', 'green-')).toEqual([])
   })
 
-  it('定位水质采样点：飞到 3000 米俯瞰机位，水质图层关着也能飞', async () => {
+  it('定位水质采样点：飞到 1700 米俯瞰机位，水质图层关着也能飞', async () => {
     await scene.enter()
     const w = data.waterSamples[4]
     const at = pointAt(geo.road(w.place.road)!.line, w.place.t)
     await scene.focusWater(w.id)
     expect(api.cameraCalls).toEqual([focusView(at)])
-    expect(api.cameraCalls[0][2]).toBe(3000)
+    expect(api.cameraCalls[0][2]).toBe(1700)
     await scene.focusWater('不存在')
     expect(api.cameraCalls).toHaveLength(1)
   })
@@ -265,7 +265,7 @@ describe('EnvironmentScene', () => {
     expect(api.cameraCalls).toEqual([[1, 2, 3, -38, -38]])
   })
 
-  it('定位：不论图层开关都飞到统一的俯瞰机位（3000 米），不对准标注；未知 id 不动相机', async () => {
+  it('定位：不论图层开关都飞到统一的俯瞰机位（1700 米），不对准标注；未知 id 不动相机', async () => {
     await scene.enter()
     const xy = geo.landmark('wtc')!.xy
     const source = data.sources[0]
@@ -274,7 +274,7 @@ describe('EnvironmentScene', () => {
     await scene.focusSource(source.id)
     expect(api.cameraCalls).toEqual([focusView(xy), focusView(sourceXY)])
     expect(api.cameraCalls[0][0]).toBeLessThan(xy[0])
-    expect(api.cameraCalls[0].slice(2)).toEqual([3000, -42, -38])
+    expect(api.cameraCalls[0].slice(2)).toEqual([1700, -42, -38])
 
     api.cameraCalls = []
     await scene.setLayerVisible('station', false)

@@ -3,7 +3,7 @@
  *
  * 一个图层的所有点合成一个 customMesh（一次绘制）：
  * - 每个点一块贴地方片：中心光点、旋转刻度环、外环和两道扩散波纹；
- * - 一级再加 3 片交叉的竖直面片：底亮上淡的光柱和上升的亮带；二到四级只有地面光环（近景下光柱会穿过标签卡）。
+ * - 光柱（3 片交叉的竖直面片）材质仍支持，但默认各级都不用：朝天的光柱不指向任何内容，含义由标签和引线表达。
  * customMesh 没有 UV，顶点颜色带数据：R、G 为面片四角的 0/1（插值后就是片内坐标），B 区分地面 / 光柱，
  * A 是等级 / 4（A 是线性 8 位值，RGB 会做 sRGB 转换只能放 0/1）。坐标是投影坐标的绝对米数。
  */
@@ -17,9 +17,9 @@ export interface BeaconPoint {
   level: 1 | 2 | 3 | 4
 }
 
-/** 各等级的地面光环半径和光柱高度、宽度（米）：全城视角下一级仍可辨认，拉近到街区时不会盖住整个路口。只有一级有光柱 */
+/** 各等级的地面光环半径和光柱高度、宽度（米）：全城视角下一级仍可辨认，拉近到街区时不会盖住整个路口。beam 为 0 即不画光柱 */
 export const BEACON_TIERS: Record<1 | 2 | 3 | 4, { radius: number; beam: number; beamWidth: number }> = {
-  1: { radius: 340, beam: 520, beamWidth: 70 },
+  1: { radius: 340, beam: 0, beamWidth: 0 },
   2: { radius: 270, beam: 0, beamWidth: 0 },
   3: { radius: 240, beam: 0, beamWidth: 0 },
   4: { radius: 200, beam: 0, beamWidth: 0 }
@@ -37,7 +37,7 @@ const cm = (v: number) => Math.round(v * 100) / 100
  * 生成一个图层的 customMesh 参数。points 为空时返回 null。
  * 材质参数（亮度、速度、颜色）用材质实例的默认值，需要时在 scalarParameters / vectorParameters 里覆盖。
  */
-export function beaconMesh(id: string, points: BeaconPoint[], options: { brightness?: number } = {}): Record<string, unknown> | null {
+export function beaconMesh(id: string, points: BeaconPoint[], options: { brightness?: number; tiers?: typeof BEACON_TIERS } = {}): Record<string, unknown> | null {
   if (!points.length) return null
   const coordinates: number[][] = []
   const colors: number[][] = []
@@ -60,7 +60,7 @@ export function beaconMesh(id: string, points: BeaconPoint[], options: { brightn
   for (const p of points) {
     const [x, y] = p.at
     const z = (p.at[2] ?? 0) + GROUND_Z
-    const tier = BEACON_TIERS[p.level]
+    const tier = (options.tiers ?? BEACON_TIERS)[p.level]
     const r = tier.radius
     quad(
       [

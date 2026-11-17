@@ -2,7 +2,7 @@ import { incidentHeatGrid, isActive } from '@/api/mock/security'
 import { ModuleScene, type SceneEffect } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import { pointAt, sliceLine, type CityGeo, type XY } from '@/scene/geo'
-import { alarmPoints, area, circleRing, COLOR, fence, flowLine, focusView, frustum, heatmap, LEVEL_COLOR, pin, plainLine, prepareFlowLines, staggerHeights } from '@/scene/kit'
+import { alarmPoints, area, circleRing, COLOR, fence, flowLine, FOCUS_HEIGHT, focusView, frustum, heatmap, LEVEL_COLOR, pin, plainLine, prepareFlowLines, staggerHeights } from '@/scene/kit'
 import type { SecurityData, SecurityPeriod } from '@/types/security'
 
 export interface SecuritySceneOptions {
@@ -362,7 +362,7 @@ export class SecurityScene extends ModuleScene {
 
   /** 飞到某条警情 */
   async focusIncident(id: string): Promise<void> {
-    await this.flyTo(this.incidentXY.get(id), 3000)
+    await this.flyTo(this.incidentXY.get(id), FOCUS_HEIGHT)
   }
 
   /** 飞到某个重点防护区 */
