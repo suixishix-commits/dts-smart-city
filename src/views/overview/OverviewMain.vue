@@ -25,7 +25,6 @@
 
     <SceneLegend class="legend">
       <span v-if="layers.includes('heat')" class="legend-item"><b>人口热力</b>低<i class="steps"><i v-for="c in HEAT_STEPS" :key="c" :style="{ background: c }"></i></i>高</span>
-      <span v-if="layers.includes('district')" class="legend-item"><b>片区密度</b>低<i class="steps"><i v-for="c in RAMP" :key="c" :style="{ background: c }"></i></i>高</span>
       <span v-if="layers.includes('hotspot')" class="legend-item"><i class="ring"></i>热点事件</span>
       <span v-if="layers.includes('camera')" class="legend-item"><i class="dot"></i>摄像头</span>
       <span class="legend-item"><i class="line"></i>路网</span>
@@ -42,7 +41,7 @@ import { getOverviewData } from '@/api/overview'
 import DetailCard from '@/components/panel/DetailCard.vue'
 import { useEscape } from '@/composables/useEscape'
 import { useSceneTools } from '@/composables/useSceneTools'
-import { COLOR, HEAT_STOPS, LEVEL_COLOR, RAMP, rampColor } from '@/scene/kit'
+import { COLOR, HEAT_STOPS, LEVEL_COLOR, rampColor } from '@/scene/kit'
 import { DtsSceneApi } from '@/scene/DtsSceneApi'
 import { cityBase } from '@/scene/CityBase'
 import store from '@/stores'
@@ -59,8 +58,7 @@ import { OverviewScene } from './OverviewScene'
 const LAYERS = [
   { key: 'heat', name: '人口热力' },
   { key: 'hotspot', name: '热点事件' },
-  { key: 'camera', name: '摄像头' },
-  { key: 'district', name: '片区密度' }
+  { key: 'camera', name: '摄像头' }
 ]
 
 const LEVEL_TEXT: Record<number, string> = { 1: '一级', 2: '二级', 3: '三级', 4: '四级' }
@@ -71,7 +69,7 @@ const data = ref<OverviewData | null>(null)
 // 当前真实时刻，取整到半小时
 const nowHour = Math.round((dayjs().hour() + dayjs().minute() / 60) * 2) / 2
 const hour = ref(nowHour)
-// 首屏只开热力和热点：片区点阵与热力会大面积互相遮盖（见模块开发约定），片区密度、摄像头按需打开
+// 首屏只开热力和热点，摄像头按需打开
 const layers = ref(['heat', 'hotspot'])
 const activeHotspot = ref<string | null>(null)
 const activeCamera = ref<string | null>(null)
@@ -299,7 +297,6 @@ onMounted(async () => {
   scene = new OverviewScene(new DtsSceneApi(), geo, {
     cameraView: gVar?.smartCity?.cameras?.overview ?? null,
     heatmapZ: gVar?.smartCity?.heatmapZ ?? [-50, 300],
-    pak: cityBase.pak,
     beacons: cityBase.beacons,
     heatField: cityBase.heatField
   })

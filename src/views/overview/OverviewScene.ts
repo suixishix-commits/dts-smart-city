@@ -1,9 +1,9 @@
-import { districtDensityAt, heatGridAt, hotspotActivityAt } from '@/api/mock/population'
+import { heatGridAt, hotspotActivityAt } from '@/api/mock/population'
 import { HeatFieldLayer, sampleHeatField } from '@/scene/heatField'
 import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import type { CityGeo } from '@/scene/geo'
-import { alarmPoints, area, COLOR, focusView, heatmap, pin, rampColor, regionLayer, ripple, staggerHeights } from '@/scene/kit'
+import { alarmPoints, COLOR, focusView, heatmap, pin, ripple, staggerHeights } from '@/scene/kit'
 import type { OverviewData } from '@/types/smartCity'
 
 export interface OverviewSceneOptions {
@@ -11,19 +11,14 @@ export interface OverviewSceneOptions {
   cameraView: number[] | null
   /** 热力图垂直范围 [minZ, maxZ] */
   heatmapZ: [number, number]
-  /** 效果总包是否可用；不可用时片区退回普通面 */
-  pak: boolean
-  /** 分级点位材质包是否可用；可用时热点用光环 + 光柱（大小固定），否则用随时刻缩放的扩散波纹 */
+  /** 分级点位材质包是否可用；可用时热点用地面光环（大小固定），否则用随时刻缩放的扩散波纹 */
   beacons?: boolean
-  /** 热力场材质包是否可用；可用时人口热力用 UE 热力场（换时刻交叉淡入淡出），否则用 DTS 热力图 */
+  /** 热力场材质包是否可用；可用时人口热力用 UE 热力场（换时刻原地插值），否则用 DTS 热力图 */
   heatField?: boolean
 }
 
-/** 密度色带的上限，万人/km² */
-const DENSITY_MAX = 2.8
 /** 热力网格间距，米 */
 const HEAT_STEP = 480
-const DISTRICT_LAYER_ID = 'sc_overview_districts'
 /** 人口热力图交替使用的两个 id */
 const HEAT_IDS = ['population-heat', 'population-heat-b'] as const
 /** 热点相距多近（米）时错开标注高度 */
@@ -42,7 +37,6 @@ function heatColor(heat: number): string {
 
 /**
  * 城市总览的场景图层：
- * - district 片区：点阵流光，颜色随所选时刻的人口密度变化；
  * - heat     人口热力：只落在陆地上的网格热力，叠加热点事件的人群；
  * - hotspot  热点事件：扩散波纹 + 标注，波纹大小随事件活跃度变化；
  * - camera   摄像头：标注。
@@ -54,7 +48,6 @@ export class OverviewScene extends ModuleScene {
   private entered = false
   private hotspotXY = new Map<string, number[]>()
   private cameraXY = new Map<string, number[]>()
-  private districts: Awaited<ReturnType<typeof regionLayer>> | null = null
   private grid: { xy: number[]; districtId: string }[] = []
   private heatSlot = 1
   /** UE 热力场图层；材质包不可用时为 null，用 DTS 热力图 */
@@ -75,11 +68,6 @@ export class OverviewScene extends ModuleScene {
     this.hour = hour
   }
 
-  private densityColor(districtId: string): string {
-    const d = this.geo.district(districtId)
-    return d ? rampColor(districtDensityAt(d, this.hour) / DENSITY_MAX) : COLOR.accent
-  }
-
   protected async onEnter(token: number): Promise<void> {
     this.entered = false
     const data = this.data
@@ -95,24 +83,6 @@ export class OverviewScene extends ModuleScene {
     this.grid = geo.landGrid(HEAT_STEP)
 
     if (this.options.cameraView) await this.api.setCamera(this.options.cameraView)
-
-    if (this.options.pak) {
-      await this.effect(token, 'district', async () => {
-        this.districts = await regionLayer(
-          DISTRICT_LAYER_ID,
-          geo.districts.map((d) => ({ id: d.id, color: this.densityColor(d.id), ring: d.ring })),
-          { pattern: 'dots', scale: 3, fill: 0.04 }
-        )
-        return this.districts
-      })
-    } else {
-      await this.add(
-        token,
-        'polygon',
-        geo.districts.map((d) => area({ id: 'district-' + d.id, groupId: 'sc_district', ring: d.ring, color: this.densityColor(d.id), fill: 0.14 })),
-        'district'
-      )
-    }
 
     const ranked = [...data.hotspots].sort((a, b) => b.heat - a.heat)
     // 热点集中在商业区，挨得近的错开引线高度；热度最高的排最低一档
@@ -184,7 +154,6 @@ export class OverviewScene extends ModuleScene {
 
   protected async onLeave(): Promise<void> {
     this.entered = false
-    this.districts = null
     await this.heatField?.clear()
   }
 
@@ -196,7 +165,6 @@ export class OverviewScene extends ModuleScene {
   }
 
   private async applyHour(data: OverviewData): Promise<void> {
-    const geo = this.geo
     await Promise.all([
       this.heatField ? this.heatField.show(this.buildHeatField(data)) : this.replaceLayer('heat', 'heatmap', [this.buildHeatmap(data)]),
       // 分级点位大小固定，进入时画一次；扩散波纹的半径随时刻的活跃度变化，每个时刻重画
@@ -214,8 +182,7 @@ export class OverviewScene extends ModuleScene {
                 color: heatColor(h.heat)
               })
             )
-          ),
-      this.districts?.setColors(Object.fromEntries(geo.districts.map((d) => [d.id, this.densityColor(d.id)])))
+          )
     ])
   }
 

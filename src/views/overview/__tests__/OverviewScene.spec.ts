@@ -1,22 +1,10 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { districtDensityAt, hotspotActivityAt } from '@/api/mock/population'
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { hotspotActivityAt } from '@/api/mock/population'
 import type { SceneApi, SceneObjectType } from '@/scene/SceneApi'
 import type { CityGeo } from '@/scene/geo'
-import { COLOR, focusView, rampColor, rgba } from '@/scene/kit'
+import { COLOR, focusView, rgba } from '@/scene/kit'
 import { loadCityGeo, loadOverviewJson } from '@/scene/__tests__/fixtures'
 import type { OverviewData } from '@/types/smartCity'
-
-// 效果总包的点阵流光图层用替身：只测 OverviewScene 怎么用它，不测效果库本身
-const region = vi.hoisted(() => ({
-  layer: {
-    show: vi.fn(async () => {}),
-    hide: vi.fn(async () => {}),
-    remove: vi.fn(async () => {}),
-    setColors: vi.fn(async (_colors: Record<string, string>) => {})
-  },
-  regionLayer: vi.fn()
-}))
-vi.mock('@/scene/kit', async importOriginal => ({ ...(await importOriginal<typeof import('@/scene/kit')>()), regionLayer: region.regionLayer }))
 
 import { OverviewScene } from '../OverviewScene'
 
@@ -69,47 +57,41 @@ const HEAT_STEP = 480
 /** 当前的人口热力图（id 在 population-heat / population-heat-b 之间交替，任何时刻只有一张） */
 const heatIds = (api: FakeApi) => api.ids('heatmap').filter(k => k.startsWith('heatmap:population-heat'))
 const heat = (api: FakeApi) => api.store.get(heatIds(api)[0])
-const DENSITY_MAX = 2.8
 
 describe('OverviewScene', () => {
   let geo: CityGeo
   let data: OverviewData
   let api: FakeApi
   let scene: OverviewScene
-  /** 进入后场景里的对象总数：片区面 + 热点标注 + 摄像头标注 + 热点波纹 + 1 张热力图 */
+  /** 进入后场景里的对象总数：热点标注 + 摄像头标注 + 热点波纹 + 1 张热力图 */
   let total: number
-
-  const densityColor = (districtId: string, hour: number) => rampColor(districtDensityAt(geo.district(districtId)!, hour) / DENSITY_MAX)
 
   beforeAll(async () => {
     geo = await loadCityGeo()
     // 与 getOverviewData 一样：片区来自 geo.json
     data = { ...loadOverviewJson(), districts: geo.raw.districts }
-    total = geo.districts.length + data.hotspots.length * 2 + data.cameras.length + 1
+    total = data.hotspots.length * 2 + data.cameras.length + 1
   })
 
   beforeEach(() => {
-    region.regionLayer.mockReset().mockResolvedValue(region.layer)
-    Object.values(region.layer).forEach(fn => fn.mockClear())
     api = new FakeApi()
-    scene = new OverviewScene(api, geo, { cameraView: null, heatmapZ: [-50, 300], pak: false })
+    scene = new OverviewScene(api, geo, { cameraView: null, heatmapZ: [-50, 300] })
     scene.setData(data, 12)
   })
 
-  describe('进入（pak: false，片区用普通面兜底）', () => {
-    it('creates district areas, hotspot pins and ripples, camera pins and one heatmap', async () => {
+  describe('进入', () => {
+    it('creates hotspot pins and ripples, camera pins and one heatmap, and no district layer', async () => {
       await scene.enter()
-      expect(api.ids('polygon')).toEqual(geo.districts.map(d => 'polygon:district-' + d.id).sort())
+      expect(api.ids('polygon')).toEqual([])
       expect(api.ids('marker')).toEqual([...data.cameras.map(c => 'marker:camera-' + c.id), ...data.hotspots.map(h => 'marker:hotspot-' + h.id)].sort())
       expect(api.ids('radiationPoint')).toEqual(data.hotspots.map(h => 'radiationPoint:hotspot-ripple-' + h.id).sort())
       expect(heatIds(api)).toHaveLength(1)
       expect(api.store.size).toBe(total)
       expect(scene.objectCount()).toBe(total)
-      expect(region.regionLayer).not.toHaveBeenCalled()
     })
 
     it('does nothing when no data was set', async () => {
-      scene = new OverviewScene(api, geo, { cameraView: [1, 2, 3, -45, 0], heatmapZ: [-50, 300], pak: false })
+      scene = new OverviewScene(api, geo, { cameraView: [1, 2, 3, -45, 0], heatmapZ: [-50, 300] })
       await scene.enter()
       expect(api.store.size).toBe(0)
       expect(api.cameraCalls).toEqual([])
@@ -119,24 +101,6 @@ describe('OverviewScene', () => {
       await scene.enter()
       expect(api.projectCalls).toHaveLength(1)
       expect(api.projectCalls[0]).toEqual([...data.hotspots.map(h => h.position), ...data.cameras.map(c => c.position)])
-    })
-
-    it('draws each district on its projected ring, coloured by density at the entry hour', async () => {
-      await scene.enter()
-      for (const d of geo.districts) {
-        const polygon = api.store.get('polygon:district-' + d.id)
-        expect(polygon.groupId).toBe('sc_district')
-        expect(polygon.coordinates.map((p: number[]) => [p[0], p[1]])).toEqual(d.ring)
-        expect(polygon.frameColor.slice(0, 3), d.id).toEqual(rgba(densityColor(d.id, 12)).slice(0, 3))
-      }
-    })
-
-    it('uses the hour passed to setData for the district colours', async () => {
-      scene.setData(data, 2)
-      await scene.enter()
-      // 商务区达纳凌晨是低密度（冷色最低档），正午是高密度
-      expect(densityColor('danah', 2)).not.toBe(densityColor('danah', 12))
-      expect(api.store.get('polygon:district-danah').frameColor.slice(0, 3)).toEqual(rgba(densityColor('danah', 2)).slice(0, 3))
     })
 
     it('labels hotspots with their rank by heat and colours them by heat', async () => {
@@ -191,7 +155,7 @@ describe('OverviewScene', () => {
     })
 
     it('draws the population heat as a UE heat field instead of a DTS heatmap when the pak is mounted, and removes it on leave', async () => {
-      scene = new OverviewScene(api, geo, { cameraView: null, heatmapZ: [-50, 300], pak: false, heatField: true })
+      scene = new OverviewScene(api, geo, { cameraView: null, heatmapZ: [-50, 300], heatField: true })
       scene.setData(data, 12)
       await scene.enter()
       expect(heatIds(api)).toEqual([])
@@ -205,7 +169,7 @@ describe('OverviewScene', () => {
     })
 
     it('uses the configured heatmap z range', async () => {
-      scene = new OverviewScene(api, geo, { cameraView: null, heatmapZ: [-10, 120], pak: false })
+      scene = new OverviewScene(api, geo, { cameraView: null, heatmapZ: [-10, 120] })
       scene.setData(data, 12)
       await scene.enter()
       const hm = heat(api)
@@ -223,7 +187,7 @@ describe('OverviewScene', () => {
     })
 
     it('flies to the configured camera view', async () => {
-      scene = new OverviewScene(api, geo, { cameraView: [1, 2, 3, -45, 0], heatmapZ: [-50, 300], pak: false })
+      scene = new OverviewScene(api, geo, { cameraView: [1, 2, 3, -45, 0], heatmapZ: [-50, 300] })
       scene.setData(data, 12)
       await scene.enter()
       expect(api.cameraCalls).toEqual([[1, 2, 3, -45, 0]])
@@ -325,11 +289,9 @@ describe('OverviewScene', () => {
       expect(api.visible.get('radiationPoint:hotspot-ripple-' + data.hotspots[0].id)).toBe(true)
     })
 
-    it('hides the district areas and the heatmap by their keys', async () => {
+    it('hides the heatmap by its key', async () => {
       await scene.enter()
-      await scene.setLayerVisible('district', false)
       await scene.setLayerVisible('heat', false)
-      expect(api.visible.get('polygon:district-danah')).toBe(false)
       expect(api.visible.get(heatIds(api)[0])).toBe(false)
     })
 
@@ -440,69 +402,6 @@ describe('OverviewScene', () => {
       await scene.enter()
       expect(api.store.size).toBe(total)
       expect(scene.objectCount()).toBe(total)
-    })
-  })
-
-  describe('pak: true（片区用点阵流光图层，效果库为替身）', () => {
-    beforeEach(() => {
-      scene = new OverviewScene(api, geo, { cameraView: null, heatmapZ: [-50, 300], pak: true })
-      scene.setData(data, 12)
-    })
-
-    it('creates one region layer for all districts instead of polygons', async () => {
-      await scene.enter()
-      expect(api.ids('polygon')).toEqual([])
-      expect(region.regionLayer).toHaveBeenCalledTimes(1)
-      const [id, regions] = region.regionLayer.mock.calls[0]
-      expect(id).toBe('sc_overview_districts')
-      expect(regions.map((r: any) => r.id)).toEqual(geo.districts.map(d => d.id))
-      for (const r of regions) {
-        expect(r.ring).toEqual(geo.district(r.id)!.ring)
-        expect(r.color).toBe(densityColor(r.id, 12))
-      }
-      // 其余图层照常创建
-      expect(api.store.size).toBe(total - geo.districts.length)
-    })
-
-    it('recolours the region layer when the hour changes', async () => {
-      await scene.enter()
-      region.layer.setColors.mockClear()
-      await scene.setHour(2)
-      expect(region.layer.setColors).toHaveBeenCalledTimes(1)
-      const colors = region.layer.setColors.mock.calls[0][0]
-      expect(Object.keys(colors).sort()).toEqual(geo.districts.map(d => d.id).sort())
-      for (const d of geo.districts) expect(colors[d.id]).toBe(densityColor(d.id, 2))
-    })
-
-    it('hides and shows the region layer with the district switch', async () => {
-      await scene.enter()
-      await scene.setLayerVisible('district', false)
-      expect(region.layer.hide).toHaveBeenCalledTimes(1)
-      await scene.setLayerVisible('district', true)
-      expect(region.layer.show).toHaveBeenCalledTimes(1)
-    })
-
-    it('removes the region layer on leave and stops recolouring it', async () => {
-      await scene.enter()
-      await scene.leave()
-      expect(region.layer.remove).toHaveBeenCalledTimes(1)
-      expect(api.store.size).toBe(0)
-      region.layer.setColors.mockClear()
-      await scene.setHour(19.5)
-      expect(region.layer.setColors).not.toHaveBeenCalled()
-    })
-
-    it('still builds the other layers when the region layer cannot be created', async () => {
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      region.regionLayer.mockRejectedValue(new Error('效果库加载失败'))
-      await scene.enter()
-      expect(warn).toHaveBeenCalled()
-      expect(heatIds(api)).toHaveLength(1)
-      expect(api.ids('marker')).toHaveLength(data.hotspots.length + data.cameras.length)
-      await scene.setHour(19.5)
-      await scene.leave()
-      expect(api.store.size).toBe(0)
-      warn.mockRestore()
     })
   })
 })
