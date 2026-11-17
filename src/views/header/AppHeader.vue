@@ -72,6 +72,8 @@ onBeforeUnmount(() => window.clearInterval(timer))
   z-index: 10;
   width: 100%;
   height: $titleHeight;
+  // 外层容器整体不接收点击（让场景可拖拽），顶栏要自己接回来
+  pointer-events: all;
   box-sizing: border-box;
   padding: 0 $page-margin;
   display: flex;
