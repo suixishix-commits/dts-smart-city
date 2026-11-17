@@ -1,13 +1,13 @@
 // 场景相关配置。换场景时只改这里和 public/data/smart-city 下的数据文件。
 Object.assign(gVar, {
   smartCity: {
-    // 效果总包（UE pak）在渲染主机上的绝对路径。场景就绪后按路径挂载，不需要改 Cloud 安装目录。
-    // 留空则不挂载：依赖总包的效果（流动线材质、点阵流光、电子围栏、摄像头视域）退回内置样式或不显示。
-    effectsPak: 'E:/Dts-Optimize/dts-effect-kit/effects/bundle/DTS-Effects-Bundle.pak',
-    // 分级点位效果（UE 材质包，dts-effect-kit/projects/PointBeacon_20261117）：告警、事件点的地面光环和光柱。
-    // 留空或挂载失败时，各模块的告警点退回 DTS 自带的扩散波纹
-    heatFieldPak: 'E:/Dts-Optimize/dts-effect-kit/projects/HeatField_20261117/Delivery/HeatField-V1-20261117-WindowsNoEditor.pak',
-    pointBeaconPak: 'E:/Dts-Optimize/dts-effect-kit/projects/PointBeacon_20261117/Delivery/PointBeacon-V3-20261117-WindowsNoEditor.pak',
+    // UE 效果包统一放在渲染端资源目录 E:/Dts-Optimize/工程/demo_files/Resource 下，场景就绪后按绝对路径挂载，不需要改 Cloud 安装目录。
+    // 效果总包：流动线材质、点阵流光、电子围栏、摄像头视域。留空则不挂载，依赖它的效果退回内置样式或不显示。
+    effectsPak: 'E:/Dts-Optimize/工程/demo_files/Resource/DTS-Effects-Bundle.pak',
+    // 热力场（dts-effect-kit/projects/HeatField_20261117）：人口热力、警情热力。留空或挂载失败时退回 DTS 自带热力图
+    heatFieldPak: 'E:/Dts-Optimize/工程/demo_files/Resource/HeatField-V1-20261117-WindowsNoEditor.pak',
+    // 分级点位（dts-effect-kit/projects/PointBeacon_20261117）：告警、事件点的地面光环。留空或挂载失败时退回 DTS 自带扩散波纹
+    pointBeaconPak: 'E:/Dts-Optimize/工程/demo_files/Resource/PointBeacon-V3-20261117-WindowsNoEditor.pak',
     // 底图风格：把影像压成偏冷的黄昏色调，让图层从底图里浮出来。
     // tint 乘到影像原色上；saturation 0~2；brightness 0.1~10；contrast 0.2~5；bloom 泛光 0~10
     ambience: { tint: [0.78, 0.88, 1, 1], saturation: 0.85, brightness: 0.3, contrast: 1.08, bloom: 0.6 },
