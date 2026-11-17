@@ -29,8 +29,8 @@
       "type": "文体活动",
       "districtId": "khalidiyah",
       "position": [
-        54.334,
-        24.4712
+        54.33868,
+        24.46949
       ],
       "heat": 96,
       "people": 18000,
@@ -103,8 +103,8 @@
       "id": "CAM-0218",
       "name": "科尼什海滩东入口",
       "position": [
-        54.3352,
-        24.4718
+        54.3392,
+        24.4703
       ],
       "online": true,
       "featured": true

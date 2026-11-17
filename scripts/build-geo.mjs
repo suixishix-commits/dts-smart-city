@@ -335,10 +335,10 @@ const landmarks = LANDMARKS.map(([id, name, type, fallback, re]) => {
   // 只采用岛内、离一期坐标 2 公里以内的匹配，防止同名对象串位
   const use = real && (type === 'bridge' || inIsland(real)) && turf.distance(real, fallback, km) < 2 ? pt(real) : fallback
   let position = use
-  // 海滩、红树林这类地标在真实海岸线上或岸外小岛上：挪到最近岸点向岛内 200 米，保证落在陆地上（桥除外）
+  // 海滩、红树林这类地标在真实海岸线上或岸外小岛上：挪到最近岸点向岛内 450 米（岛轮廓是简化过的，和影像海岸线有偏差，200 米仍会落在水边），保证落在陆地上（桥除外）
   if (type !== 'bridge' && !inIsland(position)) {
     const shore = turf.nearestPointOnLine(turf.lineString([...ISLAND, ISLAND[0]]), position).geometry.coordinates
-    const inward = turf.destination(shore, 0.2, turf.bearing(shore, turf.centroid(island).geometry.coordinates), km).geometry.coordinates
+    const inward = turf.destination(shore, 0.45, turf.bearing(shore, turf.centroid(island).geometry.coordinates), km).geometry.coordinates
     position = pt(inward)
     moved.push(`${id} 移到岸内 ${Math.round(turf.distance(position, fallback, km) * 1000)}m`)
   } else if (use !== fallback) moved.push(`${id} ${Math.round(turf.distance(use, fallback, km) * 1000)}m`)
