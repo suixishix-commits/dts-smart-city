@@ -2,7 +2,7 @@ import { concentrationsAt, noiseDbAt, readingOf, stationReadingsAt, WATER_GRADE_
 import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi, SceneObjectType } from '@/scene/SceneApi'
 import { pointAt, type CityGeo } from '@/scene/geo'
-import { area, circleRing, COLOR, column, focusView, LEVEL_COLOR, pin, rampColor, regionLayer, ripple, staggerHeights, STATUS_RAMP } from '@/scene/kit'
+import { alarmPoints, area, circleRing, COLOR, column, focusView, LEVEL_COLOR, pin, rampColor, regionLayer, staggerHeights, STATUS_RAMP } from '@/scene/kit'
 import type { AirIndex, AirLevel, EnvironmentData, PlaceRef, WaterGrade } from '@/types/environment'
 
 export interface EnvironmentSceneOptions {
@@ -10,6 +10,8 @@ export interface EnvironmentSceneOptions {
   cameraView: number[] | null
   /** 效果总包是否可用；不可用时片区退回普通面 */
   pak: boolean
+  /** 分级点位材质包是否可用；不可用时污染源用扩散波纹 */
+  beacons?: boolean
 }
 
 /** 图层清单：key、名称、是否默认打开。页面的图层开关和场景共用这一份 */
@@ -132,7 +134,13 @@ export class EnvironmentScene extends ModuleScene {
       const at = this.locate(s.place)
       return at ? [{ s, at }] : []
     })
-    await this.add(token, 'radiationPoint', sources.map(({ s, at }) => ripple({ id: 'source-ripple-' + s.id, groupId: 'sc_environment_source_ripple', at, radius: s.level <= 2 ? 560 : 380, color: LEVEL_COLOR[s.level] })), 'source')
+    const marks = alarmPoints({
+      id: 'source-ripple',
+      groupId: 'sc_environment_source_ripple',
+      beacons: !!this.options.beacons,
+      points: sources.map(({ s, at }) => ({ id: s.id, at, level: s.level, color: LEVEL_COLOR[s.level], radius: s.level <= 2 ? 560 : 380 }))
+    })
+    await this.add(token, marks.type, marks.objects, 'source')
     // 污染源和监测站的标注一起错开引线高度（顺序固定：污染源按等级在前，监测站随后），拖动时间轴时不跳动
     const stations = data.stations.flatMap(s => {
       const at = this.locate(s.place)
@@ -150,7 +158,7 @@ export class EnvironmentScene extends ModuleScene {
     await this.add(
       token,
       'marker',
-      sources.map(({ s, at }) => pin({ id: 'source-' + s.id, groupId: 'sc_environment_source', at, text: s.shortName, color: LEVEL_COLOR[s.level], userId: s.id, lineHeight: this.leads.get('source:' + s.id), priority: s.level <= 2 ? 8 : 2 })),
+      sources.map(({ s, at }) => pin({ id: 'source-' + s.id, icon: 'factory', groupId: 'sc_environment_source', at, text: s.shortName, color: LEVEL_COLOR[s.level], userId: s.id, lineHeight: this.leads.get('source:' + s.id), priority: s.level <= 2 ? 8 : 2 })),
       'source'
     )
 
@@ -170,7 +178,7 @@ export class EnvironmentScene extends ModuleScene {
       data.waterSamples.flatMap(w => {
         const at = this.locate(w.place)
         // 超标（三、四类）的点常显，其余参与避让
-        return at ? [pin({ id: 'water-' + w.id, groupId: 'sc_environment_water', at, text: `${w.id} ${WATER_GRADE_NAMES[w.grade]}`, color: WATER_COLORS[w.grade], userId: w.id, lineHeight: 26, fontSize: 11, priority: w.grade >= 3 ? 10 : 5 })] : []
+        return at ? [pin({ id: 'water-' + w.id, icon: 'water', groupId: 'sc_environment_water', at, text: `${w.id} ${WATER_GRADE_NAMES[w.grade]}`, color: WATER_COLORS[w.grade], userId: w.id, lineHeight: 26, fontSize: 11, priority: w.grade >= 3 ? 10 : 5 })] : []
       }),
       'water'
     )
@@ -214,7 +222,7 @@ export class EnvironmentScene extends ModuleScene {
       const env = byId.get(d.id)
       if (!env) return []
       const r = readingOf(concentrationsAt(env, this.hour), this.index)
-      return [pin({ id: 'air-label-' + d.id, groupId: 'sc_environment_air_label', at: d.centerXY, text: d.name, value: String(r.value), color: airColor(r.level), userId: d.id, lineHeight: 18, fontSize: 12, priority: 6 })]
+      return [pin({ id: 'air-label-' + d.id, icon: 'air', groupId: 'sc_environment_air_label', at: d.centerXY, text: d.name, value: String(r.value), color: airColor(r.level), userId: d.id, lineHeight: 18, fontSize: 12, priority: 6 })]
     })
   }
 
@@ -234,7 +242,7 @@ export class EnvironmentScene extends ModuleScene {
           if (!at) return []
           // 空气质量差的站点常显；其余拉近才显示（老城区站点密，全城视角下全显示会挤成一片）
           const r = readingOf(concentrationsAt(s, this.hour), this.index)
-          return [pin({ id: 'station-' + s.id, groupId: 'sc_environment_station', at, text: s.shortName, value: String(r.value), color: airColor(r.level), userId: s.id, lineHeight: this.leads.get('station:' + s.id) ?? 44, priority: r.level >= 2 ? 10 : 2 })]
+          return [pin({ id: 'station-' + s.id, icon: 'air', groupId: 'sc_environment_station', at, text: s.shortName, value: String(r.value), color: airColor(r.level), userId: s.id, lineHeight: this.leads.get('station:' + s.id) ?? 44, priority: r.level >= 2 ? 10 : 2 })]
         })
       ),
       this.replaceIfChanged(

@@ -164,10 +164,16 @@ export abstract class ModuleScene {
   private async reconcile(layer: LayerState): Promise<void> {
     try {
       for (;;) {
-        // 1. 删除不再需要的对象。先从 live 里去掉：即使删除失败也不再重复尝试
+        // 先建后删（make-before-break）：新对象先加上，旧对象再删，替换时画面不出现空档（热力图、标注不闪）。
+        // 只有和新对象同 id 的旧对象必须先删（同 id 不能并存），其余旧对象等新的加完再删
         const stale = layer.live.filter(e => !layer.wanted.includes(e))
-        if (stale.length) {
-          const batch = byType(stale)[0]
+        const missing = layer.visible ? layer.wanted.filter(e => !layer.live.includes(e)) : []
+        const missingIds = new Set(missing.map(e => e.type + ':' + e.object.id))
+
+        // 1. 先删和新对象同 id 的旧对象。先从 live 里去掉：即使删除失败也不再重复尝试
+        const clashing = stale.filter(e => missingIds.has(e.type + ':' + e.object.id))
+        if (clashing.length) {
+          const batch = byType(clashing)[0]
           layer.live = layer.live.filter(e => !batch.includes(e))
           await this.api.remove(batch[0].type, idsOf(batch))
           continue
@@ -182,12 +188,19 @@ export abstract class ModuleScene {
         }
 
         // 3. 创建缺少的对象（新建的对象默认可见）；隐藏期间不创建
-        const missing = layer.visible ? layer.wanted.filter(e => !layer.live.includes(e)) : []
-        if (missing.length === 0) return
-        const batch = byType(missing)[0]
-        await this.api.add(batch[0].type, batch.map(e => e.object))
-        layer.live = [...layer.live, ...batch]
-        layer.shown = true
+        if (missing.length) {
+          const batch = byType(missing)[0]
+          await this.api.add(batch[0].type, batch.map(e => e.object))
+          layer.live = [...layer.live, ...batch]
+          layer.shown = true
+          continue
+        }
+
+        // 4. 新对象都在了，再删不再需要的旧对象
+        if (stale.length === 0) return
+        const batch = byType(stale)[0]
+        layer.live = layer.live.filter(e => !batch.includes(e))
+        await this.api.remove(batch[0].type, idsOf(batch))
       }
     } finally {
       layer.syncing = null

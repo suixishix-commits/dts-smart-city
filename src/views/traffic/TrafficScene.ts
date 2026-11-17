@@ -2,7 +2,7 @@ import { commuteAt, congestionAt, congestionLevel, districtCongestionAt, INCIDEN
 import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import { pointAt, sliceLine, type CityGeo } from '@/scene/geo'
-import { arc, area, COLOR, flowLine, focusView, LEVEL_COLOR, pin, plainLine, prepareFlowLines, rampColor, regionLayer, ripple, staggerHeights, STATUS_RAMP } from '@/scene/kit'
+import { alarmPoints, arc, area, COLOR, flowLine, focusView, LEVEL_COLOR, pin, plainLine, prepareFlowLines, rampColor, regionLayer, ripple, staggerHeights, STATUS_RAMP } from '@/scene/kit'
 import type { DetourLeg, IncidentType, KeyVehicle, RoadSegment, SignalStatus, TrafficData, VehicleKind } from '@/types/traffic'
 
 export interface TrafficSceneOptions {
@@ -10,6 +10,8 @@ export interface TrafficSceneOptions {
   cameraView: number[] | null
   /** 效果总包是否可用；不可用时路况退回普通发光线、片区退回普通面 */
   pak: boolean
+  /** 分级点位材质包是否可用；不可用时事件点用扩散波纹 */
+  beacons?: boolean
   /** 显示/隐藏底座路网（cityBase.setRoadsVisible）。本模块自己画路况，进入时隐藏、离开时恢复 */
   setBaseRoads?: (visible: boolean) => Promise<void>
 }
@@ -21,6 +23,8 @@ export const INCIDENT_COLOR: Record<IncidentType, string> = {
   control: COLOR.caution,
   breakdown: LEVEL_COLOR[4]
 }
+/** 事件类型在分级点位里的等级（颜色同 INCIDENT_COLOR）：事故二级、施工管制三级、故障四级 */
+export const INCIDENT_LEVEL: Record<IncidentType, 1 | 2 | 3 | 4> = { accident: 2, construction: 3, control: 3, breakdown: 4 }
 /** 信号路口状态的颜色：正常是冷色，离线和手动控制才用暖色 */
 export const SIGNAL_COLOR: Record<SignalStatus, string> = { normal: COLOR.accent, offline: COLOR.danger, manual: COLOR.warn }
 export const SIGNAL_TEXT: Record<SignalStatus, string> = { normal: '正常', offline: '离线', manual: '手动控制' }
@@ -114,12 +118,13 @@ export class TrafficScene extends ModuleScene {
     if (this.options.pak) await prepareFlowLines()
 
     const incidents = data.incidents.filter(i => this.xy.has(i.intersectionId))
-    await this.add(
-      token,
-      'radiationPoint',
-      incidents.map(i => ripple({ id: 'incident-ripple-' + i.id, groupId: 'sc_traffic_incident_ripple', at: this.xy.get(i.intersectionId) as number[], radius: Math.min(800, 300 + i.queue * 0.5), color: INCIDENT_COLOR[i.type] })),
-      'incident'
-    )
+    const marks = alarmPoints({
+      id: 'incident-ripple',
+      groupId: 'sc_traffic_incident_ripple',
+      beacons: !!this.options.beacons,
+      points: incidents.map(i => ({ id: i.id, at: this.xy.get(i.intersectionId) as number[], level: INCIDENT_LEVEL[i.type], color: INCIDENT_COLOR[i.type], radius: Math.min(800, 300 + i.queue * 0.5) }))
+    })
+    await this.add(token, marks.type, marks.objects, 'incident')
     // 西侧老城的事件挨得很近，引线错开高度，文字框才不叠在一起
     const heights = staggerHeights(incidents.map(i => this.xy.get(i.intersectionId) as number[]), 56, 34, INCIDENT_STAGGER)
     await this.add(
@@ -144,7 +149,7 @@ export class TrafficScene extends ModuleScene {
       'marker',
       signals
         .filter(s => s.status !== 'normal')
-        .map(s => pin({ id: 'signal-pin-' + s.id, groupId: 'sc_traffic_signal', at: this.xy.get(s.id) as number[], text: '信号' + SIGNAL_TEXT[s.status], color: SIGNAL_COLOR[s.status], userId: s.id, lineHeight: 28, fontSize: 11 })),
+        .map(s => pin({ id: 'signal-pin-' + s.id, groupId: 'sc_traffic_signal', at: this.xy.get(s.id) as number[], text: '信号' + SIGNAL_TEXT[s.status], icon: 'signal', color: SIGNAL_COLOR[s.status], userId: s.id, lineHeight: 28, fontSize: 11 })),
       'signal'
     )
 
@@ -241,7 +246,7 @@ export class TrafficScene extends ModuleScene {
       if (!at || !trail) continue
       const color = VEHICLE_COLOR[v.kind]
       trails.push(flowLine({ id: 'vehicle-trail-' + v.id, groupId: 'sc_traffic_vehicle_trail', path: trail, color, width: 56, style: 'pulse', brightness: 1.1, speed: 0.3, height: 16 }))
-      pins.push(pin({ id: 'vehicle-' + v.id, groupId: 'sc_traffic_vehicle', at, text: v.name, value: `${state.speed} km/h`, color, userId: v.id, lineHeight: 30, fontSize: 12, priority: 5 }))
+      pins.push(pin({ id: 'vehicle-' + v.id, groupId: 'sc_traffic_vehicle', at, text: v.name, value: `${state.speed} km/h`, icon: 'vehicle', color, userId: v.id, lineHeight: 30, fontSize: 12, priority: 5 }))
     }
     return { pins, trails }
   }

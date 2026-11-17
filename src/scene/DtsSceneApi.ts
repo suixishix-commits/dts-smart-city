@@ -26,7 +26,8 @@ export class DtsSceneApi implements SceneApi {
       return
     }
     // 线宽随相机高度缩放：登记基准线宽，按当前档位发出
-    const sent = type === 'polyline' ? lineScaler.track(objects) : objects
+    // customMesh：SDK 会改写传进去的字段（坐标数组等），传副本，保留下来的对象不被改动
+    const sent = type === 'polyline' ? lineScaler.track(objects) : type === 'customMesh' ? structuredClone(objects) : objects
     // 标注带整张 PNG 图片数据（每个十几 KB），分批发，一次太多会冲断连接
     const batch = type === 'marker' ? MARKER_BATCH : sent.length
     for (let i = 0; i < sent.length; i += batch) {

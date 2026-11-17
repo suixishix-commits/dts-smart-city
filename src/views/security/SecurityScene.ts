@@ -2,7 +2,7 @@ import { incidentHeatGrid, isActive } from '@/api/mock/security'
 import { ModuleScene, type SceneEffect } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import { pointAt, sliceLine, type CityGeo, type XY } from '@/scene/geo'
-import { area, circleRing, COLOR, fence, flowLine, focusView, frustum, heatmap, LEVEL_COLOR, pin, plainLine, prepareFlowLines, ripple, staggerHeights } from '@/scene/kit'
+import { alarmPoints, area, circleRing, COLOR, fence, flowLine, focusView, frustum, heatmap, LEVEL_COLOR, pin, plainLine, prepareFlowLines, staggerHeights } from '@/scene/kit'
 import type { SecurityData, SecurityPeriod } from '@/types/security'
 
 export interface SecuritySceneOptions {
@@ -14,6 +14,8 @@ export interface SecuritySceneOptions {
   pak: boolean
   /** 压暗/恢复底座路网（cityBase.setRoadsDimmed）。本模块有巡逻路线、防护区等大量线面，进入时压暗街道免得混在一起 */
   dimBaseRoads?: (dim: boolean) => Promise<void>
+  /** 分级点位材质包是否可用；不可用时警情点用扩散波纹 */
+  beacons?: boolean
 }
 
 
@@ -135,7 +137,7 @@ export class SecurityScene extends ModuleScene {
     await this.add(
       token,
       'marker',
-      data.cameras.map(c => pin({ id: 'camera-' + c.id, groupId: SECURITY_GROUP.camera, at: this.cameraXY.get(c.id) as XY, text: c.id, color: c.online ? COLOR.accent : COLOR.muted, userId: c.id, lineHeight: 26, fontSize: 11 })),
+      data.cameras.map(c => pin({ id: 'camera-' + c.id, icon: 'camera', groupId: SECURITY_GROUP.camera, at: this.cameraXY.get(c.id) as XY, text: c.id, color: c.online ? COLOR.accent : COLOR.muted, userId: c.id, lineHeight: 26, fontSize: 11 })),
       'camera'
     )
     // 兜底：贴地扇形交给基类，视域图层关着时不会创建
@@ -170,18 +172,19 @@ export class SecurityScene extends ModuleScene {
     await this.add(
       token,
       'marker',
-      data.zones.map(z => pin({ id: 'zone-' + z.id, groupId: SECURITY_GROUP.zone, at: this.zoneXY.get(z.id) as XY, text: `${z.name} · ${GUARD_TEXT[z.guardLevel]}`, color: COLOR.accent, userId: z.id, lineHeight: 44, fontSize: 12, priority: 5 })),
+      data.zones.map(z => pin({ id: 'zone-' + z.id, icon: 'shield', groupId: SECURITY_GROUP.zone, at: this.zoneXY.get(z.id) as XY, text: `${z.name} · ${GUARD_TEXT[z.guardLevel]}`, color: COLOR.accent, userId: z.id, lineHeight: 44, fontSize: 12, priority: 5 })),
       'fence'
     )
   }
 
   private async addIncidents(token: number, data: SecurityData): Promise<void> {
-    await this.add(
-      token,
-      'radiationPoint',
-      data.incidents.map(i => ripple({ id: 'incident-ripple-' + i.id, groupId: 'sc_security_incident_ripple', at: this.incidentXY.get(i.id) as XY, radius: RIPPLE_RADIUS[i.level], color: LEVEL_COLOR[i.level] })),
-      'incident'
-    )
+    const marks = alarmPoints({
+      id: 'incident-ripple',
+      groupId: 'sc_security_incident_ripple',
+      beacons: !!this.options.beacons,
+      points: data.incidents.map(i => ({ id: i.id, at: this.incidentXY.get(i.id) as XY, level: i.level, color: LEVEL_COLOR[i.level], radius: RIPPLE_RADIUS[i.level] }))
+    })
+    await this.add(token, marks.type, marks.objects, 'incident')
     // 等级小标签同右侧「实时警情」列表；挨得近的错开引线高度，级别高的排最低一档
     const bySeverity = [...data.incidents].sort((a, b) => a.level - b.level)
     const heights = staggerHeights(bySeverity.map(i => this.incidentXY.get(i.id) as XY), 60, 34, INCIDENT_STAGGER)
@@ -215,7 +218,7 @@ export class SecurityScene extends ModuleScene {
       const o = { id: 'patrol-' + route.id, groupId: 'sc_security_patrol', path, color: COLOR.ok, width: 40, height: 16 }
       lines.push(flow ? flowLine({ ...o, style: 'dash', spacing: 110, speed: 0.2, brightness: 1 }) : plainLine({ ...o, brightness: 1 }))
       for (const u of route.units) {
-        units.push(pin({ id: 'unit-' + u.id, groupId: SECURITY_GROUP.unit, at: pointAt(path, u.at), text: u.id, color: COLOR.ok, userId: u.id, lineHeight: 16, fontSize: 11, priority: -1 }))
+        units.push(pin({ id: 'unit-' + u.id, icon: 'person', groupId: SECURITY_GROUP.unit, at: pointAt(path, u.at), text: u.id, color: COLOR.ok, userId: u.id, lineHeight: 16, fontSize: 11, priority: -1 }))
       }
     }
     await this.add(token, 'polyline', lines, 'patrol')

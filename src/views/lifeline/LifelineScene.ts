@@ -3,7 +3,7 @@ import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import type { CityGeo, XY } from '@/scene/geo'
 import { sliceLine } from '@/scene/geo'
-import { area, circleRing, COLOR, flowLine, focusView, LEVEL_COLOR, pin, plainLine, prepareFlowLines, RAMP, ripple, staggerHeights, STATUS_RAMP } from '@/scene/kit'
+import { alarmPoints, area, circleRing, COLOR, flowLine, focusView, LEVEL_COLOR, pin, plainLine, prepareFlowLines, RAMP, ripple, staggerHeights, STATUS_RAMP } from '@/scene/kit'
 import type { Anchor, LifelineAlarm, LifelineData, PipeSegment, PipeSystem } from '@/types/lifeline'
 import { bufferLine, resolveAnchor, segmentBetween } from './anchor'
 
@@ -14,6 +14,8 @@ export interface LifelineSceneOptions {
   pak: boolean
   /** 底座路网的开关（传 cityBase）：地下模式打开时隐藏；地上时压暗，让管网成为画面主体；离开时恢复 */
   roads?: { setRoadsVisible(visible: boolean): Promise<void>; setRoadsDimmed?(dim: boolean): Promise<void> }
+  /** 分级点位材质包是否可用；不可用时告警点用扩散波纹 */
+  beacons?: boolean
 }
 
 /** 各管网的离地高度（米）：错开后彼此不闪面，也不和底座路网闪面 */
@@ -139,7 +141,7 @@ export class LifelineScene extends ModuleScene {
       token,
       'marker',
       data.substations.map(s =>
-        pin({ id: 'll-sub-' + s.id, groupId: 'sc_lifeline_substation', at: at(s.anchor), text: s.status ? `${s.name} ${s.loadPercent}%` : `${s.loadPercent}%`, color: STATUS_RAMP[s.status], userId: s.id, lineHeight: 30, fontSize: 12, priority: 2 + s.status })
+        pin({ id: 'll-sub-' + s.id, icon: 'power', groupId: 'sc_lifeline_substation', at: at(s.anchor), text: s.status ? `${s.name} ${s.loadPercent}%` : `${s.loadPercent}%`, color: STATUS_RAMP[s.status], userId: s.id, lineHeight: 30, fontSize: 12, priority: 2 + s.status })
       ),
       'power'
     )
@@ -155,12 +157,13 @@ export class LifelineScene extends ModuleScene {
       }),
       'alarm'
     )
-    await this.add(
-      token,
-      'radiationPoint',
-      data.alarms.map(a => ripple({ id: 'll-alarm-ripple-' + a.id, groupId: 'sc_lifeline_alarm_ripple', at: this.alarmXY.get(a.id) as XY, radius: ALARM_RADIUS[a.level], color: LEVEL_COLOR[a.level], brightness: a.level <= 2 ? 0.9 : 0.6 })),
-      'alarm'
-    )
+    const marks = alarmPoints({
+      id: 'll-alarm-ripple',
+      groupId: 'sc_lifeline_alarm_ripple',
+      beacons: !!this.options.beacons,
+      points: data.alarms.map(a => ({ id: a.id, at: this.alarmXY.get(a.id) as XY, level: a.level, color: LEVEL_COLOR[a.level], radius: ALARM_RADIUS[a.level], brightness: a.level <= 2 ? 0.9 : 0.6 }))
+    })
+    await this.add(token, marks.type, marks.objects, 'alarm')
     // 告警只有几条、全部常显（priority ≥ 10），挨得近时错开引线高度，级别高的排在最低一档；最低一档也要高过变电站、泵站这些设施标注
     const bySeverity = [...data.alarms].sort((x, y) => x.level - y.level)
     const heights = staggerHeights(bySeverity.map(a => this.alarmXY.get(a.id) as XY), 64, 34, ALARM_STAGGER)
@@ -179,7 +182,7 @@ export class LifelineScene extends ModuleScene {
     await this.add(
       token,
       'marker',
-      data.gasStations.map(g => pin({ id: 'll-gas-' + g.id, groupId: 'sc_lifeline_gas', at: at(g.anchor), text: `${g.name} ${g.outletKpa} kPa`, color: STATUS_RAMP[g.status], userId: g.id, lineHeight: 30, fontSize: 12, priority: 2 + g.status })),
+      data.gasStations.map(g => pin({ id: 'll-gas-' + g.id, icon: 'gas', groupId: 'sc_lifeline_gas', at: at(g.anchor), text: `${g.name} ${g.outletKpa} kPa`, color: STATUS_RAMP[g.status], userId: g.id, lineHeight: 30, fontSize: 12, priority: 2 + g.status })),
       'gas'
     )
 
@@ -195,8 +198,8 @@ export class LifelineScene extends ModuleScene {
       token,
       'marker',
       [
-        ...data.floodPoints.map(f => pin({ id: 'll-flood-' + f.id, groupId: 'sc_lifeline_flood', at: at(f.anchor), text: `积水 ${f.depthCm} cm`, color: STATUS_RAMP[f.status], userId: f.id, lineHeight: 40, fontSize: 12, priority: 4 + f.status })),
-        ...data.pumpStations.map(p => pin({ id: 'll-pump-' + p.id, groupId: 'sc_lifeline_pump', at: at(p.anchor), text: `${p.name} ${p.running}/${p.total}`, color: STATUS_RAMP[p.status], userId: p.id, lineHeight: 26, fontSize: 12, priority: 2 + p.status }))
+        ...data.floodPoints.map(f => pin({ id: 'll-flood-' + f.id, icon: 'water', groupId: 'sc_lifeline_flood', at: at(f.anchor), text: `积水 ${f.depthCm} cm`, color: STATUS_RAMP[f.status], userId: f.id, lineHeight: 40, fontSize: 12, priority: 4 + f.status })),
+        ...data.pumpStations.map(p => pin({ id: 'll-pump-' + p.id, icon: 'pump', groupId: 'sc_lifeline_pump', at: at(p.anchor), text: `${p.name} ${p.running}/${p.total}`, color: STATUS_RAMP[p.status], userId: p.id, lineHeight: 26, fontSize: 12, priority: 2 + p.status }))
       ],
       'drain'
     )
@@ -212,7 +215,7 @@ export class LifelineScene extends ModuleScene {
     await this.add(
       token,
       'marker',
-      data.bridges.map(b => pin({ id: 'll-bridge-' + b.id, groupId: 'sc_lifeline_bridge', at: this.bridgeXY.get(b.id) as XY, text: `${b.name} ${b.score} 分`, color: bridgeColor(b.score), userId: b.id, lineHeight: 44, priority: 6 })),
+      data.bridges.map(b => pin({ id: 'll-bridge-' + b.id, icon: 'bridge', groupId: 'sc_lifeline_bridge', at: this.bridgeXY.get(b.id) as XY, text: `${b.name} ${b.score} 分`, color: bridgeColor(b.score), userId: b.id, lineHeight: 44, priority: 6 })),
       'bridge'
     )
 
@@ -221,7 +224,7 @@ export class LifelineScene extends ModuleScene {
     await this.add(
       token,
       'marker',
-      data.coolingPlants.map(c => pin({ id: 'll-cooling-' + c.id, groupId: 'sc_lifeline_cooling', at: at(c.anchor), text: `${c.name} ${c.loadPercent}%`, color: STATUS_RAMP[c.status], userId: c.id, lineHeight: 34, fontSize: 12, priority: 2 + c.status })),
+      data.coolingPlants.map(c => pin({ id: 'll-cooling-' + c.id, icon: 'cooling', groupId: 'sc_lifeline_cooling', at: at(c.anchor), text: `${c.name} ${c.loadPercent}%`, color: STATUS_RAMP[c.status], userId: c.id, lineHeight: 34, fontSize: 12, priority: 2 + c.status })),
       'cooling'
     )
   }
@@ -258,7 +261,7 @@ export class LifelineScene extends ModuleScene {
     await this.replaceLayer(
       'valve',
       'marker',
-      valves.map(v => pin({ id: 'll-valve-' + v.id, groupId: 'sc_lifeline_valve', at: resolveAnchor(this.geo, v.anchor), text: `阀门 ${v.name} · ${v.state}`, color: VALVE_COLOR, userId: v.id, lineHeight: 30, fontSize: 12, priority: 3 }))
+      valves.map(v => pin({ id: 'll-valve-' + v.id, icon: 'pump', groupId: 'sc_lifeline_valve', at: resolveAnchor(this.geo, v.anchor), text: `阀门 ${v.name} · ${v.state}`, color: VALVE_COLOR, userId: v.id, lineHeight: 30, fontSize: 12, priority: 3 }))
     )
   }
 

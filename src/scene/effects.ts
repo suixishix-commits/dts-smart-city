@@ -1,3 +1,4 @@
+import { BEACON_MATERIAL } from './pointBeacon'
 /**
  * 效果总包（UE pak）和它的前端适配库。
  *
@@ -50,6 +51,33 @@ export function loadLib(name: EffectLib): Promise<any> {
 const LOADER_ID = 'sc_pak_loader'
 const LOADER_ASSET = '/JC_CustomAssets/ObjectLibrary/Exhibition/ElectronicFenceV1/BP_ElectronicFence_V1'
 let mounted: Promise<boolean> | null = null
+
+/**
+ * 挂载只有材质的 PAK（没有蓝图）。customObject 用 pakFilePath 创建时渲染端会先挂载整个包，
+ * 再按 assetPath 生成对象——材质不是蓝图，生成会报错，但包已经挂上了。用 misc.getMaterial 能列出参数来确认。
+ */
+async function mountMaterialPak(id: string, path: string, material: string): Promise<boolean> {
+  if (!path) return false
+  try {
+    await __xapi.customObject.delete([id])
+    await __xapi.customObject.add({ id, pakFilePath: path, assetPath: material, location: [0, 0, -10000], coordinateType: 0, rotation: [0, 0, 0], scale: [1, 1, 1] })
+    await __xapi.customObject.delete([id])
+    const res = await __xapi.misc.getMaterial(material)
+    const ok = !!res?.data?.[0]?.params?.length
+    if (!ok) console.warn('[effects] 材质包没有挂载上：', path)
+    return ok
+  } catch (e) {
+    console.warn('[effects] 挂载材质包失败', path, e)
+    return false
+  }
+}
+
+let beaconMounted: Promise<boolean> | null = null
+/** 挂载分级点位效果的材质包（smart-city.js 的 pointBeaconPak）；返回是否可用 */
+export function mountPointBeaconPak(): Promise<boolean> {
+  beaconMounted ??= mountMaterialPak('sc_beacon_loader', gVar?.smartCity?.pointBeaconPak ?? '', BEACON_MATERIAL)
+  return beaconMounted
+}
 
 /**
  * 挂载效果总包。原理：用 pakFilePath 创建一个不可见的蓝图对象，渲染端会把整个 pak 挂载进来，

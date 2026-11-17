@@ -66,6 +66,9 @@ class FakeApi implements SceneApi {
 }
 
 const HEAT_STEP = 480
+/** 当前的人口热力图（id 在 population-heat / population-heat-b 之间交替，任何时刻只有一张） */
+const heatIds = (api: FakeApi) => api.ids('heatmap').filter(k => k.startsWith('heatmap:population-heat'))
+const heat = (api: FakeApi) => api.store.get(heatIds(api)[0])
 const DENSITY_MAX = 2.8
 
 describe('OverviewScene', () => {
@@ -99,7 +102,7 @@ describe('OverviewScene', () => {
       expect(api.ids('polygon')).toEqual(geo.districts.map(d => 'polygon:district-' + d.id).sort())
       expect(api.ids('marker')).toEqual([...data.cameras.map(c => 'marker:camera-' + c.id), ...data.hotspots.map(h => 'marker:hotspot-' + h.id)].sort())
       expect(api.ids('radiationPoint')).toEqual(data.hotspots.map(h => 'radiationPoint:hotspot-ripple-' + h.id).sort())
-      expect(api.ids('heatmap')).toEqual(['heatmap:population-heat'])
+      expect(heatIds(api)).toHaveLength(1)
       expect(api.store.size).toBe(total)
       expect(scene.objectCount()).toBe(total)
       expect(region.regionLayer).not.toHaveBeenCalled()
@@ -165,7 +168,7 @@ describe('OverviewScene', () => {
 
     it('builds the heatmap from the land grid plus one point per hotspot', async () => {
       await scene.enter()
-      const hm = api.store.get('heatmap:population-heat')
+      const hm = heat(api)
       const grid = geo.landGrid(HEAT_STEP)
       expect(hm.data).toHaveLength(grid.length + data.hotspots.length)
       expect(hm.data.slice(-data.hotspots.length).map((p: any) => p.id)).toEqual(data.hotspots.map(h => 'hot-' + h.id))
@@ -177,7 +180,7 @@ describe('OverviewScene', () => {
 
     it('keeps every grid heat point on land and every heat value inside the range', async () => {
       await scene.enter()
-      const hm = api.store.get('heatmap:population-heat')
+      const hm = heat(api)
       const gridPoints = hm.data.filter((p: any) => p.id.startsWith('g'))
       expect(gridPoints.length).toBeGreaterThan(100)
       for (const p of gridPoints) expect(geo.onLand(p.coordinate)).toBe(true)
@@ -191,7 +194,7 @@ describe('OverviewScene', () => {
       scene = new OverviewScene(api, geo, { cameraView: null, heatmapZ: [-10, 120], pak: false })
       scene.setData(data, 12)
       await scene.enter()
-      const hm = api.store.get('heatmap:population-heat')
+      const hm = heat(api)
       expect([hm.bbox[2], hm.bbox[5]]).toEqual([-10, 120])
     })
 
@@ -221,7 +224,7 @@ describe('OverviewScene', () => {
     it('still builds the heatmap when there are no hotspots', async () => {
       scene.setData({ ...data, hotspots: [] }, 12)
       await scene.enter()
-      expect(api.ids('heatmap')).toEqual(['heatmap:population-heat'])
+      expect(heatIds(api)).toHaveLength(1)
       expect(api.ids('radiationPoint')).toEqual([])
       expect(api.ids('marker')).toEqual(data.cameras.map(c => 'marker:camera-' + c.id).sort())
       expect(scene.tourViews()).toEqual([])
@@ -231,9 +234,9 @@ describe('OverviewScene', () => {
   describe('时间轴', () => {
     it('rebuilds the heatmap and the ripples when the hour changes, without duplicating them', async () => {
       await scene.enter()
-      const before = api.store.get('heatmap:population-heat')
+      const before = heat(api)
       await scene.setHour(19.5)
-      const after = api.store.get('heatmap:population-heat')
+      const after = heat(api)
       expect(after).not.toBe(before)
       expect(api.ids('heatmap')).toHaveLength(1)
       expect(api.store.size).toBe(total)
@@ -260,7 +263,7 @@ describe('OverviewScene', () => {
       expect(api.ids('heatmap')).toEqual([])
       open()
       await entering
-      expect(api.ids('heatmap')).toEqual(['heatmap:population-heat'])
+      expect(heatIds(api)).toHaveLength(1)
       const h = data.hotspots[0]
       expect(api.store.get('radiationPoint:hotspot-ripple-' + h.id).radius).toBeCloseTo(260 + 520 * hotspotActivityAt(h, 19.5))
       expect(scene.objectCount()).toBe(total)
@@ -313,7 +316,7 @@ describe('OverviewScene', () => {
       await scene.setLayerVisible('district', false)
       await scene.setLayerVisible('heat', false)
       expect(api.visible.get('polygon:district-danah')).toBe(false)
-      expect(api.visible.get('heatmap:population-heat')).toBe(false)
+      expect(api.visible.get(heatIds(api)[0])).toBe(false)
     })
 
     it('does not create a layer that was switched off before entering, until it is switched on', async () => {
@@ -326,7 +329,7 @@ describe('OverviewScene', () => {
       await scene.setHour(19.5)
       expect(api.ids('heatmap')).toEqual([])
       await scene.setLayerVisible('heat', true)
-      expect(api.ids('heatmap')).toEqual(['heatmap:population-heat'])
+      expect(heatIds(api)).toHaveLength(1)
       await scene.setLayerVisible('hotspot', true)
       expect(api.ids('radiationPoint')).toHaveLength(data.hotspots.length)
       expect(api.store.size).toBe(total)
@@ -480,7 +483,7 @@ describe('OverviewScene', () => {
       region.regionLayer.mockRejectedValue(new Error('效果库加载失败'))
       await scene.enter()
       expect(warn).toHaveBeenCalled()
-      expect(api.ids('heatmap')).toEqual(['heatmap:population-heat'])
+      expect(heatIds(api)).toHaveLength(1)
       expect(api.ids('marker')).toHaveLength(data.hotspots.length + data.cameras.length)
       await scene.setHour(19.5)
       await scene.leave()

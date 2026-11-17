@@ -13,6 +13,7 @@ vi.mock('../sceneReady', () => ({ whenSceneReady: async () => mocks.ready }))
 vi.mock('../effects', () => ({
   applyAmbience: mocks.applyAmbience,
   mountEffectsPak: mocks.mountEffectsPak,
+  mountPointBeaconPak: vi.fn(async () => false),
   loadLib: vi.fn(async () => ({}))
 }))
 vi.mock('@/api/geo', () => ({ getGeoData: mocks.getGeoData }))

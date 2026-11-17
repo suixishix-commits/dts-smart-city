@@ -3,7 +3,9 @@
  * 所有模块都从这里取颜色和样式，保证五个模块在场景里是同一套视觉语言：
  * 冷色（蓝）表示常态和结构，暖色（琥珀、珊瑚）只留给需要注意的东西。
  */
-import { drawLabel, peekLabel, type LabelSpec } from './labelImage'
+import { drawLabel, peekLabel, type LabelIcon, type LabelSpec } from './labelImage'
+import { beaconMesh } from './pointBeacon'
+import type { SceneObjectType } from './SceneApi'
 import { registerPin, scheduleHover } from './pinSelection'
 import type { SceneEffect } from './ModuleScene'
 import { loadLib } from './effects'
@@ -133,6 +135,26 @@ export function plainLine(o: { id: string; groupId?: string; path: number[][]; c
   }
 }
 
+/** 分级点位的亮度（材质默认 3，叠上泛光太亮；1.4 时光环颜色清楚、不发白） */
+const BEACON_BRIGHTNESS = 1.4
+
+/**
+ * 告警 / 事件点的地面效果：分级点位材质包（cityBase.beacons）可用时，整层合成一个 customMesh——
+ * 一级光柱 + 信标、二三级短光柱、四级只有地面光环；不可用时退回 DTS 自带的扩散波纹（颜色、半径同以前）。
+ */
+export function alarmPoints(o: {
+  id: string
+  groupId: string
+  beacons: boolean
+  points: { id: string; at: number[]; level: 1 | 2 | 3 | 4; color: string; radius: number; brightness?: number }[]
+}): { type: SceneObjectType; objects: { id: string }[] } {
+  if (o.beacons) {
+    const mesh = beaconMesh(o.id, o.points.map(p => ({ at: p.at, level: p.level })), { brightness: BEACON_BRIGHTNESS })
+    return { type: 'customMesh', objects: mesh ? [mesh as { id: string }] : [] }
+  }
+  return { type: 'radiationPoint', objects: o.points.map(p => ripple({ id: o.id + '-' + p.id, groupId: o.groupId, at: p.at, radius: p.radius, color: p.color, brightness: p.brightness })) }
+}
+
 /** 贴地扩散波纹：事件点、预警范围 */
 export function ripple(o: { id: string; groupId?: string; at: number[]; radius: number; color: string; rings?: number; brightness?: number }) {
   return {
@@ -162,7 +184,7 @@ export function labelTier(priority: number): { viewHeightRange?: number[]; range
  * 场景标注：设计稿的胶囊标签 + 类别色引线 + 落点，画成图片（见 labelImage）。userData 里带业务 id，点击事件按 groupId 派发。
  * tag 是左侧的彩色小标签（等级、类型、名次），value 是名称后面加粗的数值；lineHeight 是引线长度。
  */
-export function pin(o: { id: string; groupId: string; at: number[]; text: string; color?: string; userId?: string; lineHeight?: number; fontSize?: number; priority?: number; tag?: string; value?: string }) {
+export function pin(o: { id: string; groupId: string; at: number[]; text: string; color?: string; userId?: string; lineHeight?: number; fontSize?: number; priority?: number; tag?: string; value?: string; icon?: LabelIcon }) {
   const color = o.color ?? COLOR.accent
   const base = {
     id: o.id,
@@ -181,7 +203,7 @@ export function pin(o: { id: string; groupId: string; at: number[]; text: string
     ...labelTier(o.priority ?? 0)
   }
   // 按设计稿画成图片标注（胶囊 + 引线 + 落点）；没有 canvas 时退回 DTS 文字标注
-  const spec: LabelSpec = { text: o.text, color, tag: o.tag, value: o.value, lead: o.lineHeight ?? 36, fontSize: o.fontSize, emphasis: (o.priority ?? 0) >= 10 }
+  const spec: LabelSpec = { text: o.text, color, tag: o.tag, value: o.value, icon: o.icon, lead: o.lineHeight ?? 36, fontSize: o.fontSize, emphasis: (o.priority ?? 0) >= 10 }
   const img = drawLabel(spec)
   if (img) {
     // 悬停图和普通图同尺寸，锚点不变。画过的直接用；没画过的先用普通图，空闲时补画（见 pinSelection.scheduleHover）
