@@ -239,7 +239,8 @@ export class TrafficScene extends ModuleScene {
       if (!at || !trail) continue
       const color = VEHICLE_COLOR[v.kind]
       if (this.options.lineFlow) {
-        const mesh = lineFlowMesh('vehicle-trail-' + v.id, [{ id: v.id, path: trail, width: 70 }], { ...TRAIL_FLOW, color }, { groupId: 'sc_traffic_vehicle_trail', z: 16 })
+        // id 带上时刻：换时刻时新旧轨迹 id 不同，基类先建后删，不闪
+        const mesh = lineFlowMesh(`vehicle-trail-${v.id}-${Math.round(this.hour * 2)}`, [{ id: v.id, path: trail, width: 70 }], { ...TRAIL_FLOW, color }, { groupId: 'sc_traffic_vehicle_trail', z: 16 })
         if (mesh) trails.push(mesh)
       } else trails.push(flowLine({ id: 'vehicle-trail-' + v.id, groupId: 'sc_traffic_vehicle_trail', path: trail, color, width: 56, style: 'pulse', brightness: 1.1, speed: 0.3, height: 16 }))
       pins.push(pin({ id: 'vehicle-' + v.id, groupId: 'sc_traffic_vehicle', at, text: v.name, value: `${state.speed} km/h`, icon: 'vehicle', color, userId: v.id, lineHeight: 30, fontSize: 12, priority: 5 }))

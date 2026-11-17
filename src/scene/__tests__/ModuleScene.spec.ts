@@ -312,3 +312,53 @@ describe('ModuleScene', () => {
     })
   })
 })
+
+/** 支持原地更新的场景替身：update 只能改已有对象 */
+class UpdatingApi extends FakeApi {
+  updated: any[] = []
+  failUpdate = false
+  async update(type: SceneObjectType, objects: { id: string }[]) {
+    if (this.failUpdate) throw new Error('update failed')
+    objects.forEach(o => {
+      const key = `${type}:${o.id}`
+      if (!this.objects.has(key)) throw new Error('update: id does not exist: ' + key)
+      this.payloads.set(key, o)
+      this.updated.push(o)
+    })
+  }
+}
+
+describe('ModuleScene in-place updates', () => {
+  it('updates a visible marker with the same id instead of removing and re-adding it', async () => {
+    const api = new UpdatingApi()
+    const scene = new DemoScene(api)
+    await scene.enter()
+    await scene.replaceLayer('points', 'marker', [marker('m1', 2), marker('m3', 1)])
+    expect(api.keys()).toEqual(['marker:m1', 'marker:m3', 'polygon:p1'])
+    expect(api.payloads.get('marker:m1').v).toBe(2)
+    expect(api.updated.map(o => o.id)).toEqual(['m1'])
+    // m1 只在进入时 add 过一次
+    expect(api.added.filter(o => o.id === 'm1')).toHaveLength(1)
+    expect(scene.objectCount()).toBe(3)
+  })
+
+  it('falls back to remove and add when the update fails', async () => {
+    const api = new UpdatingApi()
+    const scene = new DemoScene(api)
+    await scene.enter()
+    api.failUpdate = true
+    await scene.replaceLayer('points', 'marker', [marker('m1', 2)])
+    expect(api.keys()).toEqual(['marker:m1', 'polygon:p1'])
+    expect(api.payloads.get('marker:m1').v).toBe(2)
+    expect(scene.objectCount()).toBe(2)
+  })
+
+  it('does not update other object types in place', async () => {
+    const api = new UpdatingApi()
+    const scene = new DemoScene(api)
+    await scene.enter()
+    await scene.replaceLayer('areas', 'polygon', [marker('p1', 2)])
+    expect(api.updated).toEqual([])
+    expect(api.payloads.get('polygon:p1').v).toBe(2)
+  })
+})

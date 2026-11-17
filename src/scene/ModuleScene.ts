@@ -34,6 +34,9 @@ function byType(entries: Entry[]): Entry[][] {
 
 const idsOf = (entries: Entry[]) => entries.map(e => e.object.id)
 
+/** 能用 update 原地改的对象类型：换时刻时同 id 的标注直接改内容和位置，不先删后加（会闪一帧） */
+const IN_PLACE = new Set<SceneObjectType>(['marker'])
+
 /**
  * 由效果库创建的效果（点阵流光、电子围栏、摄像头视域等）：它们自己管理场景对象，
  * 这里只需要知道怎么显示、隐藏、删除。
@@ -197,8 +200,25 @@ export abstract class ModuleScene {
         const missing = layer.visible ? layer.wanted.filter(e => !layer.live.includes(e)) : []
         const missingIds = new Set(missing.map(e => e.type + ':' + e.object.id))
 
-        // 1. 先删和新对象同 id 的旧对象。先从 live 里去掉：即使删除失败也不再重复尝试
+        // 1. 和新对象同 id 的旧对象：标注能原地更新（不闪），其余类型先删（同 id 不能并存）。
+        //    先从 live 里去掉：即使失败也不再重复尝试
         const clashing = stale.filter(e => missingIds.has(e.type + ':' + e.object.id))
+        const updatable = layer.visible && layer.shown && this.api.update ? clashing.filter(e => IN_PLACE.has(e.type)) : []
+        if (updatable.length) {
+          const batch = byType(updatable)[0]
+          const type = batch[0].type
+          const ids = new Set(idsOf(batch))
+          const fresh = missing.filter(e => e.type === type && ids.has(e.object.id))
+          layer.live = layer.live.filter(e => !batch.includes(e))
+          try {
+            await this.api.update?.(type, fresh.map(e => e.object))
+            layer.live = [...layer.live, ...fresh]
+          } catch (e) {
+            console.warn('[ModuleScene] 原地更新失败，改为删除后重建', e)
+            await this.api.remove(type, [...ids])
+          }
+          continue
+        }
         if (clashing.length) {
           const batch = byType(clashing)[0]
           layer.live = layer.live.filter(e => !batch.includes(e))
