@@ -387,6 +387,15 @@ export interface RegionStyle {
  */
 const REGION_TONE = { lineIntensity: 1, lineWhiten: 0, glowIntensity: 0.5, glowOpacity: 0.08, spillIntensity: 0.1, flowIntensity: 1.6 } as const
 
+/** 把 #rrggbb 按序号微调成互不相同的颜色（每个通道 0–3/255），最多区分 64 个 */
+export function distinctShade(hex: string, index: number): string {
+  const n = parseInt(hex.slice(1, 7), 16)
+  const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+  const d = [index & 3, (index >> 2) & 3, (index >> 4) & 3]
+  const out = ch.map((v, k) => (v + d[k] <= 255 ? v + d[k] : v - d[k]))
+  return '#' + out.map(v => v.toString(16).padStart(2, '0')).join('')
+}
+
 /**
  * 点阵流光图层（效果总包）：一组区域各用一种颜色，淡底色 + 内部图案 + 发光描边 + 沿边界跑的流光。
  * 整层只有一个场景对象。regions 的 ring 是投影坐标；相邻区域的公共边要用同一组顶点（geo.json 的片区满足）。
@@ -397,15 +406,40 @@ export async function regionLayer(id: string, regions: { id: string; color: stri
   const preset = lib.PRESETS[style.pattern ?? 'dots']
   const scale = style.scale ?? 3
   const full = { ...lib.DEFAULT_STYLE, ...preset, ...REGION_TONE, dotSpacingM: preset.dotSpacingM * scale, dotSizeM: preset.dotSizeM * scale, dotIntensity: preset.dotIntensity * 0.5, baseOpacity: style.fill ?? 0.1 }
+  // 库按颜色分配调色板槽位，同色片区共用一个槽位；之后它们换成不同颜色时只能整层重建（边框一删一建会闪）。
+  // 建图层时给每个片区一个互不相同的颜色（每通道最多差 3/255，看不出来），每个片区独占槽位，之后换色都走原地更新
   const build = (colors?: Record<string, string>) =>
-    lib.create(__xapi, { id, groundZ: 3, style: full, regions: regions.map(r => ({ id: r.id, color: colors?.[r.id] ?? r.color, rings: [r.ring.map(p => [p[0], p[1]])] })) })
+    lib.create(__xapi, { id, groundZ: 3, style: full, regions: regions.map((r, i) => ({ id: r.id, color: distinctShade(colors?.[r.id] ?? r.color, i), rings: [r.ring.map(p => [p[0], p[1]])] })) })
   await build()
   let current: Record<string, string> = Object.fromEntries(regions.map(r => [r.id, r.color]))
   let removed = false
   let visible = true
+  /** 图层关着时收到的颜色：不发指令（换色或重建会把对象显示出来，再藏回去就闪一下），打开时再应用 */
+  let deferred: Record<string, string> | null = null
+  const apply = async (colors: Record<string, string>) => {
+    current = { ...current, ...colors }
+    // setColors 返回 false 表示要重建；图层在库里已不存在（例如被别处清掉）时也重建
+    let ok = false
+    try {
+      ok = await lib.setColors(__xapi, id, colors)
+    } catch (e) {
+      console.warn('[regionLayer] 换色失败，重建图层', e)
+    }
+    if (removed || ok) return
+    try {
+      await build(current)
+    } catch (e) {
+      console.warn('[regionLayer] 重建图层失败', e)
+    }
+  }
   return {
-    show: () => {
+    show: async () => {
       visible = true
+      if (deferred && !removed) {
+        const colors = deferred
+        deferred = null
+        await apply(colors)
+      }
       return __xapi.customObject.showByGroupId(id)
     },
     hide: () => {
@@ -416,29 +450,16 @@ export async function regionLayer(id: string, regions: { id: string; color: stri
       removed = true
       return lib.remove(__xapi, id)
     },
-    /** 换色（数值变化时）。颜色没变或图层已删除则不发指令 */
+    /** 换色（数值变化时）。颜色没变或图层已删除则不发指令；图层关着时只记下，打开时再换 */
     async setColors(colors) {
-      const changed = Object.keys(colors).some(k => colors[k] !== current[k])
-      if (!changed || removed) return
-      current = { ...current, ...colors }
-      // setColors 返回 false 表示要重建；图层在库里已不存在（例如被别处清掉）时也重建
-      let ok = false
-      try {
-        ok = await lib.setColors(__xapi, id, colors)
-      } catch (e) {
-        console.warn('[regionLayer] 换色失败，重建图层', e)
-      }
       if (removed) return
-      if (!ok) {
-        try {
-          await build(current)
-        } catch (e) {
-          console.warn('[regionLayer] 重建图层失败', e)
-          return
-        }
+      if (!visible) {
+        deferred = { ...(deferred ?? {}), ...colors }
+        return
       }
-      // 换色或重建会让对象重新显示；图层关着时再藏回去
-      if (!visible) await __xapi.customObject.hideByGroupId(id)
+      const changed = Object.keys(colors).some(k => colors[k] !== current[k])
+      if (!changed) return
+      await apply(colors)
     }
   }
 }

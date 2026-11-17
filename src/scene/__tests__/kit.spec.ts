@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { arc, area, circleRing, COLOR, column, fence, flowLine, focusView, frustum, heatmap, HEAT_STOPS, LEVEL_COLOR, pin, plainLine, RAMP, rampColor, regionLayer, rgba, ripple, staggerHeights, STATUS_RAMP } from '../kit'
+import { arc, area, distinctShade, circleRing, COLOR, column, fence, flowLine, focusView, frustum, heatmap, HEAT_STOPS, LEVEL_COLOR, pin, plainLine, RAMP, rampColor, regionLayer, rgba, ripple, staggerHeights, STATUS_RAMP } from '../kit'
 
 describe('rgba', () => {
   it('converts #rrggbb to 0–1 components with alpha 1 by default', () => {
@@ -401,9 +401,10 @@ describe('效果库图层（适配库为替身）', () => {
       expect(o.id).toBe('layer')
       // 点阵亮度减半、关掉描边泛白、收窄外发光（白天影像上不发白）
       expect(o.style).toEqual({ glow: 1, preset: 'hatch', dotSpacingM: 40, dotSizeM: 8, dotIntensity: 0.4, baseOpacity: 0.08, lineIntensity: 1, lineWhiten: 0, glowIntensity: 0.5, glowOpacity: 0.08, spillIntensity: 0.1, flowIntensity: 1.6 })
+      // 每个片区一个互不相同的颜色（独占调色板槽位，之后换色不用重建）
       expect(o.regions).toEqual([
-        { id: 'a', color: '#111111', rings: [[[0, 0], [10, 0], [10, 10]]] },
-        { id: 'b', color: '#222222', rings: [[[10, 0], [20, 0], [20, 10]]] }
+        { id: 'a', color: distinctShade('#111111', 0), rings: [[[0, 0], [10, 0], [10, 10]]] },
+        { id: 'b', color: distinctShade('#222222', 1), rings: [[[10, 0], [20, 0], [20, 10]]] }
       ])
     })
 
@@ -443,21 +444,22 @@ describe('效果库图层（适配库为替身）', () => {
       const layer = await regionLayer('layer', regions)
       await layer.setColors({ b: '#bbbbbb' })
       expect(regionLib.create).toHaveBeenCalledTimes(2)
-      expect(regionLib.create.mock.calls[1][1].regions.map((r: any) => r.color)).toEqual(['#111111', '#bbbbbb'])
+      expect(regionLib.create.mock.calls[1][1].regions.map((r: any) => r.color)).toEqual([distinctShade('#111111', 0), distinctShade('#bbbbbb', 1)])
     })
 
-    it('hides the layer again after recolouring while it is switched off, but not while it is shown', async () => {
+    it('sends nothing while switched off and applies the latest colours when shown again (no show-then-hide flash)', async () => {
       const layer = await regionLayer('layer', regions)
-      await layer.setColors({ a: '#aaaaaa' })
-      expect(customObject.hideByGroupId).not.toHaveBeenCalled()
       await layer.hide()
+      await layer.setColors({ a: '#aaaaaa' })
+      await layer.setColors({ a: '#cccccc', b: '#dddddd' })
+      expect(regionLib.setColors).not.toHaveBeenCalled()
       expect(customObject.hideByGroupId).toHaveBeenCalledTimes(1)
-      await layer.setColors({ a: '#cccccc' })
-      expect(customObject.hideByGroupId).toHaveBeenCalledTimes(2)
-      expect(customObject.hideByGroupId).toHaveBeenLastCalledWith('layer')
       await layer.show()
-      await layer.setColors({ a: '#dddddd' })
-      expect(customObject.hideByGroupId).toHaveBeenCalledTimes(2)
+      expect(regionLib.setColors).toHaveBeenCalledTimes(1)
+      expect(regionLib.setColors).toHaveBeenCalledWith(xapi, 'layer', { a: '#cccccc', b: '#dddddd' })
+      // 换色在显示之前，显示后不再隐藏
+      expect(regionLib.setColors.mock.invocationCallOrder[0]).toBeLessThan(customObject.showByGroupId.mock.invocationCallOrder[0])
+      expect(customObject.hideByGroupId).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -506,5 +508,16 @@ describe('staggerHeights', () => {
   it('raises each nearby pin to the lowest free level', () => {
     // 第 3 个和第 1 个重叠、和第 2 个也重叠；第 4 个只挨着第 2 个
     expect(staggerHeights([[0, 0], [1000, 0], [500, 300], [2600, 0]], 56, 34, 1800)).toEqual([56, 90, 124, 56])
+  })
+})
+
+describe('distinctShade', () => {
+  it('gives every index up to 64 its own colour within 3/255 per channel', () => {
+    const base = '#4c9aff'
+    const shades = Array.from({ length: 64 }, (_, i) => distinctShade(base, i))
+    expect(new Set(shades).size).toBe(64)
+    expect(shades[0]).toBe(base)
+    const ch = (h: string) => [1, 3, 5].map(k => parseInt(h.slice(k, k + 2), 16))
+    for (const s of shades) ch(s).forEach((v, k) => expect(Math.abs(v - ch(base)[k])).toBeLessThanOrEqual(3))
   })
 })
