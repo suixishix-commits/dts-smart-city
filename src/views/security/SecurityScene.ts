@@ -4,7 +4,7 @@ import { lineFlowMesh } from '@/scene/lineFlow'
 import { ModuleScene, type SceneEffect } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import { pointAt, sliceLine, type CityGeo, type XY } from '@/scene/geo'
-import { alarmPoints, area, circleRing, COLOR, fence, flowLine, FOCUS_HEIGHT, focusView, frustum, heatmap, LEVEL_COLOR, pin, plainLine, prepareFlowLines, staggerHeights } from '@/scene/kit'
+import { alarmPoints, area, circleRing, COLOR, fence, flowLine, FOCUS_HEIGHT, focusView, frustum, heatmap, LEVEL_COLOR, pin, plainLine, prepareFlowLines, labelWidth, staggerLabels } from '@/scene/kit'
 import type { SecurityData, SecurityPeriod } from '@/types/security'
 
 export interface SecuritySceneOptions {
@@ -27,8 +27,6 @@ export interface SecuritySceneOptions {
 
 /** 警情等级的文字，同右侧列表 */
 const LEVEL_TEXT: Record<number, string> = { 1: '一级', 2: '二级', 3: '三级', 4: '四级' }
-/** 警情相距多近（米）时错开标注高度 */
-const INCIDENT_STAGGER = 1800
 /** 图层开关的定义和默认状态，页面和场景共用 */
 export const SECURITY_LAYERS: { key: string; name: string; on: boolean }[] = [
   { key: 'fence', name: '重点防护区', on: true },
@@ -200,7 +198,7 @@ export class SecurityScene extends ModuleScene {
     await this.add(token, marks.type, marks.objects, 'incident')
     // 等级小标签同右侧「实时警情」列表；挨得近的错开引线高度，级别高的排最低一档
     const bySeverity = [...data.incidents].sort((a, b) => a.level - b.level)
-    const heights = staggerHeights(bySeverity.map(i => this.incidentXY.get(i.id) as XY), 60, 34, INCIDENT_STAGGER)
+    const heights = staggerLabels(bySeverity.map(i => ({ at: this.incidentXY.get(i.id) as XY, width: labelWidth(i.title, { tag: LEVEL_TEXT[i.level] }) })), 60, 34, { camera: this.options.cameraView })
     const lead = new Map(bySeverity.map((i, k) => [i.id, heights[k]]))
     await this.add(
       token,

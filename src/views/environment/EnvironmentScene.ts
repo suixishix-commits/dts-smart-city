@@ -2,7 +2,7 @@ import { concentrationsAt, noiseDbAt, readingOf, stationReadingsAt, WATER_GRADE_
 import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi, SceneObjectType } from '@/scene/SceneApi'
 import { pointAt, type CityGeo } from '@/scene/geo'
-import { alarmPoints, area, circleRing, COLOR, column, focusView, LEVEL_COLOR, pin, rampColor, regionLayer, staggerHeights, STATUS_RAMP } from '@/scene/kit'
+import { alarmPoints, area, circleRing, COLOR, column, focusView, LEVEL_COLOR, pin, rampColor, regionLayer, labelWidth, staggerLabels, STATUS_RAMP } from '@/scene/kit'
 import type { AirIndex, AirLevel, EnvironmentData, PlaceRef, WaterGrade } from '@/types/environment'
 
 export interface EnvironmentSceneOptions {
@@ -47,7 +47,6 @@ const AIR_LABEL_LAYER = 'airLabel'
 /** 噪声柱半径，米 */
 const NOISE_RADIUS = 110
 /** 标注相距多近（米）时错开高度 */
-const LABEL_STAGGER = 1800
 
 /**
  * 生态环境的场景图层：
@@ -144,15 +143,11 @@ export class EnvironmentScene extends ModuleScene {
     // 污染源和监测站的标注一起错开引线高度（顺序固定：污染源按等级在前，监测站随后），拖动时间轴时不跳动
     const stations = data.stations.flatMap(s => {
       const at = this.locate(s.place)
-      return at ? [{ id: 'station:' + s.id, at }] : []
+      // 读数随时间变，按三位数留宽度，拖动时间轴时引线高度不跳
+      return at ? [{ id: 'station:' + s.id, at, width: labelWidth(s.shortName, { value: '000', icon: true }) }] : []
     })
-    const ordered = [...[...sources].sort((a, b) => a.s.level - b.s.level).map(({ s, at }) => ({ id: 'source:' + s.id, at })), ...stations]
-    const heights = staggerHeights(
-      ordered.map(o => o.at),
-      44,
-      34,
-      LABEL_STAGGER
-    )
+    const ordered = [...[...sources].sort((a, b) => a.s.level - b.s.level).map(({ s, at }) => ({ id: 'source:' + s.id, at, width: labelWidth(s.shortName, { icon: true }) })), ...stations]
+    const heights = staggerLabels(ordered, 44, 34, { camera: this.options.cameraView })
     this.leads = new Map(ordered.map((o, k) => [o.id, heights[k]]))
     // 一、二级污染源常显，其余拉近才显示
     await this.add(

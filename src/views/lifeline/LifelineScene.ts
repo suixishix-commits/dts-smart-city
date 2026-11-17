@@ -4,7 +4,7 @@ import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import type { CityGeo, XY } from '@/scene/geo'
 import { sliceLine } from '@/scene/geo'
-import { alarmPoints, area, circleRing, COLOR, flowLine, focusView, LEVEL_COLOR, pin, plainLine, prepareFlowLines, RAMP, ripple, staggerHeights, STATUS_RAMP } from '@/scene/kit'
+import { alarmPoints, area, circleRing, COLOR, flowLine, focusView, LEVEL_COLOR, pin, plainLine, prepareFlowLines, RAMP, ripple, labelWidth, staggerLabels, STATUS_RAMP } from '@/scene/kit'
 import type { Anchor, LifelineAlarm, LifelineData, PipeSegment, PipeSystem } from '@/types/lifeline'
 import { bufferLine, resolveAnchor, segmentBetween } from './anchor'
 
@@ -61,12 +61,18 @@ const PIPE_FLOW: Record<PipeSystem, { width: [number, number]; style: Omit<LineF
 const ALARM_FLOW_Z = 70
 /** 受影响管段：红色、呼吸、快速光点 */
 const ALARM_PIPE_FLOW: LineFlowStyle = { color: COLOR.danger, period: 240, speed: 0.6, light: 1.3, breath: 0.35, brightness: 1.3, coreWidth: 0.18, glow: 0.4 }
+/** 变电站标注：正常的只写负荷率，异常的带站名 */
+function substationText(s: { name: string; loadPercent: number; status: number }): string {
+  return s.status ? `${s.name} ${s.loadPercent}%` : `${s.loadPercent}%`
+}
+/** 桥梁标注 */
+function bridgeText(b: { name: string; score: number }): string {
+  return `${b.name} ${b.score} 分`
+}
 /** 阀门标注的颜色 */
 export const VALVE_COLOR = COLOR.white
 /** 告警波纹半径，米 */
 const ALARM_RADIUS: Record<number, number> = { 1: 700, 2: 520, 3: 400, 4: 300 }
-/** 告警相距多近（米）时错开标注高度 */
-const ALARM_STAGGER = 1800
 const LEVEL_TEXT: Record<number, string> = { 1: '一级', 2: '二级', 3: '三级', 4: '四级' }
 
 /** 图层开关对应的数据图层键 */
@@ -167,6 +173,8 @@ export class LifelineScene extends ModuleScene {
     await this.applyRoads()
     if (this.options.pak) await prepareFlowLines()
 
+    const lead = this.labelLeads(data)
+
     // 供水
     await this.add(token, this.pipeType, this.pipes('water'), 'water')
 
@@ -176,7 +184,7 @@ export class LifelineScene extends ModuleScene {
       token,
       'marker',
       data.substations.map(s =>
-        pin({ id: 'll-sub-' + s.id, icon: 'power', groupId: 'sc_lifeline_substation', at: at(s.anchor), text: s.status ? `${s.name} ${s.loadPercent}%` : `${s.loadPercent}%`, color: STATUS_RAMP[s.status], userId: s.id, lineHeight: 30, fontSize: 12, priority: 2 + s.status })
+        pin({ id: 'll-sub-' + s.id, icon: 'power', groupId: 'sc_lifeline_substation', at: at(s.anchor), text: substationText(s), color: STATUS_RAMP[s.status], userId: s.id, lineHeight: lead.get('sub:' + s.id), fontSize: 12, priority: 2 + s.status })
       ),
       'power'
     )
@@ -209,14 +217,11 @@ export class LifelineScene extends ModuleScene {
     })
     await this.add(token, marks.type, marks.objects, 'alarm')
     // 告警只有几条、全部常显（priority ≥ 10），挨得近时错开引线高度，级别高的排在最低一档；最低一档也要高过变电站、泵站这些设施标注
-    const bySeverity = [...data.alarms].sort((x, y) => x.level - y.level)
-    const heights = staggerHeights(bySeverity.map(a => this.alarmXY.get(a.id) as XY), 64, 34, ALARM_STAGGER)
-    const alarmHeight = new Map(bySeverity.map((a, k) => [a.id, heights[k]]))
     await this.add(
       token,
       'marker',
       data.alarms.map(a =>
-        pin({ id: 'll-alarm-' + a.id, groupId: 'sc_lifeline_alarm', at: this.alarmXY.get(a.id) as XY, tag: LEVEL_TEXT[a.level], text: a.shortTitle, color: LEVEL_COLOR[a.level], userId: a.id, lineHeight: alarmHeight.get(a.id), priority: 20 - a.level })
+        pin({ id: 'll-alarm-' + a.id, groupId: 'sc_lifeline_alarm', at: this.alarmXY.get(a.id) as XY, tag: LEVEL_TEXT[a.level], text: a.shortTitle, color: LEVEL_COLOR[a.level], userId: a.id, lineHeight: lead.get('alarm:' + a.id), priority: 20 - a.level })
       ),
       'alarm'
     )
@@ -259,7 +264,7 @@ export class LifelineScene extends ModuleScene {
     await this.add(
       token,
       'marker',
-      data.bridges.map(b => pin({ id: 'll-bridge-' + b.id, icon: 'bridge', groupId: 'sc_lifeline_bridge', at: this.bridgeXY.get(b.id) as XY, text: `${b.name} ${b.score} 分`, color: bridgeColor(b.score), userId: b.id, lineHeight: 44, priority: 6 })),
+      data.bridges.map(b => pin({ id: 'll-bridge-' + b.id, icon: 'bridge', groupId: 'sc_lifeline_bridge', at: this.bridgeXY.get(b.id) as XY, text: bridgeText(b), color: bridgeColor(b.score), userId: b.id, lineHeight: lead.get('bridge:' + b.id), priority: 6 })),
       'bridge'
     )
 
@@ -271,6 +276,21 @@ export class LifelineScene extends ModuleScene {
       data.coolingPlants.map(c => pin({ id: 'll-cooling-' + c.id, icon: 'cooling', groupId: 'sc_lifeline_cooling', at: at(c.anchor), text: `${c.name} ${c.loadPercent}%`, color: STATUS_RAMP[c.status], userId: c.id, lineHeight: 34, fontSize: 12, priority: 2 + c.status })),
       'cooling'
     )
+  }
+
+  /**
+   * 默认打开的几类标注（告警、桥梁、变电站）一起错开引线高度：分图层各自错开的话，彼此还是会叠在一起。
+   * 告警按等级在前（排最低一档），桥梁、变电站随后。返回 '类别:id' → lineHeight
+   */
+  private labelLeads(data: LifelineData): Map<string, number> {
+    const at = (anchor: Anchor) => resolveAnchor(this.geo, anchor)
+    const items = [
+      ...[...data.alarms].sort((x, y) => x.level - y.level).map(a => ({ key: 'alarm:' + a.id, at: this.alarmXY.get(a.id) as XY, width: labelWidth(a.shortTitle, { tag: LEVEL_TEXT[a.level] }) })),
+      ...data.bridges.map(b => ({ key: 'bridge:' + b.id, at: this.bridgeXY.get(b.id) as XY, width: labelWidth(bridgeText(b), { icon: true }) })),
+      ...data.substations.map(s => ({ key: 'sub:' + s.id, at: at(s.anchor), width: labelWidth(substationText(s), { icon: true }) }))
+    ]
+    const heights = staggerLabels(items, 40, 34, { camera: this.options.cameraView })
+    return new Map(items.map((item, k) => [item.key, heights[k]]))
   }
 
   /** 离开时恢复底座路网。同步发出，保证排在下一个模块进入时的调用之前 */

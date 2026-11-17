@@ -3,7 +3,7 @@ import { HeatFieldLayer, sampleHeatField } from '@/scene/heatField'
 import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import type { CityGeo } from '@/scene/geo'
-import { alarmPoints, COLOR, focusView, heatmap, pin, ripple, staggerHeights } from '@/scene/kit'
+import { alarmPoints, COLOR, focusView, heatmap, pin, ripple, labelWidth, staggerLabels } from '@/scene/kit'
 import type { OverviewData } from '@/types/smartCity'
 
 export interface OverviewSceneOptions {
@@ -22,7 +22,6 @@ const HEAT_STEP = 480
 /** 人口热力图交替使用的两个 id */
 const HEAT_IDS = ['population-heat', 'population-heat-b'] as const
 /** 热点相距多近（米）时错开标注高度 */
-const HOTSPOT_STAGGER = 1800
 /** 热力场采样网格间距，米 */
 const FIELD_STEP = 160
 
@@ -86,11 +85,11 @@ export class OverviewScene extends ModuleScene {
 
     const ranked = [...data.hotspots].sort((a, b) => b.heat - a.heat)
     // 热点集中在商业区，挨得近的错开引线高度；热度最高的排最低一档
-    const heights = staggerHeights(
-      ranked.map((h) => this.hotspotXY.get(h.id) as number[]),
+    const heights = staggerLabels(
+      ranked.map((h, i) => ({ at: this.hotspotXY.get(h.id) as number[], width: labelWidth(h.shortName, { tag: String(i + 1), value: `热度 ${h.heat}` }) })),
       56,
       34,
-      HOTSPOT_STAGGER
+      { camera: this.options.cameraView }
     )
     await this.add(
       token,

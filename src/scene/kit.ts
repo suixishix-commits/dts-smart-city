@@ -45,6 +45,8 @@ export function rampColor(t: number, ramp: readonly string[] = RAMP): string {
 /** 定位机位的俯仰角、朝向：朝向与各模块默认机位一致，飞过去画面不打转 */
 const FOCUS_PITCH = -42
 const FOCUS_YAW = -38
+/** 全城默认机位（smart-city.js 的 cameras 没配时各模块用的就是它） */
+const DEFAULT_CAMERA = [225780, 2698610, 9600, -38, -38]
 
 /**
  * 俯瞰某一点的机位 [x, y, z, pitch, yaw]，目标点落在画面正中。五个模块的列表定位、标注点击、巡航都用它，
@@ -233,19 +235,67 @@ export function pin(o: { id: string; groupId: string; at: number[]; text: string
   }
 }
 
+/** 标注框高度，像素；两个框之间至少留的横向 / 纵向空隙 */
+const LABEL_BOX_H = 30
+const LABEL_GAP_X = 6
+const LABEL_GAP_Y = 2
+/** 推流画面尺寸和水平视场角（UE 默认 90°） */
+const SCREEN: [number, number] = [1920, 1080]
+const HFOV = 90
+
+/** 估算标注框宽度，像素：中文按字号宽，数字字母按一半，加上左右留白和等级小标签 */
+export function labelWidth(text: string, o: { tag?: string; value?: string; icon?: boolean } = {}): number {
+  const w = (t: string) => [...t].reduce((n, ch) => n + (ch.charCodeAt(0) > 0x2e80 ? 13 : 7.5), 0)
+  return Math.round(w(text) + (o.value ? w(o.value) + 10 : 0) + (o.tag ? w(o.tag) + 16 : 0) + (o.icon ? 22 : 0) + 24)
+}
+
 /**
- * 相互靠近的标注错开引线高度，免得文字框叠成一团：按传入顺序，每个标注取 radius 米内已排好的标注没用过的最低一档。
- * points 为投影坐标，返回每个标注的 lineHeight。
+ * 地面点在某个机位下的屏幕坐标（像素，左上角原点）。camera 是 [x, y, z, pitch, yaw]，朝向约定同 focusView。
+ * 点在相机背后时返回 null。
  */
-export function staggerHeights(points: number[][], base: number, step: number, radius: number): number[] {
-  const heights: number[] = []
-  points.forEach((p, i) => {
-    const used = new Set(points.slice(0, i).flatMap((q, j) => (Math.hypot(p[0] - q[0], p[1] - q[1]) < radius ? [heights[j]] : [])))
-    let h = base
-    while (used.has(h)) h += step
-    heights.push(h)
+export function screenOf(camera: number[], p: number[]): [number, number] | null {
+  const [cx, cy, cz, pitchDeg, yawDeg] = camera
+  const pitch = (pitchDeg * Math.PI) / 180
+  const yaw = (yawDeg * Math.PI) / 180
+  const fwd = [Math.cos(pitch) * Math.cos(yaw), -Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch)]
+  const right = [-Math.sin(yaw), -Math.cos(yaw), 0]
+  // up = right × fwd
+  const up = [right[1] * fwd[2] - right[2] * fwd[1], right[2] * fwd[0] - right[0] * fwd[2], right[0] * fwd[1] - right[1] * fwd[0]]
+  const v = [p[0] - cx, p[1] - cy, (p[2] ?? 0) - cz]
+  const dot = (a: number[]) => a[0] * v[0] + a[1] * v[1] + a[2] * v[2]
+  const depth = dot(fwd)
+  if (depth <= 1) return null
+  const f = SCREEN[0] / 2 / Math.tan((HFOV * Math.PI) / 360)
+  return [SCREEN[0] / 2 + (f * dot(right)) / depth, SCREEN[1] / 2 - (f * dot(up)) / depth]
+}
+
+/**
+ * 按屏幕上会不会叠在一起来错开标注的引线高度。
+ * 用模块的主页机位把落点投到屏幕上，再按标注框宽高判断重叠：按传入顺序（重要的在前）逐个放，
+ * 每个取不和已放标注重叠的最低一档；都重叠时取最高一档。没有机位时按全城默认机位估算。
+ * items[i].width 是标注框宽度（像素，见 labelWidth），返回每个标注的 lineHeight。
+ */
+export function staggerLabels(items: { at: number[]; width: number }[], base: number, step: number, o: { camera?: number[] | null; levels?: number } = {}): number[] {
+  const camera = o.camera ?? DEFAULT_CAMERA
+  const levels = o.levels ?? 6
+  const placed: { x: number; y: number; w: number }[] = []
+  return items.map(item => {
+    const s = screenOf(camera, item.at)
+    if (!s) return base
+    const [x, ground] = s
+    let chosen = base + step * (levels - 1)
+    for (let k = 0; k < levels; k++) {
+      const h = base + step * k
+      const y = ground - h
+      const clash = placed.some(q => Math.abs(q.x - x) < (q.w + item.width) / 2 + LABEL_GAP_X && Math.abs(q.y - y) < LABEL_BOX_H + LABEL_GAP_Y)
+      if (!clash) {
+        chosen = h
+        break
+      }
+    }
+    placed.push({ x, y: ground - chosen, w: item.width })
+    return chosen
   })
-  return heights
 }
 
 /** 飞线的分段数 */

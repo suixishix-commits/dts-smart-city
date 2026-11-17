@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { arc, area, distinctShade, circleRing, COLOR, column, fence, flowLine, focusView, frustum, heatmap, HEAT_STOPS, LEVEL_COLOR, pin, plainLine, RAMP, rampColor, regionLayer, rgba, ripple, staggerHeights, STATUS_RAMP } from '../kit'
+import { arc, area, distinctShade, circleRing, COLOR, column, fence, flowLine, focusView, frustum, heatmap, HEAT_STOPS, LEVEL_COLOR, pin, plainLine, RAMP, rampColor, regionLayer, rgba, ripple, labelWidth, screenOf, staggerLabels, STATUS_RAMP } from '../kit'
 
 describe('rgba', () => {
   it('converts #rrggbb to 0–1 components with alpha 1 by default', () => {
@@ -500,14 +500,58 @@ describe('效果库图层（适配库为替身）', () => {
   })
 })
 
-describe('staggerHeights', () => {
-  it('keeps isolated pins at the base height', () => {
-    expect(staggerHeights([[0, 0], [5000, 0], [0, 5000]], 56, 34, 1800)).toEqual([56, 56, 56])
+describe('screenOf', () => {
+  const camera = [225780, 2698610, 9600, -38, -38]
+
+  it('puts the point the camera looks at in the middle of the screen', () => {
+    const [x, y] = focusTarget(camera)
+    const s = screenOf(camera, [x, y, 0]) as number[]
+    expect(s[0]).toBeCloseTo(960, 0)
+    expect(s[1]).toBeCloseTo(540, 0)
   })
 
-  it('raises each nearby pin to the lowest free level', () => {
-    // 第 3 个和第 1 个重叠、和第 2 个也重叠；第 4 个只挨着第 2 个
-    expect(staggerHeights([[0, 0], [1000, 0], [500, 300], [2600, 0]], 56, 34, 1800)).toEqual([56, 90, 124, 56])
+  it('maps right of the view direction to the right of the screen and farther to higher', () => {
+    const [x, y] = focusTarget(camera)
+    const right = screenOf(camera, [x + 616, y - 788, 0]) as number[]
+    const far = screenOf(camera, [x + 788, y + 616, 0]) as number[]
+    expect(right[0]).toBeGreaterThan(1000)
+    expect(far[1]).toBeLessThan(530)
+  })
+
+  it('returns null behind the camera', () => {
+    expect(screenOf(camera, [camera[0] - 5000, camera[1] - 4000, 20000])).toBeNull()
+  })
+})
+
+/** 机位视线和地面的交点（focusView 的逆运算） */
+function focusTarget(c: number[]): number[] {
+  const d = c[2] / Math.tan((-c[3] * Math.PI) / 180)
+  const yaw = (c[4] * Math.PI) / 180
+  return [c[0] + Math.cos(yaw) * d, c[1] - Math.sin(yaw) * d]
+}
+
+describe('staggerLabels', () => {
+  const camera = [225780, 2698610, 9600, -38, -38]
+  const c = focusTarget(camera)
+  // 屏幕横向是东南方向 (0.616, -0.788)，纵深是东北方向 (0.788, 0.616)
+  const right = (m: number) => [c[0] + 0.616 * m, c[1] - 0.788 * m]
+  const deep = (m: number) => [c[0] + 0.788 * m, c[1] + 0.616 * m]
+
+  it('keeps labels that do not overlap on screen at the base height', () => {
+    expect(staggerLabels([{ at: c, width: 160 }, { at: right(6000), width: 160 }, { at: deep(4000), width: 160 }], 56, 34, { camera })).toEqual([56, 56, 56])
+  })
+
+  it('raises a label that would cover an earlier one on screen', () => {
+    expect(staggerLabels([{ at: c, width: 160 }, { at: right(1500), width: 160 }], 56, 34, { camera })).toEqual([56, 90])
+  })
+
+  it('takes the next free level when two lower ones are taken', () => {
+    expect(staggerLabels([{ at: c, width: 160 }, { at: right(700), width: 160 }, { at: right(1400), width: 160 }], 56, 34, { camera })).toEqual([56, 90, 124])
+  })
+
+  it('estimates wider boxes for longer text', () => {
+    expect(labelWidth('多车追尾', { tag: '事故' })).toBeGreaterThan(labelWidth('追尾'))
+    expect(labelWidth('ABC')).toBeLessThan(labelWidth('一二三'))
   })
 })
 

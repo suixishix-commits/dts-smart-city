@@ -4,7 +4,7 @@ import { ModuleScene } from '@/scene/ModuleScene'
 import { odArcMeshDirected, RecolorMeshLayer, roadFlowMesh, type RoadFlow } from '@/scene/trafficFlow'
 import type { SceneApi } from '@/scene/SceneApi'
 import { pointAt, sliceLine, type CityGeo } from '@/scene/geo'
-import { alarmPoints, arc, COLOR, flowLine, focusView, LEVEL_COLOR, pin, plainLine, prepareFlowLines, ripple, staggerHeights, STATUS_RAMP } from '@/scene/kit'
+import { alarmPoints, arc, COLOR, flowLine, focusView, LEVEL_COLOR, pin, plainLine, prepareFlowLines, ripple, labelWidth, staggerLabels, STATUS_RAMP } from '@/scene/kit'
 import type { DetourLeg, IncidentType, KeyVehicle, RoadSegment, SignalStatus, TrafficData, VehicleKind } from '@/types/traffic'
 
 export interface TrafficSceneOptions {
@@ -60,8 +60,6 @@ const DETOUR_LAYER = 'detour'
 const DETOUR_PIN_LAYER = 'detourPin'
 /** 摄像头定位的相机高度，米 */
 const CAMERA_HEIGHT = 2400
-/** 交通事件相距多近（米）时错开标注高度 */
-const INCIDENT_STAGGER = 1800
 /** 巡航经过的拥堵路段数 */
 const TOUR_STOPS = 5
 
@@ -139,7 +137,7 @@ export class TrafficScene extends ModuleScene {
     })
     await this.add(token, marks.type, marks.objects, 'incident')
     // 西侧老城的事件挨得很近，引线错开高度，文字框才不叠在一起
-    const heights = staggerHeights(incidents.map(i => this.xy.get(i.intersectionId) as number[]), 56, 34, INCIDENT_STAGGER)
+    const heights = staggerLabels(incidents.map(i => ({ at: this.xy.get(i.intersectionId) as number[], width: labelWidth(i.title, { tag: INCIDENT_TEXT[i.type] }) })), 56, 34, { camera: this.options.cameraView })
     await this.add(
       token,
       'marker',
