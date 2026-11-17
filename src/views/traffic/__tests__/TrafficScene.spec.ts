@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildTrafficData, congestionAt, congestionLevel, rankSegmentsAt, vehicleStateAt } from '@/api/mock/traffic'
 import type { SceneApi, SceneObjectType } from '@/scene/SceneApi'
 import { buildCityGeo, pointAt, type CityGeo } from '@/scene/geo'
@@ -63,10 +63,10 @@ class FakeApi implements SceneApi {
 const raw = geoJson as unknown as GeoData
 const data = buildTrafficData(raw)
 const HOME = [1, 2, 3, -38, -38]
-/** 全部图层打开、总包不可用时的对象数：路段 + OD + 事件(波纹+标注) + 信号(波纹+异常标注) + 片区 + 车辆(标注+轨迹) */
+/** 全部图层打开、总包不可用时的对象数：路段 + OD + 事件(波纹+标注) + 信号(波纹+异常标注) + 车辆(标注+轨迹) */
 const abnormal = data.signals.filter(s => s.status !== 'normal')
 const V = data.vehicles.length
-const TOTAL = data.segments.length + data.odFlows.length + data.incidents.length * 2 + data.signals.length + abnormal.length + raw.districts.length + V * 2
+const TOTAL = data.segments.length + data.odFlows.length + data.incidents.length * 2 + data.signals.length + abnormal.length + V * 2
 
 describe('TrafficScene', () => {
   let geo: CityGeo
@@ -95,7 +95,7 @@ describe('TrafficScene', () => {
     create()
   })
 
-  it('进入后创建六个图层的对象', async () => {
+  it('进入后创建五个图层的对象，拥堵只在道路上表达（没有片区面）', async () => {
     await scene.enter()
     // 路段、通勤飞线、车辆轨迹都是折线
     expect(segIds()).toHaveLength(data.segments.length)
@@ -104,7 +104,7 @@ describe('TrafficScene', () => {
     expect(api.ids('odline')).toEqual([])
     expect(api.ids('marker')).toHaveLength(data.incidents.length + abnormal.length + V)
     expect(api.ids('radiationPoint')).toHaveLength(data.incidents.length + geo.intersections.length)
-    expect(api.ids('polygon')).toHaveLength(16)
+    expect(api.ids('polygon')).toEqual([])
     expect(api.store.size).toBe(TOTAL)
     expect(scene.objectCount()).toBe(TOTAL)
   })
@@ -216,28 +216,14 @@ describe('TrafficScene', () => {
     expect(JSON.parse(pinned.userData)).toEqual({ id: abnormal[0].id })
   })
 
-  it('片区按平均拥堵着色：晚高峰市中心转暖，夜间全是最低一档', async () => {
-    create({}, 18)
-    await scene.enter()
-    const fill = (id: string) => String(api.get('polygon', 'district-' + id).color.slice(0, 3))
-    expect(fill('markaziyah')).not.toBe(fill('rasakhdar'))
-    await scene.setHour(3)
-    expect(new Set(raw.districts.map(d => fill(d.id))).size).toBe(1)
-    expect(api.ids('polygon')).toHaveLength(16)
-  })
-
   it('进入前关掉的图层不创建对象，打开后才创建', async () => {
     await scene.setLayerVisible('signal', false)
-    await scene.setLayerVisible('district', false)
     await scene.enter()
-    expect(api.ids('polygon')).toEqual([])
     expect(api.ids('marker')).toHaveLength(data.incidents.length + V)
     expect(api.ids('radiationPoint')).toHaveLength(data.incidents.length)
     // 隐藏期间换了小时，打开时用的是最新的小时
     await scene.setHour(18)
-    await scene.setLayerVisible('district', true)
     await scene.setLayerVisible('signal', true)
-    expect(api.ids('polygon')).toHaveLength(16)
     expect(api.ids('radiationPoint')).toHaveLength(data.incidents.length + geo.intersections.length)
     expect(api.store.size).toBe(TOTAL)
   })
@@ -497,37 +483,12 @@ describe('TrafficScene', () => {
   })
 
   describe('效果总包可用时', () => {
-    const w = window as any
-    const g = globalThis as any
-    // 点阵流光适配库的替身，只记录调用。loadLib 会缓存库对象，所以整个分组共用一个
-    const lib = {
-      PRESETS: { hatch: { dotSpacingM: 10, dotSizeM: 2 } },
-      DEFAULT_STYLE: {},
-      calls: [] as string[],
-      async create(_: unknown, o: { regions: unknown[] }) {
-        lib.calls.push('create:' + o.regions.length)
-      },
-      async remove() {
-        lib.calls.push('remove')
-      },
-      async setColors() {
-        lib.calls.push('setColors')
-        return true
-      }
-    }
     /** 某个路段最近一次传给 flowLine 的参数 */
     const optionsOf = (id: string) => vi.mocked(flowLine).mock.calls.map(c => c[0]).findLast(o => o.id === 'seg-' + id) as FlowLineOptions
 
     beforeEach(() => {
-      lib.calls.length = 0
-      w.RegionDotFlow = lib
-      g.__xapi = { customObject: { showByGroupId: async () => lib.calls.push('show'), hideByGroupId: async () => lib.calls.push('hide') } }
       vi.mocked(flowLine).mockClear()
       create({ pak: true }, 18)
-    })
-
-    afterEach(() => {
-      delete g.__xapi
     })
 
     it('路况用 flowLine：主干路是追逐箭头，其余是粒子流，颜色同拥堵等级', async () => {
@@ -562,24 +523,6 @@ describe('TrafficScene', () => {
       expect(optionsOf('khaleej-13').reverse).toBe(true)
       expect(optionsOf('hamdan-2').reverse).toBe(false)
       expect(segIds()).toHaveLength(data.segments.length)
-    })
-
-    it('片区用点阵流光，换小时只换色，离开时删除', async () => {
-      await scene.enter()
-      expect(api.ids('polygon')).toEqual([])
-      expect(lib.calls).toEqual(['create:16'])
-      await scene.setHour(3)
-      expect(lib.calls).toEqual(['create:16', 'setColors'])
-      await scene.setLayerVisible('district', false)
-      await scene.leave()
-      expect(lib.calls).toEqual(['create:16', 'setColors', 'hide', 'remove'])
-      expect(api.store.size).toBe(0)
-    })
-
-    it('片区图层默认关闭时，效果创建后立刻隐藏', async () => {
-      await scene.setLayerVisible('district', false)
-      await scene.enter()
-      expect(lib.calls).toEqual(['create:16', 'hide'])
     })
   })
 })

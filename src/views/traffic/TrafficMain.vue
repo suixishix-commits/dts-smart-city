@@ -44,7 +44,6 @@
         <b>信号</b>
         <template v-for="s in SIGNAL_KEYS" :key="s"><i class="ring" :style="{ borderColor: SIGNAL_COLOR[s] }"></i>{{ SIGNAL_TEXT[s] }}</template>
       </span>
-      <span v-if="layers.includes('district')" class="legend-item"><b>片区拥堵</b>低<i class="ramp" :style="{ background: rampCss }"></i>高</span>
       <span v-if="detourShown" class="legend-item"><b>绕行</b><i class="bar" :style="{ background: DETOUR_COLOR }"></i>推荐路线</span>
       <span v-if="layers.length === 0 && !detourShown" class="legend-item">图层已全部关闭</span>
     </SceneLegend>
@@ -59,7 +58,7 @@ import { useEscape } from '@/composables/useEscape'
 import { useSceneTools } from '@/composables/useSceneTools'
 import { cityBase } from '@/scene/CityBase'
 import { DtsSceneApi } from '@/scene/DtsSceneApi'
-import { COLOR, RAMP, STATUS_RAMP } from '@/scene/kit'
+import { COLOR, STATUS_RAMP } from '@/scene/kit'
 import type { DetailModel } from '@/types/detail'
 import type { SignalStatus, TrafficData, VehicleKind } from '@/types/traffic'
 import emitter from '@/utils/emitter'
@@ -76,15 +75,12 @@ const LAYERS = [
   { key: 'od', name: '通勤 OD' },
   { key: 'vehicle', name: '车辆轨迹' },
   { key: 'incident', name: '交通事件' },
-  { key: 'signal', name: '信号路口' },
-  { key: 'district', name: '片区拥堵' }
+  { key: 'signal', name: '信号路口' }
 ]
-/** 默认打开的图层；车辆轨迹、信号路口和片区拥堵默认关闭，避免画面过满 */
+/** 默认打开的图层；车辆轨迹、信号路口默认关闭，避免画面过满 */
 const DEFAULT_ON = ['road', 'od', 'incident']
 const SIGNAL_KEYS: SignalStatus[] = ['normal', 'offline', 'manual']
 const VEHICLE_KINDS: VehicleKind[] = ['bus', 'patrol', 'ambulance', 'wrecker']
-/** 片区拥堵图例的色带，与场景用的 RAMP 相同 */
-const rampCss = `linear-gradient(to right, ${RAMP.join(', ')})`
 /** 信号路口详情里可切换的周边路口数 */
 const NEARBY_SIGNALS = 2
 
@@ -442,12 +438,6 @@ $axis-bottom: 100px;
     box-sizing: border-box;
     border-radius: 50%;
     border: 2px solid;
-  }
-  .ramp {
-    width: 72px;
-    height: 8px;
-    border-radius: 4px;
-    margin-right: 5px;
   }
 }
 </style>

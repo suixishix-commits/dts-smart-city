@@ -1,8 +1,8 @@
-import { commuteAt, congestionAt, congestionLevel, districtCongestionAt, INCIDENT_TEXT, rankSegmentsAt, vehicleStateAt } from '@/api/mock/traffic'
+import { commuteAt, congestionAt, congestionLevel, INCIDENT_TEXT, rankSegmentsAt, vehicleStateAt } from '@/api/mock/traffic'
 import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import { pointAt, sliceLine, type CityGeo } from '@/scene/geo'
-import { alarmPoints, arc, area, COLOR, flowLine, focusView, LEVEL_COLOR, pin, plainLine, prepareFlowLines, rampColor, regionLayer, ripple, staggerHeights, STATUS_RAMP } from '@/scene/kit'
+import { alarmPoints, arc, COLOR, flowLine, focusView, LEVEL_COLOR, pin, plainLine, prepareFlowLines, ripple, staggerHeights, STATUS_RAMP } from '@/scene/kit'
 import type { DetourLeg, IncidentType, KeyVehicle, RoadSegment, SignalStatus, TrafficData, VehicleKind } from '@/types/traffic'
 
 export interface TrafficSceneOptions {
@@ -35,16 +35,10 @@ export const VEHICLE_TEXT: Record<VehicleKind, string> = { bus: '公交', patrol
 /** 绕行路线的颜色：冰蓝，和路况的绿黄橙红、通勤飞线的浅蓝都区分得开 */
 export const DETOUR_COLOR = COLOR.ice
 
-/** 片区平均拥堵指数 → 色带颜色。指数 2.0（拥堵）以上才转暖 */
-export function districtColor(index: number): string {
-  return rampColor((index - 1) / 1.5)
-}
-
 /** 各拥堵等级的流速：越堵越慢 */
 const FLOW_SPEED = [0.34, 0.22, 0.13, 0.07]
 /** 各等级道路的线宽，米 */
 const ROAD_WIDTH: Record<number, number> = { 1: 100, 2: 64, 3: 44 }
-const DISTRICT_LAYER_ID = 'sc_traffic_districts'
 /** 车辆轨迹由标注和轨迹线两个图层组成，图层开关 vehicle 同时控制两者 */
 const VEHICLE_LAYER = 'vehicle'
 const VEHICLE_TRAIL_LAYER = 'vehicleTrail'
@@ -63,7 +57,6 @@ const TOUR_STOPS = 5
  * - od       通勤 OD：片区中心之间的飞线，上午进城、下午出城；
  * - incident 交通事件：扩散波纹 + 标注，可点击；
  * - signal   信号路口：全部路口的小波纹，异常的加标注（默认关闭）；
- * - district 片区拥堵：按片区平均拥堵指数着色（默认关闭）；
  * - vehicle  车辆轨迹：重点车辆的标注 + 身后一小段轨迹线，位置随所选小时推进（默认关闭）；
  * - detour   绕行方案：选中交通事件后按需画出，取消选中或离开时删除（不在图层开关里）。
  */
@@ -72,12 +65,11 @@ export class TrafficScene extends ModuleScene {
   private hour = 12
   /** onEnter 已经创建完图层。在此之前 setHour 只记录小时 */
   private entered = false
-  private districts: Awaited<ReturnType<typeof regionLayer>> | null = null
   /** 路段 id → 投影坐标折线 */
   private paths = new Map<string, number[][]>()
   private xy = new Map<string, number[]>()
   /** 上一次画出的内容的签名；没变就不重画，拖动时间轴时省掉大部分指令 */
-  private drawn: { road: string | null; od: string | null; district: string | null; vehicle: string | null } = { road: null, od: null, district: null, vehicle: null }
+  private drawn: { road: string | null; od: string | null; vehicle: string | null } = { road: null, od: null, vehicle: null }
   /** 当前画出的绕行方案对应的事件 id */
   private detourId: string | null = null
 
@@ -97,7 +89,7 @@ export class TrafficScene extends ModuleScene {
 
   protected async onEnter(token: number): Promise<void> {
     this.entered = false
-    this.drawn = { road: null, od: null, district: null, vehicle: null }
+    this.drawn = { road: null, od: null, vehicle: null }
     this.detourId = null
     const data = this.data
     if (!data) return
@@ -153,18 +145,6 @@ export class TrafficScene extends ModuleScene {
       'signal'
     )
 
-    if (this.options.pak) {
-      const colors = this.districtColors(data)
-      await this.effect(token, 'district', async () => {
-        this.districts = await regionLayer(
-          DISTRICT_LAYER_ID,
-          geo.districts.map(d => ({ id: d.id, color: colors[d.id], ring: d.ring })),
-          { pattern: 'hatch', scale: 3, fill: 0.1 }
-        )
-        return this.districts
-      })
-    }
-
     if (!this.isCurrent(token)) return
     // 随时间变化的图层最后创建，用进入期间记录的最新小时；此后 setHour 直接替换
     this.entered = true
@@ -173,9 +153,8 @@ export class TrafficScene extends ModuleScene {
 
   protected async onLeave(): Promise<void> {
     this.entered = false
-    this.districts = null
     this.detourId = null
-    this.drawn = { road: null, od: null, district: null, vehicle: null }
+    this.drawn = { road: null, od: null, vehicle: null }
     await this.options.setBaseRoads?.(true)
   }
 
@@ -200,17 +179,6 @@ export class TrafficScene extends ModuleScene {
     if (String(inbound) !== this.drawn.od) {
       this.drawn.od = String(inbound)
       tasks.push(this.replaceLayer('od', 'polyline', this.buildOd(data, inbound)))
-    }
-
-    const colors = this.districtColors(data)
-    if (this.options.pak) {
-      tasks.push(this.districts?.setColors(colors))
-    } else {
-      const districtKey = JSON.stringify(colors)
-      if (districtKey !== this.drawn.district) {
-        this.drawn.district = districtKey
-        tasks.push(this.replaceLayer('district', 'polygon', this.geo.districts.map(d => area({ id: 'district-' + d.id, groupId: 'sc_traffic_district', ring: d.ring, color: colors[d.id], fill: 0.16 }))))
-      }
     }
 
     if (String(this.hour) !== this.drawn.vehicle) {
@@ -290,12 +258,6 @@ export class TrafficScene extends ModuleScene {
   /** 当前画着绕行方案的事件 id */
   get activeDetour(): string | null {
     return this.detourId
-  }
-
-  /** 每个片区的颜色；没有路段经过的片区按畅通算 */
-  private districtColors(data: TrafficData): Record<string, string> {
-    const index = districtCongestionAt(data.segments, this.hour, this.geo.districts.map(d => d.id))
-    return Object.fromEntries(this.geo.districts.map(d => [d.id, districtColor(index[d.id] ?? 1)]))
   }
 
   /**
