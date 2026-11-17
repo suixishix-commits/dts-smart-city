@@ -1,5 +1,6 @@
 import { commuteAt, congestionAt, congestionLevel, INCIDENT_TEXT, rankSegmentsAt, vehicleStateAt } from '@/api/mock/traffic'
 import { ModuleScene } from '@/scene/ModuleScene'
+import { odArcMeshDirected, RecolorMeshLayer, roadFlowMesh, type RoadFlow } from '@/scene/trafficFlow'
 import type { SceneApi } from '@/scene/SceneApi'
 import { pointAt, sliceLine, type CityGeo } from '@/scene/geo'
 import { alarmPoints, arc, COLOR, flowLine, focusView, LEVEL_COLOR, pin, plainLine, prepareFlowLines, ripple, staggerHeights, STATUS_RAMP } from '@/scene/kit'
@@ -8,10 +9,12 @@ import type { DetourLeg, IncidentType, KeyVehicle, RoadSegment, SignalStatus, Tr
 export interface TrafficSceneOptions {
   /** [x, y, z, pitch, yaw]；为 null 时不动相机 */
   cameraView: number[] | null
-  /** 效果总包是否可用；不可用时路况退回普通发光线、片区退回普通面 */
+  /** 效果总包是否可用；不可用时路况退回普通发光线 */
   pak: boolean
   /** 分级点位材质包是否可用；不可用时事件点用扩散波纹 */
   beacons?: boolean
+  /** 交通流光材质包是否可用；可用时路况和通勤 OD 用 UE 流光丝带（换时刻只改顶点颜色），否则用效果总包或 DTS 线 */
+  trafficFlow?: boolean
   /** 显示/隐藏底座路网（cityBase.setRoadsVisible）。本模块自己画路况，进入时隐藏、离开时恢复 */
   setBaseRoads?: (visible: boolean) => Promise<void>
 }
@@ -39,6 +42,8 @@ export const DETOUR_COLOR = COLOR.ice
 const FLOW_SPEED = [0.34, 0.22, 0.13, 0.07]
 /** 各等级道路的线宽，米 */
 const ROAD_WIDTH: Record<number, number> = { 1: 100, 2: 64, 3: 44 }
+/** 流光丝带的宽度，米（中心线约占 1/6，其余是柔光） */
+const FLOW_WIDTH: Record<number, number> = { 1: 40, 2: 30, 3: 22 }
 /** 车辆轨迹由标注和轨迹线两个图层组成，图层开关 vehicle 同时控制两者 */
 const VEHICLE_LAYER = 'vehicle'
 const VEHICLE_TRAIL_LAYER = 'vehicleTrail'
@@ -62,6 +67,9 @@ const TOUR_STOPS = 5
  */
 export class TrafficScene extends ModuleScene {
   private data: TrafficData | null = null
+  /** UE 交通流光（路况、通勤 OD）；材质包不可用时为 null */
+  private roadFlow: RecolorMeshLayer | null = null
+  private odFlow: RecolorMeshLayer | null = null
   private hour = 12
   /** onEnter 已经创建完图层。在此之前 setHour 只记录小时 */
   private entered = false
@@ -79,6 +87,10 @@ export class TrafficScene extends ModuleScene {
     private readonly options: TrafficSceneOptions
   ) {
     super(api)
+    if (options.trafficFlow) {
+      this.roadFlow = new RecolorMeshLayer(api, 'traffic-road-flow')
+      this.odFlow = new RecolorMeshLayer(api, 'traffic-od-flow')
+    }
   }
 
   /** 进入前设置数据和初始小时 */
@@ -155,7 +167,13 @@ export class TrafficScene extends ModuleScene {
     this.entered = false
     this.detourId = null
     this.drawn = { road: null, od: null, vehicle: null }
+    await Promise.all([this.roadFlow?.clear(), this.odFlow?.clear()])
     await this.options.setBaseRoads?.(true)
+  }
+
+  protected onAbandon(): void {
+    this.roadFlow?.abandon()
+    this.odFlow?.abandon()
   }
 
   /** 切换到某个小时。进入完成前只记录小时，由 onEnter 应用最新值 */
@@ -173,12 +191,12 @@ export class TrafficScene extends ModuleScene {
     const roadKey = levels.join('') + inbound
     if (roadKey !== this.drawn.road) {
       this.drawn.road = roadKey
-      tasks.push(this.replaceLayer('road', 'polyline', this.buildRoads(data.segments, levels, inbound)))
+      tasks.push(this.roadFlow ? this.roadFlow.show(id => roadFlowMesh(id, this.flowRoads(data.segments, levels, inbound), { groupId: 'sc_traffic_road' })) : this.replaceLayer('road', 'polyline', this.buildRoads(data.segments, levels, inbound)))
     }
 
     if (String(inbound) !== this.drawn.od) {
       this.drawn.od = String(inbound)
-      tasks.push(this.replaceLayer('od', 'polyline', this.buildOd(data, inbound)))
+      tasks.push(this.odFlow ? this.odFlow.show(id => odArcMeshDirected(id, this.flowArcs(data, inbound), { groupId: 'sc_traffic_od' })) : this.replaceLayer('od', 'polyline', this.buildOd(data, inbound)))
     }
 
     if (String(this.hour) !== this.drawn.vehicle) {
@@ -276,6 +294,28 @@ export class TrafficScene extends ModuleScene {
     })
   }
 
+  /** 路况流光的丝带：细中心线 + 柔光，宽度按道路等级；纵向道路的流向跟着通勤方向 */
+  private flowRoads(segments: RoadSegment[], levels: number[], inbound: boolean): RoadFlow[] {
+    return segments.flatMap((s, i) => {
+      const path = this.paths.get(s.id)
+      if (!path) return []
+      const long = this.geo.road(s.roadId)?.direction === 'long'
+      return [{ id: s.id, path, width: FLOW_WIDTH[s.level], level: levels[i], reverse: long && inbound }]
+    })
+  }
+
+  /** 通勤 OD 弧线：几何固定为居住区 → 商务区，下午只翻转光点方向。宽度随通勤量，最重的两条用暖色 */
+  private flowArcs(data: TrafficData, inbound: boolean) {
+    const flows = [...data.odFlows].sort((a, b) => b.volume - a.volume)
+    const max = flows.length ? flows[0].volume : 1
+    return flows.flatMap((f, i) => {
+      const home = this.geo.district(f.homeId)?.centerXY
+      const work = this.geo.district(f.workId)?.centerXY
+      if (!home || !work) return []
+      return [{ id: f.id, from: home, to: work, width: 14 + 14 * (f.volume / max), warm: i < 2, reverse: !inbound }]
+    })
+  }
+
   /** 通勤飞线：上午居住区 → 商务区，下午反向。只有最重的两条用暖色 */
   private buildOd(data: TrafficData, inbound: boolean): { id: string }[] {
     const flows = [...data.odFlows].sort((a, b) => b.volume - a.volume)
@@ -290,6 +330,8 @@ export class TrafficScene extends ModuleScene {
 
   /** 图层开关；车辆轨迹的开关同时控制车辆标注和轨迹线 */
   async setLayerVisible(layer: string, visible: boolean): Promise<void> {
+    if (layer === 'road') await this.roadFlow?.setVisible(visible)
+    if (layer === 'od') await this.odFlow?.setVisible(visible)
     if (layer === VEHICLE_LAYER) await Promise.all([super.setLayerVisible(layer, visible), super.setLayerVisible(VEHICLE_TRAIL_LAYER, visible)])
     else await super.setLayerVisible(layer, visible)
   }

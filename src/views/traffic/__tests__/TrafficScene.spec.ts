@@ -109,6 +109,23 @@ describe('TrafficScene', () => {
     expect(scene.objectCount()).toBe(TOTAL)
   })
 
+  it('交通流光材质包可用时：路况和通勤 OD 各一个 UE 流光网格，换小时不新建，离开时删除', async () => {
+    create({ trafficFlow: true }, 8)
+    await scene.enter()
+    expect(segIds()).toEqual([])
+    expect(odIds()).toEqual([])
+    const meshes = () => api.ids('customMesh').filter(k => k.includes('flow'))
+    expect(meshes()).toEqual(['customMesh:traffic-od-flow-b', 'customMesh:traffic-road-flow-b'])
+    const road = api.get('customMesh', 'traffic-road-flow-b')
+    expect(road.material).toContain('RoadFlow')
+    // 通勤方向翻转（上午 → 下午）后仍然只有这两个网格
+    await scene.setHour(18)
+    expect(meshes()).toHaveLength(2)
+    await scene.setLayerVisible('od', false)
+    await scene.leave()
+    expect(meshes()).toEqual([])
+  })
+
   it('进入时隐藏底座路网并设置相机，离开时恢复', async () => {
     create({ cameraView: HOME })
     await scene.enter()

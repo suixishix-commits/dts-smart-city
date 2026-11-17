@@ -1,6 +1,6 @@
 import { getGeoData } from '@/api/geo'
 import { DtsSceneApi } from './DtsSceneApi'
-import { applyAmbience, mountEffectsPak, mountHeatFieldPak, mountPointBeaconPak } from './effects'
+import { applyAmbience, mountEffectsPak, mountHeatFieldPak, mountPointBeaconPak, mountTrafficFlowPak } from './effects'
 import { buildCityGeo, type CityGeo } from './geo'
 import { lineScaler } from './lineScale'
 import { COLOR, plainLine, rgba } from './kit'
@@ -68,6 +68,8 @@ class CityBase {
   beacons = false
   /** 热力场材质包是否挂上。没挂上时热力图用 DTS 自带的 heatmap */
   heatField = false
+  /** 交通流光材质包是否挂上。没挂上时路况、通勤 OD 用效果总包或 DTS 自带线 */
+  trafficFlow = false
   private starting: Promise<CityGeo | null> | null = null
   private roadIds: string[] = []
   private roadsShown = true
@@ -91,6 +93,7 @@ class CityBase {
     this.pak = await mountEffectsPak()
     this.beacons = await mountPointBeaconPak()
     this.heatField = await mountHeatFieldPak()
+    this.trafficFlow = await mountTrafficFlowPak()
     this.geo = await buildCityGeo(await getGeoData(), ll => api.project(ll))
     await this.drawRoads(api)
     lineScaler.start()

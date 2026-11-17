@@ -6,6 +6,8 @@ Object.assign(gVar, {
     effectsPak: 'E:/Dts-Optimize/工程/demo_files/Resource/DTS-Effects-Bundle.pak',
     // 热力场（dts-effect-kit/projects/HeatField_20261117）：人口热力、警情热力。留空或挂载失败时退回 DTS 自带热力图
     heatFieldPak: 'E:/Dts-Optimize/工程/demo_files/Resource/HeatField-V1-20261117-WindowsNoEditor.pak',
+    // 交通流光（dts-effect-kit/projects/TrafficFlow_20261117）：路况流光丝带、通勤 OD 弧线。留空或挂载失败时退回效果总包的流动线
+    trafficFlowPak: 'E:/Dts-Optimize/工程/demo_files/Resource/TrafficFlow-V1-20261117-WindowsNoEditor.pak',
     // 分级点位（dts-effect-kit/projects/PointBeacon_20261117）：告警、事件点的地面光环。留空或挂载失败时退回 DTS 自带扩散波纹
     pointBeaconPak: 'E:/Dts-Optimize/工程/demo_files/Resource/PointBeacon-V3-20261117-WindowsNoEditor.pak',
     // 底图风格：把影像压成偏冷的黄昏色调，让图层从底图里浮出来。

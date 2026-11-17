@@ -15,6 +15,7 @@ vi.mock('../effects', () => ({
   mountEffectsPak: mocks.mountEffectsPak,
   mountPointBeaconPak: vi.fn(async () => false),
   mountHeatFieldPak: vi.fn(async () => false),
+  mountTrafficFlowPak: vi.fn(async () => false),
   loadLib: vi.fn(async () => ({}))
 }))
 vi.mock('@/api/geo', () => ({ getGeoData: mocks.getGeoData }))
