@@ -12,7 +12,7 @@
 </template>
 
 <script setup lang="ts">
-import dayjs from 'dayjs'
+import { now as clockNow } from '@/utils/clock'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { createFeedScene, drawNoSignal, type FeedScene } from './feedScene'
 
@@ -34,7 +34,7 @@ const props = withDefaults(
 const streamUrl = computed<string>(() => gVar?.smartCity?.cameraStreams?.[props.cameraId] ?? '')
 
 const canvas = ref<HTMLCanvasElement | null>(null)
-const stamp = () => dayjs().subtract(props.replayMinutes, 'minute').format('YYYY-MM-DD HH:mm:ss')
+const stamp = () => clockNow().subtract(props.replayMinutes, 'minute').format('YYYY-MM-DD HH:mm:ss')
 const time = ref(stamp())
 /** 模拟画面的帧率：监控画面 12 帧足够，省 CPU */
 const FPS = 12

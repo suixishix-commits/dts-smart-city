@@ -49,7 +49,7 @@ import type { DetailModel } from '@/types/detail'
 import type { AirIndex, EnvAlarm, EnvironmentData, HandleStatus, WaterGrade } from '@/types/environment'
 import emitter from '@/utils/emitter'
 import TimeAxis from '@/views/overview/_components/TimeAxis.vue'
-import dayjs from 'dayjs'
+import { currentHalfHour } from '@/utils/clock'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { highlightPins } from '@/scene/pinSelection'
 import EnvIndexSwitch from './_components/EnvIndexSwitch.vue'
@@ -71,7 +71,7 @@ const noiseRamp = `linear-gradient(to right, ${RAMP.join(', ')})`
 const data = ref<EnvironmentData | null>(null)
 // 当前真实时刻，取整到半小时
 // 当前真实时刻，取整到半小时
-const nowHour = Math.round((dayjs().hour() + dayjs().minute() / 60) * 2) / 2
+const nowHour = currentHalfHour()
 const hour = ref(nowHour)
 const index = ref<AirIndex>('aqi')
 const layers = ref<string[]>(ENV_LAYERS.filter(l => l.on).map(l => l.key))

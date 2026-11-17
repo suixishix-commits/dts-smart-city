@@ -63,7 +63,7 @@ import { COLOR, STATUS_RAMP } from '@/scene/kit'
 import type { DetailModel } from '@/types/detail'
 import type { SignalStatus, TrafficData, VehicleKind } from '@/types/traffic'
 import emitter from '@/utils/emitter'
-import dayjs from 'dayjs'
+import { currentHalfHour } from '@/utils/clock'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { highlightPins } from '@/scene/pinSelection'
 import TrafficIncidentCard from './_components/TrafficIncidentCard.vue'
@@ -87,7 +87,7 @@ const NEARBY_SIGNALS = 2
 
 const data = ref<TrafficData | null>(null)
 // 当前真实时刻，取整到半小时
-const nowHour = Math.round((dayjs().hour() + dayjs().minute() / 60) * 2) / 2
+const nowHour = currentHalfHour()
 const hour = ref(nowHour)
 const layers = ref([...DEFAULT_ON])
 const activeIncident = ref<string | null>(null)

@@ -16,6 +16,9 @@ Object.assign(gVar, {
     ambience: { tint: [0.78, 0.88, 1, 1], saturation: 0.85, brightness: 0.3, contrast: 1.08, bloom: 0.6 },
     // 夜景（工具栏「昼夜切换」）：场景时间拨到入夜后影像几乎全黑，这里把影像提亮、压低饱和度，保留城市肌理，泛光加强
     nightAmbience: { tint: [0.7, 0.85, 1, 1], saturation: 0.6, brightness: 4, contrast: 1.2, bloom: 1.2 },
+    // 演示时刻 'HH:mm'：页面打开时全站时钟从这个时刻开始走（演示数据的告警、事件、工单都在下午这个时段）。
+    // 接真实数据时删掉这一项，全站用真实时间
+    demoTime: '14:45',
     // 开场动画：页面连上场景时相机从高空俯冲到默认机位、路网逐级点亮。false 关闭
     intro: true,
     // 各模块默认相机位 [x, y, z, pitch, yaw]（投影坐标，米）。

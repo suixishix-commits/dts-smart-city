@@ -61,7 +61,8 @@ const densityRows = computed(() => {
     value: r.v.toFixed(1),
     percent: Math.round((r.v / max) * 100),
     color: rampColor(r.v / 2.8),
-    delta: (r.delta >= 0 ? '+' : '') + r.delta.toFixed(2),
+    // 变化不到 0.005 时显示「持平」，不出现 -0.00
+    delta: Math.abs(r.delta) < 0.005 ? '持平' : (r.delta > 0 ? '+' : '') + r.delta.toFixed(2),
     deltaColor: r.delta > 0.005 ? '#ffa94d' : '#9aa4b2'
   }))
 })

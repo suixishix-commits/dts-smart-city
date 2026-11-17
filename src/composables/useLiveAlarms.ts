@@ -1,5 +1,6 @@
 import { liveAlarmAt, liveAlarmDelay } from '@/api/mock/liveAlarms'
 import store from '@/stores'
+import { now as clockNow } from '@/utils/clock'
 import { onBeforeUnmount, onMounted } from 'vue'
 
 /** 首条推送在进入页面后多久到达，毫秒：让开场动画先播完 */
@@ -15,7 +16,7 @@ export function useLiveAlarms() {
 
   const schedule = (delay: number) => {
     timer = setTimeout(() => {
-      store.alarmStore.pushAlarm(liveAlarmAt(seq, new Date()))
+      store.alarmStore.pushAlarm(liveAlarmAt(seq, clockNow().toDate()))
       seq += 1
       schedule(liveAlarmDelay(seq))
     }, delay)

@@ -39,7 +39,7 @@
 
 <script setup lang="ts">
 import store from '@/stores'
-import dayjs from 'dayjs'
+import { now as clockNow } from '@/utils/clock'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 const modules = [
@@ -51,14 +51,14 @@ const modules = [
 ]
 
 const WEEK = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-const now = ref(dayjs())
+const now = ref(clockNow())
 const date = computed(() => `${now.value.format('YYYY-MM-DD')} ${WEEK[now.value.day()]}`)
 const clock = computed(() => now.value.format('HH:mm:ss'))
 const sceneState = computed(() => store.dtsStore.sceneState)
 
 let timer = 0
 onMounted(() => {
-  timer = window.setInterval(() => (now.value = dayjs()), 1000)
+  timer = window.setInterval(() => (now.value = clockNow()), 1000)
 })
 onBeforeUnmount(() => window.clearInterval(timer))
 </script>

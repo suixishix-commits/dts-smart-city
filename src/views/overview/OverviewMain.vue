@@ -50,7 +50,7 @@ import type { Camera, District, OverviewData } from '@/types/smartCity'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import emitter from '@/utils/emitter'
-import dayjs from 'dayjs'
+import { currentHalfHour } from '@/utils/clock'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { highlightPins } from '@/scene/pinSelection'
 import { OverviewScene } from './OverviewScene'
@@ -67,7 +67,7 @@ const HEAT_STEPS = HEAT_STOPS.slice(2).map(s => s.color)
 const peak = populationPeak()
 const data = ref<OverviewData | null>(null)
 // 当前真实时刻，取整到半小时
-const nowHour = Math.round((dayjs().hour() + dayjs().minute() / 60) * 2) / 2
+const nowHour = currentHalfHour()
 const hour = ref(nowHour)
 // 首屏只开热力和热点，摄像头按需打开
 const layers = ref(['heat', 'hotspot'])

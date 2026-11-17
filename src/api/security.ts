@@ -1,12 +1,10 @@
 import type { SecurityData } from '@/types/security'
-import dayjs from 'dayjs'
 import { getGeoData } from './geo'
 import { buildSecurityData } from './mock/security'
 
-/** 当前时刻（小时，带小数） */
-export function currentHour(): number {
-  return dayjs().hour() + dayjs().minute() / 60
-}
+import { currentHour } from '@/utils/clock'
+
+export { currentHour }
 
 /**
  * 公共安全数据。一期由地理底数据（geo.json）生成 mock；接真实后端时只改这个函数。

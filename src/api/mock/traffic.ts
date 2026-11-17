@@ -285,12 +285,12 @@ export function districtCongestionAt(segments: RoadSegment[], hour: number, dist
 
 /** 事件模板：at 是 geo.json 里的路口 id */
 const INCIDENTS: { at: string; type: IncidentType; title: string; time: string; lanes: number; queue: number; status: TrafficIncident['status']; handling: string }[] = [
-  { at: 'zayed1-airport', type: 'accident', title: '多车追尾', time: '17:42', lanes: 2, queue: 640, status: '处置中', handling: '交警 2 组已到场，拖车在途' },
+  { at: 'zayed1-airport', type: 'accident', title: '多车追尾', time: '14:38', lanes: 2, queue: 640, status: '处置中', handling: '交警 2 组已到场，拖车在途' },
+  { at: 'hazza-khaleej', type: 'breakdown', title: '车辆抛锚', time: '14:31', lanes: 1, queue: 180, status: '处置中', handling: '清障车在途，预计 10 分钟到达' },
   { at: 'hamdan-airport', type: 'control', title: '供水抢修临时管制', time: '14:28', lanes: 2, queue: 420, status: '管制中', handling: '东向封闭 2 车道，交警手动放行' },
-  { at: 'falah-muroor', type: 'construction', title: '占道施工', time: '09:00', lanes: 1, queue: 280, status: '管制中', handling: '围挡作业至 18:00，已设绕行指引' },
-  { at: 'hazza-khaleej', type: 'breakdown', title: '车辆抛锚', time: '16:05', lanes: 1, queue: 180, status: '处置中', handling: '清障车在途，预计 10 分钟到达' },
-  { at: 'mbk-airport', type: 'accident', title: '两车剐蹭', time: '17:10', lanes: 1, queue: 150, status: '已到场', handling: '交警已到场，快处快赔中' },
-  { at: 'mosque-khaleej', type: 'construction', title: '桥头路面维护', time: '10:30', lanes: 1, queue: 350, status: '管制中', handling: '占用外侧车道，22:00 恢复通行' }
+  { at: 'mbk-airport', type: 'accident', title: '两车剐蹭', time: '14:19', lanes: 1, queue: 150, status: '已到场', handling: '交警已到场，快处快赔中' },
+  { at: 'mosque-khaleej', type: 'construction', title: '桥头路面维护', time: '10:30', lanes: 1, queue: 350, status: '管制中', handling: '占用外侧车道，22:00 恢复通行' },
+  { at: 'falah-muroor', type: 'construction', title: '占道施工', time: '09:00', lanes: 1, queue: 280, status: '管制中', handling: '围挡作业至 18:00，已设绕行指引' }
 ]
 
 /** 路口摄像头编号：按路口在 geo.json 里的顺序 */
