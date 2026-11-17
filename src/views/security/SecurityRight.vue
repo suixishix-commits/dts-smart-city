@@ -1,7 +1,13 @@
 <template>
   <aside class="security-right">
-    <PanelCard title="实时警情" :extra="'在办 ' + activeCount + ' / 共 ' + incidents.length">
-      <div class="list">
+    <!-- 警情和视频告警都是「待处置」清单，放在同一张卡片里切换 -->
+    <PanelCard title="告警中心">
+      <template #extra>
+        <SegmentedTabs v-model="alarmTab" :options="ALARM_TABS" label="告警类型" />
+      </template>
+      <div v-if="alarmTab === 'incident'" class="list-note">在办 {{ activeCount }} / 共 {{ incidents.length }} 起</div>
+      <div v-else class="list-note">待确认 {{ pendingAlarms }} 条</div>
+      <div v-if="alarmTab === 'incident'" class="list scroll">
         <button v-for="i in incidents" :key="i.id" type="button" class="row" :class="{ active: i.id === activeIncident }" @click="emit('incident', i.id)">
           <LevelTag :level="i.level" />
           <span class="main">
@@ -14,10 +20,34 @@
           </span>
         </button>
       </div>
+      <div v-else class="list scroll">
+        <button v-for="a in data.aiAlarms" :key="a.id" type="button" class="row" :class="{ active: a.id === activeAlarm }" @click="emit('alarm', a.id)">
+          <LevelTag :level="a.level" />
+          <span class="main">
+            <span class="name">{{ a.title }}</span>
+            <span class="sub">{{ a.cameraId }} · <i class="state" :class="ALARM_STATE_CLASS[a.status]">{{ a.status }}</i></span>
+          </span>
+          <span class="time">{{ a.time }}</span>
+        </button>
+      </div>
     </PanelCard>
 
-    <PanelCard title="重点防护区" :extra="'驻守 ' + guardTotal + ' 人'">
-      <div class="list">
+    <!-- 片区事件量和重点防护区：都是「按地点看态势」 -->
+    <PanelCard title="防控态势">
+      <template #extra>
+        <SegmentedTabs v-model="areaTab" :options="AREA_TABS" label="态势视角" />
+      </template>
+      <div v-if="areaTab === 'district'" class="list-note">今日 · 起 / 办结率</div>
+      <div v-else class="list-note">驻守 {{ guardTotal }} 人</div>
+      <div v-if="areaTab === 'district'" class="list scroll short">
+        <button v-for="d in districts" :key="d.districtId" type="button" class="row district" :class="{ active: d.districtId === activeDistrict }" @click="emit('district', d.districtId)">
+          <span class="d-name">{{ d.name }}</span>
+          <span class="track"><span class="fill" :style="{ width: (d.total / districtMax) * 100 + '%' }"></span></span>
+          <span class="d-total">{{ d.total }}</span>
+          <span class="d-rate">{{ (d.closeRate * 100).toFixed(1) }}%</span>
+        </button>
+      </div>
+      <div v-else class="list scroll short">
         <button v-for="z in data.zones" :key="z.id" type="button" class="row" :class="{ active: z.id === activeZone }" @click="emit('zone', z.id)">
           <span class="guard">{{ GUARD_TEXT[z.guardLevel] }}</span>
           <span class="main">
@@ -39,19 +69,57 @@
 
 <script setup lang="ts">
 import { isActive } from '@/api/mock/security'
-import type { SecurityData } from '@/types/security'
+import type { AiAlarmStatus, SecurityData } from '@/types/security'
 import type { Camera } from '@/types/smartCity'
 import CameraTile from '@/views/overview/_components/CameraTile.vue'
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
-const props = defineProps<{ data: SecurityData; activeIncident: string | null; activeZone: string | null; activeCamera: string | null }>()
-const emit = defineEmits<{ (e: 'incident', id: string): void; (e: 'zone', id: string): void; (e: 'camera', id: string): void }>()
+const props = defineProps<{
+  data: SecurityData
+  activeIncident: string | null
+  activeZone: string | null
+  activeCamera: string | null
+  activeAlarm: string | null
+  activeDistrict: string | null
+}>()
+const emit = defineEmits<{
+  (e: 'incident', id: string): void
+  (e: 'zone', id: string): void
+  (e: 'camera', id: string): void
+  (e: 'alarm', id: string): void
+  (e: 'district', id: string): void
+}>()
+
+const ALARM_TABS = [
+  { key: 'incident', name: '实时警情' },
+  { key: 'ai', name: '视频告警' }
+]
+const AREA_TABS = [
+  { key: 'district', name: '片区事件' },
+  { key: 'zone', name: '防护区' }
+]
+const alarmTab = ref('incident')
+const areaTab = ref('district')
+// 在场景里点了某类对象时，切到对应的清单
+watch(() => props.activeAlarm, id => id && (alarmTab.value = 'ai'))
+watch(() => props.activeIncident, id => id && (alarmTab.value = 'incident'))
+watch(() => props.activeZone, id => id && (areaTab.value = 'zone'))
+watch(() => props.activeDistrict, id => id && (areaTab.value = 'district'))
+
+/** 告警状态的文字样式：待确认用警示色，已了结的变灰 */
+const ALARM_STATE_CLASS: Record<AiAlarmStatus, string> = { 待确认: 'pending', 已派单: 'sent', 已办结: 'done', 误报: 'done' }
+/** 片区事件量列表展示的片区数 */
+const DISTRICT_ROWS = 6
 
 const GUARD_TEXT: Record<number, string> = { 1: '一级', 2: '二级', 3: '三级' }
 
 /** 在办的排前面，同状态按等级从重到轻 */
 const incidents = computed(() => [...props.data.incidents].sort((a, b) => Number(isActive(b)) - Number(isActive(a)) || a.level - b.level))
 const activeCount = computed(() => props.data.incidents.filter(isActive).length)
+const pendingAlarms = computed(() => props.data.aiAlarms.filter(a => a.status === '待确认').length)
+/** 事件量最多的几个片区 */
+const districts = computed(() => props.data.eventStats.districts.slice(0, DISTRICT_ROWS))
+const districtMax = computed(() => Math.max(1, ...districts.value.map(d => d.total)))
 const guardTotal = computed(() => props.data.zones.reduce((n, z) => n + z.guards, 0))
 const onlineCount = computed(() => props.data.cameras.filter(c => c.online).length)
 const onlineRate = computed(() => (props.data.cameras.length ? ((onlineCount.value / props.data.cameras.length) * 100).toFixed(1) : '0.0'))
@@ -96,7 +164,7 @@ const featured = computed<Camera[]>(() =>
   background: transparent;
   cursor: pointer;
   &.active {
-    background: rgba(76, 196, 212, 0.14);
+    background: rgba(76, 154, 255, 0.14);
   }
 }
 .guard {
@@ -149,9 +217,68 @@ const featured = computed<Camera[]>(() =>
 .status.open {
   color: $level-2;
 }
+.state {
+  font-style: normal;
+  &.pending {
+    color: $level-2;
+  }
+  &.sent {
+    color: $accent-light;
+  }
+}
+.district {
+  gap: 12px;
+  font-size: $fs-body;
+}
+.d-name {
+  flex-shrink: 0;
+  width: 80px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.track {
+  flex-grow: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: $track;
+}
+.fill {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: $accent;
+}
+.d-total {
+  flex-shrink: 0;
+  width: 32px;
+  text-align: right;
+  font-weight: 600;
+  color: $text-strong;
+}
+.d-rate {
+  flex-shrink: 0;
+  width: 52px;
+  text-align: right;
+  font-size: 12px;
+  color: $text-muted;
+}
 .cams {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+.list-note {
+  margin: -8px 0 -4px;
+  font-size: $fs-aux;
+  color: $text-muted;
+}
+// 清单长的时候在卡片里滚动，不把整列撑出屏幕
+.scroll {
+  max-height: 258px;
+  overflow: hidden auto;
+  &.short {
+    max-height: 182px;
+  }
 }
 </style>

@@ -31,17 +31,36 @@
     <LineChart class="trend" :option="chartOption" :label="station.name + ' ' + meta.name + ' 二十四小时曲线'" />
 
     <p class="advice">{{ healthAdvice(level) }}</p>
+
+    <!-- 本站当前的超标告警：显示超标项和处置状态，可派发核查 / 标记办结 -->
+    <div v-if="alarm" class="alarm">
+      <div class="alarm-head">
+        <span class="alarm-tag" :style="{ background: LEVEL_COLOR[alarm.level] }">{{ LEVEL_NAMES[alarm.level] }}</span>
+        <span class="alarm-title">{{ alarm.metric ? alarm.metric.name + ' 超标 ' + alarm.metric.value + ' / ' + alarm.metric.limit : alarm.title }}</span>
+        <span class="alarm-status" :style="{ color: STATUS_COLOR[alarm.status] }">{{ alarm.status }}</span>
+      </div>
+      <button v-if="alarmAction" type="button" class="alarm-btn" @click="emit('action', alarmAction.key)">{{ alarmAction.label }}</button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { AIR_INDEXES, AIR_LEVEL_NAMES, airLevel, aqiOf, concentrationsAt, healthAdvice, pollutantName, POLLUTANTS, readingOf, stationSeries } from '@/api/mock/environment'
-import type { AirIndex, EnvStation } from '@/types/environment'
+import { AIR_INDEXES, AIR_LEVEL_NAMES, airLevel, aqiOf, concentrationsAt, formatHour, healthAdvice, pollutantName, POLLUTANTS, readingOf, stationSeries } from '@/api/mock/environment'
+import { LEVEL_COLOR } from '@/scene/kit'
+import type { AirIndex, EnvAlarm, EnvStation } from '@/types/environment'
 import { computed } from 'vue'
+import { STATUS_COLOR, type EnvAction } from '../details'
 import { airColor } from '../EnvironmentScene'
 
-const props = defineProps<{ station: EnvStation; hour: number; index: AirIndex }>()
-const emit = defineEmits<{ (e: 'close'): void }>()
+const props = defineProps<{ station: EnvStation; hour: number; index: AirIndex; alarm?: EnvAlarm | null }>()
+const emit = defineEmits<{ (e: 'close'): void; (e: 'action', key: EnvAction): void }>()
+
+const LEVEL_NAMES: Record<number, string> = { 1: '一级', 2: '二级', 3: '三级', 4: '四级' }
+/** 告警的下一步操作：待处置 → 派发核查，核查中 → 标记办结，已办结没有操作 */
+const alarmAction = computed<{ key: EnvAction; label: string } | null>(() => {
+  const status = props.alarm?.status
+  return status === '待处置' ? { key: 'dispatch', label: '派发核查' } : status === '核查中' ? { key: 'close', label: '标记办结' } : null
+})
 
 const meta = computed(() => AIR_INDEXES.find(i => i.key === props.index) ?? AIR_INDEXES[0])
 const conc = computed(() => concentrationsAt(props.station, props.hour))
@@ -53,10 +72,6 @@ const pollutants = computed(() =>
   POLLUTANTS.map(p => ({ ...p, value: p.key === 'co' ? conc.value.co.toFixed(1) : conc.value[p.key], over: conc.value[p.key] > p.limit }))
 )
 
-function formatHour(hour: number): string {
-  const h = Math.floor(hour)
-  return String(h).padStart(2, '0') + ':' + String(Math.round((hour - h) * 60)).padStart(2, '0')
-}
 
 const chartOption = computed(() => {
   const series = stationSeries(props.station, props.index)
@@ -68,24 +83,24 @@ const chartOption = computed(() => {
     grid: { left: 32, right: 8, top: 10, bottom: 20 },
     xAxis: {
       type: 'value', min: 0, max: 24, interval: 6,
-      axisLabel: { color: '#8b9aa3', fontSize: 11, formatter: (v: number) => String(v).padStart(2, '0') },
+      axisLabel: { color: '#9aa4b2', fontSize: 11, formatter: (v: number) => String(v).padStart(2, '0') },
       axisLine: { lineStyle: { color: 'rgba(255,255,255,0.2)' } },
       axisTick: { show: false },
       splitLine: { show: false }
     },
     yAxis: {
       type: 'value', min: 0, max, interval: max / 2,
-      axisLabel: { color: '#8b9aa3', fontSize: 11 },
+      axisLabel: { color: '#9aa4b2', fontSize: 11 },
       splitLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } }
     },
     series: [
       {
         type: 'line', data: series, showSymbol: false, smooth: 0.3,
-        lineStyle: { color: '#4cc4d4', width: 2 },
+        lineStyle: { color: '#4c9aff', width: 2 },
         markLine: {
           symbol: 'none', silent: true, label: { show: false },
           data: [
-            { yAxis: limit, lineStyle: { color: '#e8b04f', type: 'dashed', width: 1 } },
+            { yAxis: limit, lineStyle: { color: '#ffa94d', type: 'dashed', width: 1 } },
             { xAxis: props.hour, lineStyle: { color: 'rgba(255,255,255,0.5)', type: 'solid', width: 1 } }
           ]
         },
@@ -226,5 +241,58 @@ const chartOption = computed(() => {
   line-height: 20px;
   color: $text;
   border-top: 1px solid $divider;
+}
+.alarm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid $divider;
+}
+.alarm-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: $fs-aux;
+}
+.alarm-tag {
+  flex-shrink: 0;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: $bg-page;
+}
+.alarm-title {
+  flex-grow: 1;
+  min-width: 0;
+  color: $text-strong;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.alarm-status {
+  flex-shrink: 0;
+}
+.alarm-btn {
+  height: 44px;
+  border: 0;
+  border-radius: $radius-sm;
+  font: inherit;
+  font-size: $fs-body;
+  font-weight: 500;
+  color: $bg-page;
+  background: $accent;
+  cursor: pointer;
+  &:hover {
+    background: $accent-light;
+  }
+  &:focus-visible {
+    outline: 2px solid $accent-light;
+    outline-offset: 2px;
+  }
 }
 </style>

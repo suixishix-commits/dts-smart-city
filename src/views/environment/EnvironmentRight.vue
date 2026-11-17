@@ -1,63 +1,94 @@
 <template>
   <aside class="environment-right">
-    <PanelCard title="监测站点" :extra="meta.name + (meta.unit ? ' ' + meta.unit : '') + ' · 由高到低'" grow>
-      <div class="list scroll">
-        <button v-for="r in stations" :key="r.station.id" type="button" class="row" :class="{ active: r.station.id === activeStation }" @click="emit('station', r.station.id)">
-          <i class="dot" :style="{ background: airColor(r.reading.level) }"></i>
-          <span class="main">
-            <span class="name">{{ r.station.name }}</span>
-            <span class="sub">{{ r.station.districtName }} · {{ r.station.kind }}</span>
-          </span>
-          <span class="value">{{ r.reading.value }}</span>
-          <span class="status" :style="{ color: airColor(r.reading.level) }">{{ AIR_LEVEL_SHORT[r.reading.level] }}</span>
+    <PanelCard title="近岸海域水质" :extra="'监测点 ' + data.waterSamples.length + ' 个 · 按二类考核'">
+      <div class="water-head">
+        <span class="rate">{{ water.rate.toFixed(1) }}</span>
+        <span class="rate-unit">% 达标率</span>
+      </div>
+      <!-- 分段条和采样点颜色与场景里水质标注一致：一类、二类、三类、四类 -->
+      <div class="stack" aria-hidden="true">
+        <span v-for="g in gradeShares" :key="g.grade" :style="{ width: g.share + '%', background: WATER_COLORS[g.grade] }"></span>
+      </div>
+      <div class="counts">
+        <div v-for="c in counts" :key="c.name" class="count">
+          <span class="count-name"><i :style="{ background: c.color }"></i>{{ c.name }}</span>
+          <span class="count-value">{{ c.value }}</span>
+        </div>
+      </div>
+      <div class="points">
+        <button v-for="w in data.waterSamples" :key="w.id" type="button" class="point" :class="{ active: w.id === activeWater }" :title="w.name" @click="emit('water', w.id)">
+          <i class="dot" :style="{ background: WATER_COLORS[w.grade] }"></i>
+          <span class="point-id">{{ w.id }}</span>
+          <span class="point-grade" :style="w.grade >= 3 ? { color: WATER_COLORS[w.grade] } : undefined">{{ WATER_GRADE_NAMES[w.grade] }}</span>
         </button>
       </div>
     </PanelCard>
 
-    <PanelCard title="污染源与投诉" :extra="'共 ' + data.sources.length + ' 处'">
-      <div class="list">
-        <button v-for="s in sources" :key="s.id" type="button" class="row" :class="{ active: s.id === activeSource }" @click="emit('source', s.id)">
-          <LevelTag :level="s.level" />
-          <span class="main">
-            <span class="name">{{ s.name }}</span>
-            <span class="sub">{{ s.type }} · {{ s.districtName }} · {{ s.note }}</span>
-          </span>
-          <span class="time">{{ s.time }}</span>
-        </button>
-      </div>
-    </PanelCard>
-
-    <PanelCard title="噪声与水质" :extra="'噪声点 ' + data.noisePoints.length + ' · 水质采样点 ' + data.waterSamples.length">
+    <PanelCard title="噪声监测" :extra="'dB(A) / 限值 · 干线达标率 ' + noise.compliance.toFixed(1) + '%'">
       <div class="noise">
-        <StatItem :label="'昼间均值 · 限 ' + NOISE_LIMIT.day" :value="noise.day.toFixed(1)" unit="dB" />
-        <StatItem :label="'夜间均值 · 限 ' + NOISE_LIMIT.night" :value="noise.night.toFixed(1)" unit="dB" :color="noise.night > NOISE_LIMIT.night ? COLOR.warn : undefined" />
-        <StatItem label="噪声达标率" :value="noise.compliance.toFixed(1)" unit="%" />
+        <div v-for="z in zones" :key="z.name" class="zone">
+          <span class="zone-name">{{ z.name }}</span>
+          <span v-for="r in z.rows" :key="r.id" class="period">
+            <span class="period-name">{{ r.period }}</span>
+            <span class="track"><span class="fill" :style="{ width: Math.min(100, (r.db / 80) * 100) + '%', background: r.over ? COLOR.warn : COLOR.accent }"></span></span>
+            <span class="period-value" :style="r.over ? { color: COLOR.warn } : undefined">{{ r.db.toFixed(1) }}</span>
+            <span class="period-limit">{{ r.limit }}</span>
+          </span>
+        </div>
       </div>
-      <div class="water">
-        <BarRow v-for="w in water" :key="w.grade" :name="'近岸 ' + w.name" :value="w.count" :percent="w.percent" :color="WATER_COLORS[w.grade]" :note="w.share" />
+    </PanelCard>
+
+    <PanelCard title="超标告警" :extra="'当前 ' + alarms.length + ' 条 · 待处置 ' + pending" grow>
+      <div class="list scroll">
+        <button v-for="a in alarms" :key="a.id" type="button" class="row" :class="{ active: a.id === activeAlarm, done: a.status === '已办结' }" @click="emit('alarm', a.id)">
+          <LevelTag :level="a.level" />
+          <span class="main">
+            <span class="name">{{ a.title }}</span>
+            <span class="sub">{{ KIND_NAMES[a.kind] }} · {{ a.note }}</span>
+          </span>
+          <span class="side">
+            <span class="time">{{ a.time }}</span>
+            <span class="state" :style="{ color: STATUS_COLOR[a.status] }">{{ a.status }}</span>
+          </span>
+        </button>
       </div>
     </PanelCard>
   </aside>
 </template>
 
 <script setup lang="ts">
-import { AIR_INDEXES, AIR_LEVEL_SHORT, NOISE_LIMIT, noiseSummary, stationReadingsAt, waterDistribution } from '@/api/mock/environment'
+import { noiseSummary, noiseZoneRows, WATER_GRADE_NAMES, waterDistribution, waterSummary, type NoiseZoneRow } from '@/api/mock/environment'
 import { COLOR } from '@/scene/kit'
-import type { AirIndex, EnvironmentData } from '@/types/environment'
+import type { AlarmKind, EnvAlarm, EnvironmentData } from '@/types/environment'
 import { computed } from 'vue'
-import { airColor, WATER_COLORS } from './EnvironmentScene'
+import { STATUS_COLOR } from './details'
+import { WATER_COLORS } from './EnvironmentScene'
 
-const props = defineProps<{ data: EnvironmentData; hour: number; index: AirIndex; activeStation: string | null; activeSource: string | null }>()
-const emit = defineEmits<{ (e: 'station', id: string): void; (e: 'source', id: string): void }>()
+const props = defineProps<{ data: EnvironmentData; alarms: EnvAlarm[]; activeWater: string | null; activeAlarm: string | null }>()
+const emit = defineEmits<{ (e: 'water', id: string): void; (e: 'alarm', id: string): void }>()
 
-const meta = computed(() => AIR_INDEXES.find(i => i.key === props.index) ?? AIR_INDEXES[0])
-const stations = computed(() => stationReadingsAt(props.data, props.hour, props.index))
-const sources = computed(() => [...props.data.sources].sort((a, b) => a.level - b.level))
-const noise = computed(() => noiseSummary(props.data.noisePoints))
-const water = computed(() => {
+const KIND_NAMES: Record<AlarmKind, string> = { station: '监测站', source: '污染源', water: '水质' }
+
+const water = computed(() => waterSummary(props.data.waterSamples))
+const gradeShares = computed(() => {
   const total = props.data.waterSamples.length || 1
-  return waterDistribution(props.data.waterSamples).map(w => ({ ...w, percent: Math.round((w.count / total) * 100), share: Math.round((w.count / total) * 100) + '%' }))
+  return waterDistribution(props.data.waterSamples).map(g => ({ grade: g.grade, share: (g.count / total) * 100 }))
 })
+const counts = computed(() => [
+  { name: '一类', value: water.value.grade1, color: WATER_COLORS[1] },
+  { name: '二类', value: water.value.grade2, color: WATER_COLORS[2] },
+  { name: '超标', value: water.value.over, color: WATER_COLORS[4] }
+])
+
+const noise = computed(() => noiseSummary(props.data.noisePoints))
+/** 功能区昼、夜两行合成一组 */
+const zones = computed(() => {
+  const groups = new Map<string, NoiseZoneRow[]>()
+  for (const r of noiseZoneRows(props.data)) groups.set(r.name, [...(groups.get(r.name) ?? []), r])
+  return [...groups].map(([name, rows]) => ({ name, rows }))
+})
+
+const pending = computed(() => props.alarms.filter(a => a.status === '待处置').length)
 </script>
 
 <style lang="scss" scoped>
@@ -71,6 +102,137 @@ const water = computed(() => {
   flex-direction: column;
   gap: $panel-gap;
 }
+.water-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.rate {
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 36px;
+  color: $text-strong;
+}
+.rate-unit {
+  font-size: $fs-body;
+  color: $text-muted;
+}
+.stack {
+  display: flex;
+  height: 8px;
+  gap: 2px;
+  border-radius: 4px;
+  overflow: hidden;
+  span:empty {
+    min-width: 0;
+  }
+}
+.counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.count {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.count-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: $fs-body;
+  color: $text-muted;
+  i {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+  }
+}
+.count-value {
+  font-size: 22px;
+  font-weight: 600;
+  color: $text-strong;
+}
+.points {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.point {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 6px;
+  border: 1px solid $border;
+  border-radius: $radius-sm;
+  font: inherit;
+  font-size: $fs-aux;
+  color: $text;
+  background: $bg-inset;
+  cursor: pointer;
+  &.active {
+    border-color: $accent;
+    background: rgba(76, 154, 255, 0.14);
+  }
+}
+.point-grade {
+  color: $text-muted;
+}
+.noise {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.zone {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: $fs-body;
+}
+.zone-name {
+  flex-shrink: 0;
+  width: 64px;
+  color: $text;
+  white-space: nowrap;
+}
+.period {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.period-name,
+.period-limit {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: $text-muted;
+}
+.period-limit {
+  width: 18px;
+  text-align: right;
+}
+.track {
+  flex-grow: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: $track;
+}
+.fill {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+}
+.period-value {
+  flex-shrink: 0;
+  width: 34px;
+  text-align: right;
+  font-weight: 600;
+  color: $text-strong;
+}
 .list {
   display: flex;
   flex-direction: column;
@@ -78,7 +240,7 @@ const water = computed(() => {
   &.scroll {
     flex-grow: 1;
     min-height: 0;
-    // 让出滚动条的位置，不压住右侧的数值
+    // 让出滚动条的位置，不压住右侧的时间
     margin-right: -8px;
     padding-right: 8px;
     overflow-y: auto;
@@ -91,9 +253,9 @@ const water = computed(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 44px;
-  padding: 4px 8px;
-  margin: 0 -8px;
+  min-height: 56px;
+  padding: 6px 8px;
+  margin: 0 0 0 -8px;
   border: 0;
   border-top: 1px solid $divider;
   border-radius: $radius-sm;
@@ -103,16 +265,16 @@ const water = computed(() => {
   background: transparent;
   cursor: pointer;
   &.active {
-    background: rgba(76, 196, 212, 0.14);
+    background: rgba(76, 154, 255, 0.14);
   }
-}
-.scroll .row {
-  margin-right: 0;
+  &.done .name {
+    color: $text-muted;
+  }
 }
 .dot {
   flex-shrink: 0;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
 }
 .main {
@@ -132,38 +294,19 @@ const water = computed(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.sub,
-.time {
+.sub {
   font-size: $fs-aux;
   color: $text-muted;
 }
-.time {
+.side {
   flex-shrink: 0;
-}
-.value {
-  flex-shrink: 0;
-  width: 36px;
-  text-align: right;
-  font-size: 16px;
-  font-weight: 600;
-  color: $text-strong;
-}
-.status {
-  flex-shrink: 0;
-  width: 32px;
-  text-align: right;
-  font-size: $fs-aux;
-}
-.noise {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-}
-.water {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-top: 12px;
-  border-top: 1px solid $divider;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: $fs-aux;
+}
+.time {
+  color: $text-muted;
 }
 </style>

@@ -25,7 +25,7 @@ function stubXapi(overrides: Record<string, unknown> = {}) {
       }))
     },
     tileLayer: { setStyle: vi.fn(async () => ({ result: 0 })) },
-    weather: { setCloudDensity: vi.fn(async () => ({})), setDarkMode: vi.fn(async () => ({})) },
+    weather: { setCloudDensity: vi.fn(async () => ({})), setDarkMode: vi.fn(async () => ({})), setDateTime: vi.fn(async () => ({})) },
     settings: { setBloomIntensity: vi.fn(async () => ({})) },
     ...overrides
   }
@@ -137,6 +137,53 @@ describe('effects', () => {
       await applyAmbience()
       expect(xapi.tileLayer.setStyle).not.toHaveBeenCalled()
       expect(xapi.settings.setBloomIntensity).toHaveBeenCalled()
+    })
+  })
+
+  describe('setNight', () => {
+    const hourOf = (xapi: ReturnType<typeof stubXapi>) => (xapi.weather.setDateTime.mock.calls.at(-1) as unknown as number[])[3]
+
+    it('puts the scene into daytime when the base starts', async () => {
+      const xapi = stubXapi()
+      vi.stubGlobal('gVar', {})
+      const { applyAmbience } = await load()
+      await applyAmbience()
+      expect(hourOf(xapi)).toBeLessThan(17)
+    })
+
+    it('moves the clock past dusk and lifts the dark imagery with the night style', async () => {
+      const xapi = stubXapi()
+      vi.stubGlobal('gVar', {})
+      const { setNight } = await load()
+      await setNight(true)
+      expect(hourOf(xapi)).toBeGreaterThanOrEqual(19)
+      const [, , tint, saturation, brightness] = xapi.tileLayer.setStyle.mock.calls[0] as unknown as number[]
+      expect(tint).toEqual([0.7, 0.85, 1, 1])
+      expect(saturation).toBe(0.6)
+      expect(brightness).toBeGreaterThan(1)
+      expect(xapi.settings.setBloomIntensity).toHaveBeenCalledWith(1.2)
+
+      await setNight(false)
+      expect(hourOf(xapi)).toBeLessThan(17)
+      expect((xapi.tileLayer.setStyle.mock.calls.at(-1) as unknown as number[])[3]).toBe(0.75)
+    })
+
+    it('keeps the night style while the ambience is switched off and on again', async () => {
+      const xapi = stubXapi()
+      vi.stubGlobal('gVar', { smartCity: { nightAmbience: { brightness: 3 } } })
+      const { setNight, setAmbienceEnabled } = await load()
+      await setNight(true)
+      await setAmbienceEnabled(true)
+      expect((xapi.tileLayer.setStyle.mock.calls.at(-1) as unknown as number[])[4]).toBe(3)
+    })
+
+    it('only changes the time when the ambience style is off', async () => {
+      const xapi = stubXapi()
+      vi.stubGlobal('gVar', {})
+      const { setNight } = await load()
+      await setNight(true, false)
+      expect(hourOf(xapi)).toBeGreaterThanOrEqual(19)
+      expect(xapi.tileLayer.setStyle).not.toHaveBeenCalled()
     })
   })
 

@@ -3,27 +3,29 @@
  * 所有模块都从这里取颜色和样式，保证五个模块在场景里是同一套视觉语言：
  * 冷色（蓝）表示常态和结构，暖色（琥珀、珊瑚）只留给需要注意的东西。
  */
+import { drawLabel, peekLabel, type LabelSpec } from './labelImage'
+import { registerPin, scheduleHover } from './pinSelection'
 import type { SceneEffect } from './ModuleScene'
 import { loadLib } from './effects'
 
 /** 与界面设计令牌一致的颜色 */
 export const COLOR = {
-  accent: '#4cc4d4',
-  accentLight: '#8fe0ea',
-  ice: '#d9f4f8',
-  ok: '#5fcf9a',
-  caution: '#e3cf6a',
-  warn: '#e8b04f',
-  danger: '#ee6b5c',
-  muted: '#8b9aa3',
-  white: '#eef5f8',
+  accent: '#4c9aff',
+  accentLight: '#8fc0ff',
+  ice: '#dbe9ff',
+  ok: '#51cf66',
+  caution: '#ffd43b',
+  warn: '#ffa94d',
+  danger: '#ff6b6b',
+  muted: '#9aa4b2',
+  white: '#f3f5f8',
   panel: '#11161e'
 } as const
 
 /** 数值分级色带：低 → 高。前四档是蓝，只有最高两档转暖 */
-export const RAMP = ['#1f6f80', '#2f97a8', '#4cc4d4', '#8fe0ea', '#e8b04f', '#ee6b5c'] as const
+export const RAMP = ['#1d4f91', '#2f6fc4', '#4c9aff', '#8fc0ff', '#ffa94d', '#ff6b6b'] as const
 /** 告警等级色：1 级最严重 */
-export const LEVEL_COLOR: Record<number, string> = { 1: COLOR.danger, 2: COLOR.warn, 3: COLOR.caution, 4: '#6fb4c9' }
+export const LEVEL_COLOR: Record<number, string> = { 1: COLOR.danger, 2: COLOR.warn, 3: COLOR.caution, 4: '#74a9ff' }
 /** 状态色：畅通/正常 → 拥堵/异常 */
 export const STATUS_RAMP = [COLOR.ok, COLOR.caution, COLOR.warn, COLOR.danger] as const
 
@@ -81,6 +83,13 @@ export interface FlowLineOptions {
 const LINE_SCALE = { pulse: 1, arrow: 1, particles: 0.8, dash: 0.6 } as const
 
 /**
+ * 发光线的亮度范围。实测：亮度超过 1 左右再叠上泛光，线芯会被冲成白色，绿黄橙红、蓝紫都分不出来；
+ * 所以上限压在 1.2，主次靠线宽区分，亮度只做微调。
+ */
+const LINE_INTENSITY: [number, number] = [0.5, 1.2]
+const lineIntensity = (brightness: number) => Math.min(LINE_INTENSITY[1], Math.max(LINE_INTENSITY[0], brightness))
+
+/**
  * 城市级俯视下的发光线：道路、管线、路线都用它。返回 polyline.add 的参数。
  *
  * 实测结论（相机距离 8–10 公里）：效果总包的流动线材质和 DTS 内置的流动、箭头、虚线样式在这个距离上只剩一条
@@ -98,7 +107,7 @@ export function flowLine(o: FlowLineOptions): { id: string } {
     color: rgba(o.color, style === 'dash' ? 0.85 : 1),
     style: 4, // PolylineStyle.Normal
     thickness: Math.max(10, o.width * LINE_SCALE[style]),
-    intensity: Math.min(3, Math.max(0.8, o.brightness ?? 2.4)),
+    intensity: lineIntensity(o.brightness ?? 1),
     depthTest: false,
     range: FAR
   } as { id: string }
@@ -139,21 +148,53 @@ export function ripple(o: { id: string; groupId?: string; at: number[]; radius: 
   }
 }
 
-/** 文字标注（深色底牌 + 细牵引线）。userData 里带业务 id，点击事件按 groupId 派发 */
-export function pin(o: { id: string; groupId: string; at: number[]; text: string; color?: string; userId?: string; lineHeight?: number; fontSize?: number; priority?: number }) {
-  const accent = rgba(o.color ?? COLOR.accent, 0.95)
-  return {
+/**
+ * 标注按优先级分档显示（相机高度，米）：重点（≥ 10）始终显示；一般（3–9）默认机位（约 9600 米）就能看到；
+ * 次要（< 3，摄像头编号、巡逻单位、状态正常的设施）拉近到 6000 米以下才出现，免得全城视角下挤成一片。
+ */
+export const LABEL_TIERS = { normal: 11000, minor: 6000 } as const
+export function labelTier(priority: number): { viewHeightRange?: number[]; rangeRatio?: number } {
+  if (priority >= 10) return {}
+  return { viewHeightRange: [1, priority >= 3 ? LABEL_TIERS.normal : LABEL_TIERS.minor], rangeRatio: 0.01 }
+}
+
+/**
+ * 场景标注：设计稿的胶囊标签 + 类别色引线 + 落点，画成图片（见 labelImage）。userData 里带业务 id，点击事件按 groupId 派发。
+ * tag 是左侧的彩色小标签（等级、类型、名次），value 是名称后面加粗的数值；lineHeight 是引线长度。
+ */
+export function pin(o: { id: string; groupId: string; at: number[]; text: string; color?: string; userId?: string; lineHeight?: number; fontSize?: number; priority?: number; tag?: string; value?: string }) {
+  const color = o.color ?? COLOR.accent
+  const base = {
     id: o.id,
     groupId: o.groupId,
     userData: JSON.stringify({ id: o.userId ?? o.id }),
     coordinate: z(o.at, 0),
     coordinateType: 0,
     range: FAR,
+    fixedSize: true,
+    useTextAnimation: false,
+    autoHeight: true,
+    // 不交给引擎避让：displayMode 0 / 1 / 4 会把挤在一起的标注聚合成粗糙的计数方块。疏密改由相机高度分档控制
+    displayMode: 2,
+    priority: o.priority ?? 0,
+    occlusionCull: false,
+    ...labelTier(o.priority ?? 0)
+  }
+  // 按设计稿画成图片标注（胶囊 + 引线 + 落点）；没有 canvas 时退回 DTS 文字标注
+  const spec: LabelSpec = { text: o.text, color, tag: o.tag, value: o.value, lead: o.lineHeight ?? 36, fontSize: o.fontSize, emphasis: (o.priority ?? 0) >= 10 }
+  const img = drawLabel(spec)
+  if (img) {
+    // 悬停图和普通图同尺寸，锚点不变。画过的直接用；没画过的先用普通图，空闲时补画（见 pinSelection.scheduleHover）
+    registerPin(o.id, o.userId ?? o.id, spec, img.url)
+    const hover = peekLabel({ ...spec, variant: 'hover' })
+    if (!hover) scheduleHover(o.id, spec)
+    return { ...base, text: '', imagePath: img.url, imageSize: img.size, hoverImagePath: (hover ?? img).url, hoverImageSize: img.size, anchors: img.anchor, showLine: false }
+  }
+  return {
+    ...base,
     imagePath: '',
     imageSize: [0, 0],
-    fixedSize: true,
-    text: o.text,
-    useTextAnimation: false,
+    text: [o.tag !== undefined ? `${o.tag} · ${o.text}` : o.text, o.value].filter(t => t !== undefined).join('  '),
     textRange: FAR,
     textOffset: [0, 0],
     textBackgroundColor: rgba(COLOR.panel, 0.88),
@@ -162,14 +203,24 @@ export function pin(o: { id: string; groupId: string; at: number[]; text: string
     fontOutlineSize: 0,
     showLine: true,
     lineSize: [2, o.lineHeight ?? 36],
-    lineColor: accent,
-    lineOffset: [0, 0],
-    autoHeight: true,
-    // 重点标注（priority ≥ 10）始终显示；其余交给引擎做避让，挤在一起时自动隐去一部分，放大后再出现
-    displayMode: (o.priority ?? 0) >= 10 ? 2 : 4,
-    priority: o.priority ?? 0,
-    occlusionCull: false
+    lineColor: rgba(color, 0.95),
+    lineOffset: [0, 0]
   }
+}
+
+/**
+ * 相互靠近的标注错开引线高度，免得文字框叠成一团：按传入顺序，每个标注取 radius 米内已排好的标注没用过的最低一档。
+ * points 为投影坐标，返回每个标注的 lineHeight。
+ */
+export function staggerHeights(points: number[][], base: number, step: number, radius: number): number[] {
+  const heights: number[] = []
+  points.forEach((p, i) => {
+    const used = new Set(points.slice(0, i).flatMap((q, j) => (Math.hypot(p[0] - q[0], p[1] - q[1]) < radius ? [heights[j]] : [])))
+    let h = base
+    while (used.has(h)) h += step
+    heights.push(h)
+  })
+  return heights
 }
 
 /** 飞线的分段数 */
@@ -202,7 +253,7 @@ export function arc(o: { id: string; groupId?: string; from: number[]; to: numbe
     color: rgba(o.color),
     style: 4, // PolylineStyle.Normal
     thickness: o.width ?? 30,
-    intensity: Math.min(3, Math.max(0.8, o.brightness ?? 1.6)),
+    intensity: lineIntensity(o.brightness ?? 1),
     depthTest: false,
     range: FAR
   }
@@ -270,20 +321,23 @@ export function heatmap(o: { id: string; groupId?: string; points: { id: string;
     data: o.points.map(p => ({ id: p.id, coordinate: [p.at[0], p.at[1], 0], radius: p.radius, heatValue: Math.min(o.range[1], Math.max(o.range[0], p.value)) })),
     style: 0,
     textureSize: 1024,
+    // 白天影像很亮：叠加混合（blendMode 1）会把热力冲成一片发白的淡色，所以用普通混合 + 更高的不透明度
     opacityMode: 1,
-    opacityRange: [0, 0.6],
+    opacityRange: [0.12, 0.78],
     blur: 0.9,
-    blendMode: 1,
+    blendMode: 0,
     light: false,
     colors: {
       gradient: true,
       invalidColor: [0, 0, 0, 0],
+      // 蓝和橙是互补色，渐变中点是灰白：冷暖之间只留很窄的过渡，并垫一档黄，高值区不会发白
       colorStops: o.stops ?? [
-        { value: 0, color: rgba('#1f6f80', 0) },
-        { value: 0.3, color: rgba('#2f97a8', 0.35) },
-        { value: 0.55, color: rgba('#4cc4d4', 0.5) },
-        { value: 0.75, color: rgba('#e8b04f', 0.6) },
-        { value: 1, color: rgba('#ee6b5c', 0.7) }
+        { value: 0, color: rgba(RAMP[0], 0) },
+        { value: 0.3, color: rgba(RAMP[1], 0.5) },
+        { value: 0.6, color: rgba(RAMP[2], 0.68) },
+        { value: 0.66, color: rgba(COLOR.caution, 0.74) },
+        { value: 0.8, color: rgba(RAMP[4], 0.8) },
+        { value: 1, color: rgba(RAMP[5], 0.88) }
       ]
     },
     updateTime: 0.8
@@ -300,6 +354,12 @@ export interface RegionStyle {
 }
 
 /**
+ * 点阵流光的亮度档：效果库预设按夜景调，白天的亮影像上点阵、发光描边和泛光叠在一起会把片区冲成一片白。
+ * 这里把点阵亮度减半、关掉描边泛白、收窄外发光，让片区在白天读成「有色描边 + 淡点阵」，夜里也不会太暗。
+ */
+const REGION_TONE = { lineIntensity: 1, lineWhiten: 0, glowIntensity: 0.5, glowOpacity: 0.08, spillIntensity: 0.1, flowIntensity: 1.6 } as const
+
+/**
  * 点阵流光图层（效果总包）：一组区域各用一种颜色，淡底色 + 内部图案 + 发光描边 + 沿边界跑的流光。
  * 整层只有一个场景对象。regions 的 ring 是投影坐标；相邻区域的公共边要用同一组顶点（geo.json 的片区满足）。
  * 需要效果总包已挂载。
@@ -308,7 +368,7 @@ export async function regionLayer(id: string, regions: { id: string; color: stri
   const lib = await loadLib('region-dot-flow')
   const preset = lib.PRESETS[style.pattern ?? 'dots']
   const scale = style.scale ?? 3
-  const full = { ...lib.DEFAULT_STYLE, ...preset, dotSpacingM: preset.dotSpacingM * scale, dotSizeM: preset.dotSizeM * scale, baseOpacity: style.fill ?? 0.1 }
+  const full = { ...lib.DEFAULT_STYLE, ...preset, ...REGION_TONE, dotSpacingM: preset.dotSpacingM * scale, dotSizeM: preset.dotSizeM * scale, dotIntensity: preset.dotIntensity * 0.5, baseOpacity: style.fill ?? 0.1 }
   const build = (colors?: Record<string, string>) =>
     lib.create(__xapi, { id, groundZ: 3, style: full, regions: regions.map(r => ({ id: r.id, color: colors?.[r.id] ?? r.color, rings: [r.ring.map(p => [p[0], p[1]])] })) })
   await build()

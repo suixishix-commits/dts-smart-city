@@ -1,6 +1,27 @@
 import { pointInRing } from '@/scene/geo'
 import type { GeoData, GeoRoad } from '@/types/geo'
-import type { CongestionLevel, IncidentType, NetworkStats, OdFlow, ParkingLot, RoadSegment, SignalJunction, SignalStatus, TrafficData, TrafficIncident, TransitStats } from '@/types/traffic'
+import type {
+  CongestionLevel,
+  DetourLeg,
+  DetourPlan,
+  HourlyFlow,
+  IncidentType,
+  KeyVehicle,
+  NearbyCamera,
+  NetworkStats,
+  OdFlow,
+  ParkingLot,
+  RoadSegment,
+  SignalControl,
+  SignalJunction,
+  SignalStatus,
+  TrafficData,
+  TrafficIncident,
+  TransitMode,
+  TransitStats,
+  VehicleKind,
+  VehicleState
+} from '@/types/traffic'
 
 /** 拥堵等级名称，下标即等级 */
 export const CONGESTION_TEXT = ['畅通', '缓行', '拥堵', '严重拥堵'] as const
@@ -125,7 +146,8 @@ export function buildSegments(geo: GeoData): RoadSegment[] {
         downtown: DOWNTOWN.includes(district.id),
         arterial,
         bridge: arterial && c.ratio === 1,
-        jitter: hash01(id)
+        jitter: hash01(id),
+        junctions: [prev.id, c.id].filter((x): x is string => !!x)
       })
     })
   }
@@ -142,10 +164,10 @@ export function buildSegments(geo: GeoData): RoadSegment[] {
   return out
 
   /** 一条道路的断点（含两端）：比例 + 用来命名的标签 */
-  function cutsOf(road: GeoRoad, line: P[]): { ratio: number; label: string }[] {
-    const nodes = geo.intersections
+  function cutsOf(road: GeoRoad, line: P[]): { ratio: number; label: string; id?: string }[] {
+    const nodes: { ratio: number; label: string; id?: string }[] = geo.intersections
       .filter(i => i.roads.includes(road.id))
-      .map(i => ({ ratio: ratioOnLine(line, m(i.position)), label: roadName.get(i.roads[0] === road.id ? i.roads[1] : i.roads[0]) ?? i.name }))
+      .map(i => ({ id: i.id, ratio: ratioOnLine(line, m(i.position)), label: roadName.get(i.roads[0] === road.id ? i.roads[1] : i.roads[0]) ?? i.name }))
       .sort((a, b) => a.ratio - b.ratio)
     if (nodes.length === 0) {
       const n = Math.max(2, Math.round(road.lengthKm / SLICE_KM))
@@ -247,14 +269,18 @@ export function rankSegmentsAt(segments: RoadSegment[], hour: number, n: number)
 }
 
 /** 某时刻各片区的平均拥堵指数（按路段长度加权）；没有路段的片区不在结果里 */
-export function districtCongestionAt(segments: RoadSegment[], hour: number): Record<string, number> {
+export function districtCongestionAt(segments: RoadSegment[], hour: number, districtIds: string[] = []): Record<string, number> {
   const sum: Record<string, [number, number]> = {}
   for (const s of segments) {
     const acc = (sum[s.districtId] ??= [0, 0])
-    acc[0] += weightOf(s) * congestionAt(s, hour)
-    acc[1] += weightOf(s)
+    const w = weightOf(s)
+    acc[0] += w * congestionAt(s, hour)
+    acc[1] += w
   }
-  return Object.fromEntries(Object.entries(sum).map(([id, [v, w]]) => [id, v / w]))
+  const out: Record<string, number> = Object.fromEntries(Object.entries(sum).map(([id, [v, w]]) => [id, v / w]))
+  // 没有路段经过的片区（如皇宫所在的拉斯阿赫达尔半岛）没有过境车流，按畅通（指数 1）算
+  for (const id of districtIds) out[id] ??= 1
+  return out
 }
 
 /** 事件模板：at 是 geo.json 里的路口 id */
@@ -270,14 +296,25 @@ const INCIDENTS: { at: string; type: IncidentType; title: string; time: string; 
 /** 路口摄像头编号：按路口在 geo.json 里的顺序 */
 const cameraIdOf = (index: number) => 'TC-' + String(index + 1).padStart(3, '0')
 
+/** 每个事件关联的周边摄像头数 */
+const NEARBY_CAMERAS = 3
+
 /** 交通事件：落在真实路口上，路名、片区名取自 geo.json */
 export function buildIncidents(geo: GeoData): TrafficIncident[] {
   const roadName = new Map(geo.roads.map(r => [r.id, r.name]))
   const districtName = new Map(geo.districts.map(d => [d.id, d.name]))
+  const m = metric(geo)
   return INCIDENTS.flatMap((t, n) => {
     const index = geo.intersections.findIndex(i => i.id === t.at)
     if (index < 0) return []
     const x = geo.intersections[index]
+    const cameraDistance = 30 + Math.round(hash01(x.id) * 90)
+    const at = m(x.position)
+    // 周边摄像头：按到事件路口的距离取最近的几个；事件路口自己的摄像头在最前面
+    const cameras: NearbyCamera[] = geo.intersections
+      .map((c, k) => ({ id: cameraIdOf(k), name: c.name + ' 电子警察', intersectionId: c.id, distance: c.id === x.id ? cameraDistance : Math.round(dist(at, m(c.position))), online: true }))
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, NEARBY_CAMERAS)
     return [
       {
         id: 'inc-' + (n + 1),
@@ -296,10 +333,73 @@ export function buildIncidents(geo: GeoData): TrafficIncident[] {
         handling: t.handling,
         cameraId: cameraIdOf(index),
         cameraName: x.name + ' 电子警察',
-        cameraDistance: 30 + Math.round(hash01(x.id) * 90)
+        cameraDistance,
+        cameras,
+        detour: buildDetour(geo, x.id, t.queue)
       }
     ]
   })
+}
+
+/** 绕行路线的车速，km/h */
+const DETOUR_SPEED = 32
+/** 排队车流的通过速度，km/h */
+const QUEUE_SPEED = 4
+
+/**
+ * 绕开某个路口的绕行方案，全部沿真实道路：
+ * 在被堵道路上取该路口前后相邻的两个路口 P、Q，从 P 沿 P 的另一条道路走到一条平行道路，
+ * 沿平行道路走到与 Q 的另一条道路相交处，再折回 Q。优先绕开纵向主干路，走不通再绕横街；取最短的一条。
+ * queue 为事件排队长度（米），用来估算原路通过用时。没有可用的平行道路时返回 null。
+ */
+export function buildDetour(geo: GeoData, intersectionId: string, queue = 0): DetourPlan | null {
+  const x = geo.intersections.find(i => i.id === intersectionId)
+  if (!x) return null
+  const m = metric(geo)
+  const roads = new Map(geo.roads.map(r => [r.id, { road: r, line: r.path.map(m) }]))
+  const ratio = (roadId: string, i: { position: number[] }) => ratioOnLine((roads.get(roadId) as { line: P[] }).line, m(i.position))
+  const on = (roadId: string) => geo.intersections.filter(i => i.roads.includes(roadId)).sort((a, b) => ratio(roadId, a) - ratio(roadId, b))
+  const other = (i: { roads: [string, string] }, roadId: string) => (i.roads[0] === roadId ? i.roads[1] : i.roads[0])
+  const meet = (a: string, b: string) => geo.intersections.find(i => i.roads.includes(a) && i.roads.includes(b))
+  const leg = (roadId: string, a: { position: number[] }, b: { position: number[] }): DetourLeg => ({ roadId, roadName: roads.get(roadId)?.road.name ?? roadId, from: ratio(roadId, a), to: ratio(roadId, b) })
+  const km = (l: DetourLeg) => Math.abs(l.to - l.from) * (roads.get(l.roadId)?.road.lengthKm ?? 0)
+
+  for (const blocked of [x.roads[1], x.roads[0]]) {
+    if (!roads.has(blocked)) continue
+    const list = on(blocked)
+    const k = list.findIndex(i => i.id === x.id)
+    if (k <= 0 || k >= list.length - 1) continue
+    const p = list[k - 1]
+    const q = list[k + 1]
+    const op = other(p, blocked)
+    const oq = other(q, blocked)
+    let best: { legs: DetourLeg[]; km: number } | null = null
+    for (const r2 of geo.roads) {
+      if (r2.id === blocked || r2.id === op || r2.id === oq) continue
+      const p2 = meet(op, r2.id)
+      const q2 = meet(oq, r2.id)
+      if (!p2 || !q2) continue
+      const legs = [leg(op, p, p2), leg(r2.id, p2, q2), leg(oq, q2, q)]
+      const total = legs.reduce((n, l) => n + km(l), 0)
+      if (!best || total < best.km) best = { legs, km: total }
+    }
+    if (!best) continue
+    const directKm = Math.abs(ratio(blocked, q) - ratio(blocked, p)) * (roads.get(blocked)?.road.lengthKm ?? 0)
+    const queueKm = Math.min(directKm, queue / 1000)
+    return {
+      blockedRoadId: blocked,
+      blockedRoadName: roads.get(blocked)?.road.name ?? blocked,
+      fromName: p.name,
+      toName: q.name,
+      legs: best.legs,
+      via: best.legs.map(l => l.roadName).join(' → '),
+      lengthKm: Math.round(best.km * 10) / 10,
+      directKm: Math.round(directKm * 10) / 10,
+      minutes: Math.max(1, Math.round((best.km / DETOUR_SPEED) * 60)),
+      directMinutes: Math.max(1, Math.round(((directKm - queueKm) / DETOUR_SPEED + queueKm / QUEUE_SPEED) * 60))
+    }
+  }
+  return null
 }
 
 /** 离线的信号路口数 */
@@ -321,7 +421,7 @@ export function buildSignals(geo: GeoData, incidents: TrafficIncident[]): Signal
   )
   const notes = ['信号机通信中断，已派单', '信号机断电，抢修中']
   let n = 0
-  return geo.intersections.map((i): SignalJunction => {
+  return geo.intersections.map((i, k): SignalJunction => {
     const status: SignalStatus = manual.has(i.id) ? 'manual' : offline.has(i.id) ? 'offline' : 'normal'
     return {
       id: i.id,
@@ -329,10 +429,36 @@ export function buildSignals(geo: GeoData, incidents: TrafficIncident[]): Signal
       districtId: i.districtId,
       position: i.position,
       status,
-      mode: i.level <= 2 ? '自适应' : '定时',
-      note: status === 'manual' ? '交警现场手动放行' : status === 'offline' ? notes[n++ % notes.length] : ''
+      // 主次干路交叉口全部是自适应配时；支路交叉口按 id 固定挑一部分已改造为自适应
+      mode: i.level <= 2 || hash01('mode-' + i.id) > 0.6 ? '自适应' : '定时',
+      note: status === 'manual' ? '交警现场手动放行' : status === 'offline' ? notes[n++ % notes.length] : '',
+      cameraId: cameraIdOf(k)
     }
   })
+}
+
+/** 离某个信号路口最近的 n 个其它路口，由近到远 */
+export function nearbySignals(signals: SignalJunction[], id: string, n: number): SignalJunction[] {
+  const self = signals.find(s => s.id === id)
+  if (!self) return []
+  const k = Math.cos((self.position[1] * Math.PI) / 180)
+  const d = (s: SignalJunction) => Math.hypot((s.position[0] - self.position[0]) * k, s.position[1] - self.position[1])
+  return signals
+    .filter(s => s.id !== id)
+    .sort((a, b) => d(a) - d(b))
+    .slice(0, n)
+}
+
+/** 信号路口的运行分类：离线单独计，其余（含交警手动放行的）按配时方式 */
+export function signalControlOf(s: Pick<SignalJunction, 'status' | 'mode'>): SignalControl {
+  return s.status === 'offline' ? '离线' : s.mode
+}
+
+/** 自适应 / 定时 / 离线 各多少个路口 */
+export function signalControlCount(signals: Pick<SignalJunction, 'status' | 'mode'>[]): Record<SignalControl, number> {
+  const n: Record<SignalControl, number> = { 自适应: 0, 定时: 0, 离线: 0 }
+  signals.forEach(s => n[signalControlOf(s)]++)
+  return n
 }
 
 /** OD 条数 */
@@ -414,15 +540,108 @@ export function transitStatsAt(segments: RoadSegment[], hour: number): TransitSt
   }
 }
 
+/** 各公共交通方式的全天客流，万人次（公交与 BUS_DAILY 一致） */
+const TRANSIT_DAILY: { key: TransitMode['key']; name: string; daily: number }[] = [
+  { key: 'bus', name: '公交', daily: BUS_DAILY },
+  { key: 'taxi', name: '出租网约', daily: 12.8 },
+  { key: 'ferry', name: '水上巴士', daily: 1.4 },
+  { key: 'bike', name: '共享单车', daily: 3.2 }
+]
+
+/** 某时刻各公共交通方式的今日累计客流：按公交的分时强度从 0 点累计 */
+export function transitModesAt(segments: RoadSegment[], hour: number): TransitMode[] {
+  const share = transitStatsAt(segments, hour).passengers / BUS_DAILY
+  return TRANSIT_DAILY.map(t => ({ key: t.key, name: t.name, value: Math.round(t.daily * share * 100) / 100 }))
+}
+
+/** 全路网断面车流量的分时强度：早晚两个峰叠加日间基础车流，辆/时 */
+const flowAt = (h: number) => 4000 + 28000 * (0.9 * gauss(h, 8, 1.1) + 0.95 * gauss(h, 18, 1.4) + 0.9 * interpolate(DAY_SHAPE, h))
+
+/** 今日、昨日 0–24 点每小时的车流量（辆/时）：同一条日变化曲线加按小时固定的扰动 */
+export function buildHourlyFlow(): HourlyFlow {
+  const at = (key: string, h: number, base: number, spread: number) => Math.round((flowAt(h) * (base + spread * hash01(key + h))) / 10) * 10
+  return {
+    today: Array.from({ length: 25 }, (_, h) => at('today-', h, 0.97, 0.06)),
+    yesterday: Array.from({ length: 25 }, (_, h) => at('yesterday-', h, 0.93, 0.08))
+  }
+}
+
+/** 车辆轨迹的长度，公里 */
+const TRAIL_KM = 0.9
+
+/** 重点车辆模板：road 为 geo.json 的道路 id；route 里的 {road}、{to} 换成真实路名和地标名 */
+const VEHICLES: { id: string; name: string; kind: VehicleKind; road: string; route: string; to?: string; status: string; phase: number; rate: number; freeSpeed: number }[] = [
+  { id: 'bus-034', name: '公交 034', kind: 'bus', road: 'khaleej', route: '34 路 · {road}往返', status: '运营中 · 满载率 68%', phase: 0.15, rate: 0.37, freeSpeed: 42 },
+  { id: 'amb-a12', name: '急救 A12', kind: 'ambulance', road: 'airport', route: '转运病人 → {to}', to: 'skmc', status: '执行任务 · 信号优先', phase: 0.6, rate: 0.61, freeSpeed: 72 },
+  { id: 'bus-008', name: '公交 008', kind: 'bus', road: 'muroor', route: '8 路 · {road}往返', status: '运营中 · 满载率 54%', phase: 1.3, rate: 0.31, freeSpeed: 42 },
+  { id: 'tow-t05', name: '清障 T05', kind: 'wrecker', road: 'zayed1', route: '{road} · 事故清障', status: '出警中', phase: 0.4, rate: 0.53, freeSpeed: 56 },
+  { id: 'pol-p07', name: '巡逻 P07', kind: 'patrol', road: 'hazza', route: '{road}巡逻', status: '巡逻中', phase: 0.9, rate: 0.47, freeSpeed: 50 }
+]
+
+/** 重点车辆：沿真实道路往返，沿途路口带摄像头 */
+export function buildVehicles(geo: GeoData): KeyVehicle[] {
+  const m = metric(geo)
+  return VEHICLES.flatMap(v => {
+    const road = geo.roads.find(r => r.id === v.road)
+    if (!road) return []
+    const line = road.path.map(m)
+    const to = v.to ? (geo.landmarks.find(l => l.id === v.to)?.name ?? '') : ''
+    const stops = geo.intersections
+      .map((i, k) => ({ i, k }))
+      .filter(({ i }) => i.roads.includes(road.id))
+      .map(({ i, k }) => ({ intersectionId: i.id, ratio: ratioOnLine(line, m(i.position)), cameraId: cameraIdOf(k), name: i.name }))
+      .sort((a, b) => a.ratio - b.ratio)
+    return [
+      {
+        id: v.id,
+        name: v.name,
+        kind: v.kind,
+        roadId: road.id,
+        roadName: road.name,
+        roadDirection: road.direction,
+        lengthKm: road.lengthKm,
+        route: v.route.replace('{road}', road.name).replace('{to}', to),
+        status: v.status,
+        phase: v.phase,
+        rate: v.rate,
+        freeSpeed: v.freeSpeed,
+        stops
+      }
+    ]
+  })
+}
+
+/** 重点车辆某时刻的位置、轨迹和车速：沿道路匀速往返，车速受所在路段拥堵影响（急救车有信号优先，受影响较小） */
+export function vehicleStateAt(vehicle: KeyVehicle, segments: RoadSegment[], hour: number): VehicleState {
+  const u = (((vehicle.phase + hour * vehicle.rate) % 2) + 2) % 2
+  const forward = u < 1
+  const ratio = forward ? u : 2 - u
+  const back = TRAIL_KM / Math.max(0.1, vehicle.lengthKm)
+  const trail: [number, number] = [forward ? Math.max(0, ratio - back) : Math.min(1, ratio + back), ratio]
+  const segment = segments.find(s => s.roadId === vehicle.roadId && ratio >= s.from && ratio <= s.to) ?? null
+  const c = segment ? congestionAt(segment, hour) : 1
+  const speed = Math.round(vehicle.freeSpeed / (vehicle.kind === 'ambulance' ? Math.sqrt(c) : c))
+  const nearest = vehicle.stops.length ? vehicle.stops.reduce((a, b) => (Math.abs(b.ratio - ratio) < Math.abs(a.ratio - ratio) ? b : a)) : null
+  const heading = vehicle.roadDirection === 'long' ? (forward ? '往东南' : '往西北') : forward ? '往东北' : '往西南'
+  const nearestDistance = nearest ? Math.round(Math.abs(nearest.ratio - ratio) * vehicle.lengthKm * 1000) : 0
+  return { ratio, forward, heading, trail, speed, segmentId: segment?.id ?? null, segmentName: segment?.name ?? vehicle.roadName, nearest, nearestDistance }
+}
+
 /** 由地理底数据生成智慧交通模块的全部 mock 数据 */
 export function buildTrafficData(geo: GeoData): TrafficData {
   const incidents = buildIncidents(geo)
+  const signals = buildSignals(geo, incidents)
+  // 信号机离线的路口，摄像头和信号机同一路供电/通信，一并离线
+  const offline = new Set(signals.filter(s => s.status === 'offline').map(s => s.id))
+  incidents.forEach(i => i.cameras.forEach(c => (c.online = !offline.has(c.intersectionId))))
   return {
     segments: buildSegments(geo),
     incidents,
-    signals: buildSignals(geo, incidents),
+    signals,
     odFlows: buildOdFlows(geo),
     parkings: buildParkings(geo),
+    vehicles: buildVehicles(geo),
+    flow: buildHourlyFlow(),
     incidentsToday: 37
   }
 }

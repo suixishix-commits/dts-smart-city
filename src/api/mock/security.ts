@@ -1,6 +1,16 @@
 import { pointAt, sliceLine } from '@/scene/geo'
 import type { GeoData, LonLat } from '@/types/geo'
 import type {
+  AiAlarm,
+  AiAlarmStatus,
+  AiAlarmType,
+  CityEvent,
+  Department,
+  DepartmentEfficiency,
+  DistrictEvents,
+  EventStage,
+  EventStats,
+  FlowStep,
   GuardZone,
   Incident,
   IncidentStatus,
@@ -271,6 +281,7 @@ export function buildSecurityData(geo: GeoData, nowHour = 14.5): SecurityData {
   }
 
   const arrived = incidents.flatMap(i => (i.arriveMinutes === null ? [] : [i.arriveMinutes]))
+  const events = buildEvents(geo, nowHour)
   return {
     zones,
     incidents,
@@ -279,7 +290,10 @@ export function buildSecurityData(geo: GeoData, nowHour = 14.5): SecurityData {
     viewCones,
     featuredCameraIds: featured,
     onlineForce: zones.reduce((n, z) => n + z.guards, 0) + patrols.reduce((n, r) => n + r.units.reduce((m, u) => m + u.crew, 0), 0),
-    avgArriveMinutes: arrived.length ? Math.round((arrived.reduce((a, b) => a + b, 0) / arrived.length) * 10) / 10 : 0
+    avgArriveMinutes: arrived.length ? Math.round((arrived.reduce((a, b) => a + b, 0) / arrived.length) * 10) / 10 : 0,
+    events,
+    eventStats: eventStats(events, geo.districts),
+    aiAlarms: buildAiAlarms(geo, cameras, now)
   }
 }
 
@@ -399,5 +413,172 @@ export function incidentHeatGrid(
       bump += ((5 - inc.level) / 4) * Math.exp(-d2 / (2 * INCIDENT_SPREAD ** 2))
     }
     return { id: 'g' + i, at: g.xy, radius: step * 1.1, value: Math.min(1, structural + mix.incident * bump) }
+  })
+}
+
+// ---------- 今日事件：处置流程、部门效率、片区事件量 ----------
+
+/** 部门，面板按这个顺序展示 */
+export const DEPARTMENTS: Department[] = ['城管', '交警', '消防', '市政', '环卫']
+/** 各部门承办事件的占比（合计 1） */
+const DEPT_SHARE: Record<Department, number> = { 城管: 0.3, 交警: 0.26, 消防: 0.1, 市政: 0.16, 环卫: 0.18 }
+/** 各部门的基准处置时长，分钟 */
+const DEPT_BASE_MINUTES: Record<Department, number> = { 城管: 38, 交警: 26, 消防: 18, 市政: 52, 环卫: 44 }
+/** 处置时限，分钟：超过仍未办结即为超时 */
+export const EVENT_TIME_LIMIT = 60
+/** 部门平均处置时长超过这个值时在面板上标为警示色，分钟 */
+export const DEPT_WARN_MINUTES = 45
+/** 处置流程的四个环节，按先后顺序 */
+export const EVENT_STAGES: EventStage[] = ['上报', '派单', '处置', '办结']
+
+/** 按权重确定性地选一项：t 是 0–1 的伪随机数 */
+function pick<T>(items: T[], weight: (x: T) => number, t: number): T {
+  const total = items.reduce((n, x) => n + weight(x), 0)
+  let acc = 0
+  for (const x of items) {
+    acc += weight(x) / total
+    if (t < acc) return x
+  }
+  return items[items.length - 1]
+}
+
+/**
+ * 今日上报的城市事件。每小时的条数与警情趋势一致（hourlyIncidents(0, h)），
+ * 片区按人口密度加权（繁忙片区更多），部门按占比，处置时长在部门基准附近浮动，少数拖得很长。
+ * 环节由「已过去的时间」和「需要的时长」比较得出，所以 nowHour 越晚，办结的越多。
+ */
+export function buildEvents(geo: Pick<GeoData, 'districts'>, nowHour: number): CityEvent[] {
+  const now = nowHour * 60
+  const hours = elapsedHours(nowHour)
+  const districtWeight = (d: { id: string; baseDensity: number }) => d.baseDensity * (BUSY_DISTRICTS.has(d.id) ? 1.6 : 1)
+  const events: CityEvent[] = []
+  for (let h = 0; h < hours; h++) {
+    const n = hourlyIncidents(0, h)
+    // 当前小时只有已经过去的那部分时间可以有事件
+    const span = Math.max(1, Math.min(60, now - h * 60))
+    for (let k = 0; k < n; k++) {
+      const seed = h * 100 + k
+      const reportedAt = h * 60 + Math.floor(noise(seed * 7 + 1, 211) * span)
+      const district = pick(geo.districts, districtWeight, noise(seed * 13 + 5, 347))
+      const department = pick(DEPARTMENTS, d => DEPT_SHARE[d], noise(seed * 17 + 3, 499))
+      // 约一成拖得很长；约 5% 卡在处置环节（等配件、等协调），今天办不完
+      const tail = noise(seed * 19 + 11, 613) < 0.12 ? 2.2 : 1
+      const stuck = noise(seed * 31 + 17, 907) < 0.05
+      const duration = stuck ? Infinity : Math.round(DEPT_BASE_MINUTES[department] * (0.6 + 0.8 * noise(seed * 23 + 7, 701)) * tail)
+      const dispatchAt = 2 + Math.floor(noise(seed * 29 + 13, 811) * 4)
+      const arriveAt = Math.max(dispatchAt + 1, Math.round(Math.min(duration, DEPT_BASE_MINUTES[department]) * 0.35))
+      const age = Math.max(0, now - reportedAt)
+      const stage: EventStage = age >= duration ? '办结' : age >= arriveAt ? '处置' : age >= dispatchAt ? '派单' : '上报'
+      const closed = stage === '办结'
+      events.push({
+        id: 'ev-' + String(events.length + 1).padStart(4, '0'),
+        districtId: district.id,
+        department,
+        reportedAt,
+        stage,
+        handleMinutes: closed ? duration : age,
+        overdue: !closed && age > EVENT_TIME_LIMIT
+      })
+    }
+  }
+  return events
+}
+
+/** 由事件明细汇总出今日事件、处置流程、部门效率和片区事件量 */
+export function eventStats(events: CityEvent[], districts: { id: string; name: string }[]): EventStats {
+  const closed = events.filter(e => e.stage === '办结').length
+  const overdue = events.filter(e => e.overdue).length
+  const total = events.length
+  const flow: FlowStep[] = EVENT_STAGES.map((name, i) => {
+    // 走到（或走过）这一环节的事件数
+    const count = events.filter(e => EVENT_STAGES.indexOf(e.stage) >= i).length
+    return { name, count, rate: total ? count / total : 0 }
+  })
+
+  const departments: DepartmentEfficiency[] = DEPARTMENTS.map(department => {
+    const mine = events.filter(e => e.department === department)
+    // 用已办结的实际用时；一条都没办结时用已耗时代替
+    const done = mine.filter(e => e.stage === '办结')
+    const sample = done.length ? done : mine
+    const avg = sample.length ? sample.reduce((n, e) => n + e.handleMinutes, 0) / sample.length : 0
+    return { department, avgMinutes: Math.round(avg), events: mine.length }
+  })
+
+  const byDistrict: DistrictEvents[] = districts.map(d => {
+    const mine = events.filter(e => e.districtId === d.id)
+    const done = mine.filter(e => e.stage === '办结').length
+    const late = mine.filter(e => e.overdue).length
+    const counts = DEPARTMENTS.map(dep => ({ dep, n: mine.filter(e => e.department === dep).length }))
+    const top = counts.reduce((a, b) => (b.n > a.n ? b : a), counts[0])
+    return {
+      districtId: d.id,
+      name: d.name,
+      total: mine.length,
+      closed: done,
+      active: mine.length - done - late,
+      overdue: late,
+      closeRate: mine.length ? done / mine.length : 0,
+      topDepartment: top.dep
+    }
+  })
+  // 稳定排序：事件量相同时保持 geo.json 的顺序
+  byDistrict.sort((a, b) => b.total - a.total)
+
+  return {
+    // 上报 = 处置中 + 已办结 + 超时（超时指超过时限仍未办结）
+    summary: { reported: total, active: total - closed - overdue, closed, overdue },
+    flow,
+    departments,
+    districts: byDistrict
+  }
+}
+
+// ---------- 视频智能告警 ----------
+
+interface AiAlarmDef {
+  type: AiAlarmType
+  level: AlarmLevel
+  title: string
+  /** 告警地点：地标 id 或路口 id，二选一；告警落在离它最近的在线摄像头上 */
+  landmark?: string
+  intersection?: string
+  /** 告警距现在的分钟数 */
+  ago: number
+  status: AiAlarmStatus
+}
+
+const AI_ALARM_DEFS: AiAlarmDef[] = [
+  { type: '人员聚集', level: 3, title: '人员聚集（约 120 人）', landmark: 'corniche-beach', ago: 6, status: '待确认' },
+  { type: '机动车逆行', level: 2, title: '机动车逆行', intersection: 'hazza-khaleej', ago: 12, status: '已派单' },
+  { type: '占道经营', level: 3, title: '占道经营', landmark: 'wahda-mall', ago: 23, status: '待确认' },
+  { type: '垃圾堆放', level: 4, title: '垃圾堆放', intersection: 'delma-muroor', ago: 34, status: '待确认' },
+  { type: '烟火识别', level: 2, title: '烟火识别', landmark: 'mina-zayed', ago: 52, status: '已办结' },
+  { type: '非机动车乱停', level: 4, title: '非机动车乱停', landmark: 'bus-station', ago: 69, status: '待确认' }
+]
+
+/** 视频智能告警：每条落在离指定地点最近的在线摄像头上，摄像头不复用。now 为当天的分钟数 */
+function buildAiAlarms(geo: GeoData, cameras: SecurityCamera[], now: number): AiAlarm[] {
+  const used = new Set<string>()
+  return AI_ALARM_DEFS.flatMap((def, i) => {
+    const spot = def.landmark ? geo.landmarks.find(l => l.id === def.landmark) : geo.intersections.find(x => x.id === def.intersection)
+    if (!spot) return []
+    const camera = cameras
+      .filter(c => c.online && !used.has(c.id))
+      .sort((a, b) => distanceMeters(a.position, spot.position) - distanceMeters(b.position, spot.position))[0]
+    if (!camera) return []
+    used.add(camera.id)
+    return [
+      {
+        id: 'ai-' + String(i + 1).padStart(2, '0'),
+        type: def.type,
+        level: def.level,
+        title: def.title,
+        cameraId: camera.id,
+        time: clock(now - def.ago),
+        ageMinutes: def.ago,
+        confidence: Math.round((0.82 + 0.16 * noise(i * 97 + 31, 59)) * 100) / 100,
+        status: def.status
+      }
+    ]
   })
 }

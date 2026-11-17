@@ -11,6 +11,8 @@ export function whenSceneReady(signal?: AbortSignal): Promise<boolean> {
     if (signal?.aborted) return resolve(false)
 
     let settled = false
+    // stop 必须先声明再赋值：immediate 回调会在 watch() 返回前调用 settle，那时读 const 会抛 TDZ 错误
+    // eslint-disable-next-line prefer-const
     let stop: (() => void) | undefined
     const settle = (ready: boolean) => {
       if (settled) return

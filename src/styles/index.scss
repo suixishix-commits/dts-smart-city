@@ -5,13 +5,10 @@
 @use './element.scss';
 
 
-// ---- PANES：左右面板是一整块玻璃面板，PanelCard 是其中的区块（不再各自带底和边框） ----
+// ---- PANES：按设计稿，左右两栏是一列独立卡片（PanelCard），每张卡片自带底色、描边和圆角，卡片间距 16 ----
 #layout-container aside {
-  @include glass;
   box-sizing: border-box;
-  padding: $panel-padding;
   gap: $panel-gap;
-  border-radius: $radius-pane;
   pointer-events: all;
   // 内容比面板高时可以滚动，而不是被裁掉；滚动条不占位
   overflow: hidden auto;
@@ -21,17 +18,45 @@
   }
 }
 #layout-container aside .panel-card {
-  padding: 0;
-  background: none;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-  backdrop-filter: none;
+  @include glass;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: $panel-padding;
+  border-radius: $radius-pane;
 }
-// 区块之间用一条极淡的分隔线
-#layout-container aside .panel-card + .panel-card {
-  padding-top: $panel-gap * 0.7;
-  border-top: 1px solid $divider;
+// 入场：进入模块时两侧卡片从外侧依次滑入，节奏轻快，不抢场景开场动画的戏
+@keyframes pane-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+@keyframes pane-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+#layout-container aside {
+  @for $i from 1 through 6 {
+    > .panel-card:nth-child(#{$i}) {
+      animation-delay: #{80 + ($i - 1) * 90}ms;
+    }
+  }
+  > .panel-card {
+    animation: 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  &[class$='-left'] > .panel-card {
+    animation-name: pane-in-left;
+  }
+  &[class$='-right'] > .panel-card {
+    animation-name: pane-in-right;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #layout-container aside > .panel-card {
+    animation: none;
+  }
 }
 // 场景上的浮层：工具栏、图例、图层开关、时间轴、详情卡片
 #layout-container {
@@ -41,27 +66,80 @@
   .time-axis,
   .base-layers {
     @include glass($bg-float);
+    border-radius: $radius;
   }
-  // 详情卡片压在场景上，底色比别的浮层更实，保证正文读得清
+  // 详情卡片压在场景上，描边比别的浮层略亮
   .detail-card,
   .hotspot-card,
   .incident-card,
   .station-card,
   .alarm-card,
   .traffic-incident-card {
-    @include glass(rgba(11, 16, 22, 0.88));
-  }
-  .scene-tools,
-  .layer-toggle,
-  .scene-legend {
-    border-radius: $radius-pill;
-  }
-  .scene-tools {
-    border-radius: 26px;
+    @include glass($bg-float);
+    border-color: $border-strong;
+    border-radius: $radius;
   }
 }
 // 数字用等宽数字，列表里上下对齐
 #layout-container {
   font-family: $font-family;
   font-variant-numeric: tabular-nums;
+}
+// 面板里可点的列表行、卡片：悬停浅底、文字提亮，按下更深一档，键盘聚焦有描边。
+// 选中态（.active）由各组件自己定义；关闭、主次按钮、页签、播放这类自带样式的按钮不在此列
+#layout-container aside .panel-card button:where(:not(.close, .primary, .secondary, .tab, .play, .icon, .draw, .alarm-btn)) {
+  transition:
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+  &:hover:not(.active, .on) {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+  &:active:not(.active, .on) {
+    background-color: rgba(255, 255, 255, 0.09);
+  }
+  &:focus-visible {
+    outline: 2px solid $accent-light;
+    outline-offset: -2px;
+  }
+  // 选中行左侧一道强调色竖条，和右侧详情卡呼应
+  &.active {
+    box-shadow: inset 2px 0 0 $accent;
+  }
+}
+// 卡片里能滚动的清单：细滚动条，平时几乎看不见，悬停时显出来
+#layout-container .panel-card .scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+  &:hover {
+    scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+  }
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+  &::-webkit-scrollbar-thumb {
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.12);
+  }
+}
+// 每列里占满剩余高度的卡片（grow）：可以收缩，最后一块内容（通常是清单）在卡片里滚动，
+// 长清单不会把整列撑出屏幕
+#layout-container aside .panel-card.grow {
+  flex-shrink: 1;
+  min-height: 160px;
+  overflow: hidden;
+  // 图表固定高度，不参与滚动
+  > :last-child:not(.line-chart) {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+    &::-webkit-scrollbar {
+      width: 4px;
+    }
+    &::-webkit-scrollbar-thumb {
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.12);
+    }
+  }
 }

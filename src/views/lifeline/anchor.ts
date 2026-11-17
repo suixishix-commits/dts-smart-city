@@ -64,3 +64,50 @@ export function resolveAnchor(geo: CityGeo, anchor: Anchor): XY {
   const b = fractionOf(line, intersectionXY(geo, anchor.to))
   return pointAt(line, a + (b - a) * anchor.t)
 }
+
+/**
+ * 折线两侧 d 米的缓冲面（两端半圆封口），返回不闭合的环（投影坐标）。
+ * 用于影响分析：沿受影响管段画出影响范围。转角处按角平分线外扩，急弯时限制外扩倍数。
+ */
+export function bufferLine(line: number[][], d: number, capSegments = 8): XY[] {
+  const pts = line.filter((p, i) => i === 0 || Math.hypot(p[0] - line[i - 1][0], p[1] - line[i - 1][1]) > 1e-6)
+  if (pts.length < 2) {
+    const c = pts[0] ?? [0, 0]
+    return Array.from({ length: capSegments * 2 }, (_, i) => {
+      const a = (Math.PI * i) / capSegments
+      return [c[0] + Math.cos(a) * d, c[1] + Math.sin(a) * d] as XY
+    })
+  }
+  // 每一段的左法向
+  const normals = pts.slice(1).map((p, i) => {
+    const dx = p[0] - pts[i][0]
+    const dy = p[1] - pts[i][1]
+    const len = Math.hypot(dx, dy)
+    return [-dy / len, dx / len]
+  })
+  const offsets = pts.map((_, i) => {
+    if (i === 0) return normals[0]
+    if (i === pts.length - 1) return normals[normals.length - 1]
+    const a = normals[i - 1]
+    const b = normals[i]
+    const mx = a[0] + b[0]
+    const my = a[1] + b[1]
+    const len = Math.hypot(mx, my) || 1
+    const m = [mx / len, my / len]
+    const scale = 1 / Math.max(0.5, m[0] * b[0] + m[1] * b[1])
+    return [m[0] * scale, m[1] * scale]
+  })
+  const side = (sign: number) => pts.map((p, i) => [p[0] + offsets[i][0] * d * sign, p[1] + offsets[i][1] * d * sign] as XY)
+  const cap = (center: number[], normal: number[]) => {
+    const start = Math.atan2(normal[1], normal[0])
+    return Array.from({ length: capSegments - 1 }, (_, k) => {
+      const a = start - (Math.PI * (k + 1)) / capSegments
+      return [center[0] + Math.cos(a) * d, center[1] + Math.sin(a) * d] as XY
+    })
+  }
+  const last = pts.length - 1
+  const left = side(1)
+  const right = side(-1).reverse()
+  const n0 = normals[0]
+  return [...left, ...cap(pts[last], normals[normals.length - 1]), ...right, ...cap(pts[0], [-n0[0], -n0[1]])]
+}

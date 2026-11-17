@@ -107,6 +107,21 @@ export interface SecurityData {
   onlineForce: number
   /** 平均到场时间，分钟 */
   avgArriveMinutes: number
+  /** 今日上报的城市事件（警情趋势「今日」的同一批事件） */
+  events: CityEvent[]
+  /** 由 events 汇总出的统计 */
+  eventStats: EventStats
+  /** 视频智能告警，按时间由近到远 */
+  aiAlarms: AiAlarm[]
+}
+
+/** 今日事件的各项统计，都由 SecurityData.events 汇总 */
+export interface EventStats {
+  summary: EventSummary
+  flow: FlowStep[]
+  departments: DepartmentEfficiency[]
+  /** 全部片区，按事件量从多到少 */
+  districts: DistrictEvents[]
 }
 
 /** 警情趋势：本期与对比期两条序列。今日序列里还没到的小时为 null */
@@ -116,4 +131,86 @@ export interface IncidentTrend {
   previous: number[]
   currentName: string
   previousName: string
+}
+
+// ---------- 事件处置（今日事件、处置流程、部门效率、片区事件量） ----------
+
+/** 处置部门 */
+export type Department = '城管' | '交警' | '消防' | '市政' | '环卫'
+/** 事件当前走到的处置环节 */
+export type EventStage = '上报' | '派单' | '处置' | '办结'
+
+/** 今日上报的一条城市事件（轻量记录，只用于统计） */
+export interface CityEvent {
+  id: string
+  districtId: string
+  department: Department
+  /** 上报时刻，当天的分钟数 */
+  reportedAt: number
+  stage: EventStage
+  /** 处置用时（办结的为实际用时，未办结的为截至现在已耗时），分钟 */
+  handleMinutes: number
+  /** 是否超过处置时限 */
+  overdue: boolean
+}
+
+/** 处置流程漏斗的一步 */
+export interface FlowStep {
+  name: EventStage
+  count: number
+  /** 占上报总数的比例，0–1 */
+  rate: number
+}
+
+/** 部门处置效率 */
+export interface DepartmentEfficiency {
+  department: Department
+  /** 平均处置时长，分钟 */
+  avgMinutes: number
+  /** 今日承办事件数 */
+  events: number
+}
+
+/** 片区事件量 */
+export interface DistrictEvents {
+  districtId: string
+  name: string
+  total: number
+  closed: number
+  active: number
+  overdue: number
+  /** 办结率，0–1 */
+  closeRate: number
+  /** 承办最多的部门 */
+  topDepartment: Department
+}
+
+/** 今日事件汇总 */
+export interface EventSummary {
+  reported: number
+  active: number
+  closed: number
+  overdue: number
+}
+
+// ---------- 视频智能告警 ----------
+
+export type AiAlarmType = '人员聚集' | '机动车逆行' | '占道经营' | '垃圾堆放' | '烟火识别' | '非机动车乱停'
+export type AiAlarmStatus = '待确认' | '已派单' | '已办结' | '误报'
+
+/** 摄像头 AI 识别出的一条告警 */
+export interface AiAlarm {
+  id: string
+  type: AiAlarmType
+  level: AlarmLevel
+  /** 列表里显示的标题，如「人员聚集（约 120 人）」 */
+  title: string
+  cameraId: string
+  /** 告警时刻 HH:mm */
+  time: string
+  /** 告警距现在的分钟数（回放时往前推这么多） */
+  ageMinutes: number
+  /** 识别置信度，0–1 */
+  confidence: number
+  status: AiAlarmStatus
 }

@@ -1,3 +1,4 @@
+import { lineScaler } from './lineScale'
 import type { SceneApi, SceneObjectType } from './SceneApi'
 
 /**
@@ -10,6 +11,9 @@ function check(res: unknown, operation: string, ids: string[]): void {
   }
 }
 
+/** 每批添加的标注数 */
+const MARKER_BATCH = 25
+
 /** SceneApi 的 DTS 实现，直接调用 __xapi。只在场景就绪后使用。 */
 export class DtsSceneApi implements SceneApi {
   async add(type: SceneObjectType, objects: { id: string }[]): Promise<void> {
@@ -21,14 +25,18 @@ export class DtsSceneApi implements SceneApi {
       for (const o of objects) check(await __xapi.heatmap.addByHeatPoints(o), 'heatmap.addByHeatPoints', [o.id])
       return
     }
-    check(
-      await __xapi[type].add(objects),
-      `${type}.add`,
-      objects.map(o => o.id)
-    )
+    // 线宽随相机高度缩放：登记基准线宽，按当前档位发出
+    const sent = type === 'polyline' ? lineScaler.track(objects) : objects
+    // 标注带整张 PNG 图片数据（每个十几 KB），分批发，一次太多会冲断连接
+    const batch = type === 'marker' ? MARKER_BATCH : sent.length
+    for (let i = 0; i < sent.length; i += batch) {
+      const part = sent.slice(i, i + batch)
+      check(await __xapi[type].add(part), `${type}.add`, part.map(o => o.id))
+    }
   }
 
   async remove(type: SceneObjectType, ids: string[]): Promise<void> {
+    if (type === 'polyline') lineScaler.untrack(ids)
     check(await __xapi[type].delete(ids), `${type}.delete`, ids)
   }
 

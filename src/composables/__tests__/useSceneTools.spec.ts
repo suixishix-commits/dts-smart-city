@@ -5,6 +5,7 @@ import { defineComponent } from 'vue'
 const mocks = vi.hoisted(() => ({
   setRoadsVisible: vi.fn(async (_visible: boolean) => {}),
   setAmbienceEnabled: vi.fn(async (_enabled: boolean) => {}),
+  setNight: vi.fn(async (_on: boolean, _ambience?: boolean) => {}),
   downloadSnapshot: vi.fn((_filename: string) => true),
   info: vi.fn(),
   warning: vi.fn()
@@ -15,7 +16,7 @@ vi.mock('@/stores', async () => {
   return { default: { dtsStore: reactive({ sceneState: 'ready' }) } }
 })
 vi.mock('@/scene/CityBase', () => ({ cityBase: { setRoadsVisible: mocks.setRoadsVisible } }))
-vi.mock('@/scene/effects', () => ({ setAmbienceEnabled: mocks.setAmbienceEnabled, downloadSnapshot: mocks.downloadSnapshot }))
+vi.mock('@/scene/effects', () => ({ setAmbienceEnabled: mocks.setAmbienceEnabled, setNight: mocks.setNight, downloadSnapshot: mocks.downloadSnapshot }))
 vi.mock('element-plus', () => ({ ElMessage: { info: mocks.info, warning: mocks.warning } }))
 
 import store from '@/stores'
@@ -120,14 +121,22 @@ describe('useSceneTools', () => {
   })
 
   describe('昼夜切换', () => {
-    it('turns dark mode on and off', async () => {
+    it('switches the night scene on and off, keeping the ambience setting', async () => {
       const { tools } = mountHost()
       await tools.onTool('night')
-      expect(xapi.weather.setDarkMode).toHaveBeenLastCalledWith(true)
+      expect(mocks.setNight).toHaveBeenLastCalledWith(true, true)
       expect(tools.active.value).toEqual(['night'])
       await tools.onTool('night')
-      expect(xapi.weather.setDarkMode).toHaveBeenLastCalledWith(false)
+      expect(mocks.setNight).toHaveBeenLastCalledWith(false, true)
       expect(tools.active.value).toEqual([])
+    })
+
+    it('only changes the time of day when the ambience style is off', async () => {
+      const { tools } = mountHost()
+      await tools.setBase('ambience', false)
+      await tools.onTool('night')
+      expect(mocks.setNight).toHaveBeenLastCalledWith(true, false)
+      await tools.onTool('night')
     })
   })
 
@@ -400,7 +409,7 @@ describe('useSceneTools', () => {
       expect(xapi.weather.setRainParam).not.toHaveBeenCalled()
       // 下一个模块里再点一次就是关掉
       await tools.onTool('night')
-      expect(xapi.weather.setDarkMode).toHaveBeenLastCalledWith(false)
+      expect(mocks.setNight).toHaveBeenLastCalledWith(false, true)
       await tools.onTool('rain')
       expect(xapi.weather.disableRainSnow).toHaveBeenCalledTimes(1)
       expect(mountHost().tools.active.value).toEqual([])

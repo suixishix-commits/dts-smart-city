@@ -1,12 +1,12 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { buildLifelineData } from '@/api/mock/lifeline'
 import type { SceneApi, SceneObjectType } from '@/scene/SceneApi'
-import { buildCityGeo, type CityGeo } from '@/scene/geo'
+import { buildCityGeo, pointInRing, sliceLine, type CityGeo } from '@/scene/geo'
 import { COLOR, focusView, LEVEL_COLOR, rgba, STATUS_RAMP } from '@/scene/kit'
 import type { GeoData } from '@/types/geo'
 import geoJson from '../../../../public/data/smart-city/geo.json'
-import { fractionOf, resolveAnchor, segmentBetween } from '../anchor'
-import { DRAIN_COLOR, LIFELINE_LAYERS, LifelineScene, PIPE_HEIGHT } from '../LifelineScene'
+import { bufferLine, fractionOf, resolveAnchor, segmentBetween } from '../anchor'
+import { COOLING_COLOR, DRAIN_COLOR, POWER_COLOR, LIFELINE_LAYERS, LifelineScene, PIPE_HEIGHT, VALVE_COLOR } from '../LifelineScene'
 
 /** 严格的场景替身：重复添加同一个 id、删除不存在的 id 都会抛错 */
 class FakeApi implements SceneApi {
@@ -58,6 +58,7 @@ describe('LifelineScene', () => {
   let geo: CityGeo
   let api: FakeApi
   let roadCalls: boolean[]
+  let dimCalls: boolean[]
   let scene: LifelineScene
 
   beforeAll(async () => {
@@ -67,11 +68,12 @@ describe('LifelineScene', () => {
   beforeEach(() => {
     api = new FakeApi()
     roadCalls = []
-    scene = new LifelineScene(api, geo, { cameraView: null, pak: false, roads: { setRoadsVisible: async v => void roadCalls.push(v) } })
+    dimCalls = []
+    scene = new LifelineScene(api, geo, { cameraView: null, pak: false, roads: { setRoadsVisible: async v => void roadCalls.push(v), setRoadsDimmed: async v => void dimCalls.push(v) } })
     scene.setData(data)
   })
 
-  it('进入后创建六个图层的全部对象', async () => {
+  it('进入后创建七个图层的全部对象', async () => {
     await scene.enter()
     expect(api.ids('polyline', 'll-pipe-')).toHaveLength(data.pipes.length)
     expect(api.ids('polyline', 'll-alarm-pipe-')).toEqual(['polyline:ll-alarm-pipe-a1'])
@@ -84,25 +86,32 @@ describe('LifelineScene', () => {
     expect(api.ids('marker', 'll-pump-')).toHaveLength(data.pumpStations.length)
     expect(api.ids('marker', 'll-bridge-')).toHaveLength(3)
     expect(api.ids('radiationPoint', 'll-bridge-ripple-')).toHaveLength(3)
+    expect(api.ids('polyline', 'll-pipe-cooling-')).toHaveLength(count('cooling'))
+    expect(api.ids('marker', 'll-cooling-')).toHaveLength(data.coolingPlants.length)
+    // 阀门和影响范围只在选中告警后出现
+    expect(api.ids('marker', 'll-valve-')).toEqual([])
+    expect(api.ids('polygon', 'll-impact-')).toEqual([])
     expect(scene.objectCount()).toBe(api.store.size)
   })
 
-  it('一屏的标注不超过 30 个', async () => {
+  it('默认视角（燃气、排水、供冷默认关闭）一屏的标注不超过 30 个', async () => {
+    for (const l of ['gas', 'drain', 'cooling']) await scene.setLayerVisible(l, false)
     await scene.enter()
     expect(api.ids('marker').length).toBeLessThanOrEqual(30)
   })
 
   it('各管网沿真实道路敷设，离地高度互不相同', async () => {
     await scene.enter()
-    expect(new Set(Object.values(PIPE_HEIGHT)).size).toBe(4)
+    expect(new Set(Object.values(PIPE_HEIGHT)).size).toBe(5)
     for (const p of data.pipes) {
       const line = api.get('polyline:ll-pipe-' + p.id)
-      const road = geo.road(p.roadId)
-      expect(line.coordinates).toEqual(road?.line.map(xy => [xy[0], xy[1], PIPE_HEIGHT[p.system]]))
+      const road = geo.road(p.roadId)?.line as [number, number][]
+      const path = p.from <= 0 && p.to >= 1 ? road : sliceLine(road, p.from, p.to)
+      expect(line.coordinates).toEqual(path.map(xy => [xy[0], xy[1], PIPE_HEIGHT[p.system]]))
     }
   })
 
-  it('管网颜色：供水蓝、电力冰蓝、燃气暖色且亮度最低、排水暗蓝', async () => {
+  it('管网颜色：供水蓝、电力紫、燃气暖色且亮度最低、排水暗蓝；亮度都不超过 1，免得泛光把颜色冲白', async () => {
     await scene.enter()
     const water = api.get('polyline:ll-pipe-water-khaleej')
     const branch = api.get('polyline:ll-pipe-water-zayed1')
@@ -113,13 +122,27 @@ describe('LifelineScene', () => {
     expect(water.thickness).toBe(100)
     expect(branch.thickness).toBe(56)
     // 线宽按管网和主次：供水 100/56、电力 76/50、燃气 50、排水 70/50
-    const WIDTH = { water: [100, 56], power: [76, 50], gas: [50, 50], drain: [70, 50] }
+    const WIDTH = { water: [100, 56], power: [76, 50], gas: [50, 50], drain: [70, 50], cooling: [70, 46] }
     for (const p of data.pipes) expect(api.get('polyline:ll-pipe-' + p.id).thickness, p.id).toBe(WIDTH[p.system][p.grade === 'trunk' ? 0 : 1])
-    expect(power.color).toEqual(rgba(COLOR.ice))
+    expect(power.color).toEqual(rgba(POWER_COLOR))
     expect(gas.color.slice(0, 3)).toEqual(rgba(COLOR.warn).slice(0, 3))
     expect(gas.intensity).toBeLessThan(power.intensity)
     expect(gas.intensity).toBeLessThan(water.intensity)
     expect(drain.color.slice(0, 3)).toEqual(rgba(DRAIN_COLOR).slice(0, 3))
+    expect(api.get('polyline:ll-pipe-cooling-corniche').color).toEqual(rgba(COOLING_COLOR))
+    expect(COOLING_COLOR).toBe('#66d9e8')
+    for (const p of data.pipes) expect(api.get('polyline:ll-pipe-' + p.id).intensity, p.id).toBeLessThanOrEqual(1)
+  })
+
+  it('供冷站在供冷管经过的道路上，按状态着色，可点击', async () => {
+    await scene.enter()
+    for (const c of data.coolingPlants) {
+      const m = api.get('marker:ll-cooling-' + c.id)
+      expect(m.groupId).toBe('sc_lifeline_cooling')
+      expect(JSON.parse(m.userData)).toEqual({ id: c.id })
+      expect(m.lineColor.slice(0, 3)).toEqual(rgba(STATUS_RAMP[c.status]).slice(0, 3))
+      expect(m.coordinate.slice(0, 2)).toEqual(resolveAnchor(geo, c.anchor))
+    }
   })
 
   it('爆管的受影响管段是两个相邻路口之间的阿拉伯湾街，用告警红重绘', async () => {
@@ -151,9 +174,9 @@ describe('LifelineScene', () => {
       expect(r.radius).toBeGreaterThanOrEqual(250)
       expect(r.radius).toBeLessThanOrEqual(800)
       expect(r.coordinate.slice(0, 2)).toEqual(m.coordinate.slice(0, 2))
-      // 一、二级告警始终显示（优先级 ≥ 10），三、四级参与避让
-      expect(m.priority).toBe(a.level <= 2 ? 20 - a.level : 9 - a.level)
-      expect(m.displayMode).toBe(a.level <= 2 ? 2 : 4)
+      // 告警全部常显（优先级 ≥ 10），级别越高优先级越高
+      expect(m.priority).toBe(20 - a.level)
+      expect(m.displayMode).toBe(2)
     }
   })
 
@@ -190,13 +213,108 @@ describe('LifelineScene', () => {
     }
   })
 
-  it('进入时隐藏底座路网，离开后恢复并清空场景', async () => {
+  it('地下模式默认关闭：进入不动底座路网，离开后清空场景', async () => {
+    await scene.enter()
+    expect(roadCalls).toEqual([])
+    await scene.leave()
+    expect(roadCalls).toEqual([])
+    expect(api.store.size).toBe(0)
+    expect(scene.objectCount()).toBe(0)
+  })
+
+  it('地上时压暗底座路网让管网突出：进入压暗，切到地下模式取消压暗（路网已隐藏），离开时恢复', async () => {
+    await scene.enter()
+    expect(dimCalls).toEqual([true])
+    await scene.setUnderground(true)
+    expect(dimCalls).toEqual([true, false])
+    await scene.setUnderground(false)
+    expect(dimCalls).toEqual([true, false, true])
+    await scene.leave()
+    expect(dimCalls).toEqual([true, false, true, false])
+  })
+
+  it('地下模式：打开隐藏底座路网，关闭恢复；重复设置不重复调用', async () => {
+    await scene.enter()
+    await scene.setUnderground(true)
+    await scene.setUnderground(true)
+    expect(roadCalls).toEqual([false])
+    await scene.setUnderground(false)
+    expect(roadCalls).toEqual([false, true])
+  })
+
+  it('地下模式进入前打开：进入时隐藏路网，离开时恢复；离开后再切换不动路网', async () => {
+    await scene.setUnderground(true)
+    expect(roadCalls).toEqual([])
     await scene.enter()
     expect(roadCalls).toEqual([false])
     await scene.leave()
     expect(roadCalls).toEqual([false, true])
+    await scene.setUnderground(false)
+    await scene.setUnderground(true)
+    expect(roadCalls).toEqual([false, true])
+  })
+
+  it('选中告警后标出相关阀门（低优先级、白色），再选别的告警时替换，清除后移除', async () => {
+    await scene.enter()
+    await scene.showAlarmContext('a1')
+    expect(api.ids('marker', 'll-valve-')).toEqual(['marker:ll-valve-valve-V-1023', 'marker:ll-valve-valve-V-1027'])
+    const v = api.get('marker:ll-valve-valve-V-1023')
+    expect(v.text).toBe('阀门 V-1023 · 已关闭')
+    expect(v.priority).toBeLessThan(10)
+    expect(v.lineColor.slice(0, 3)).toEqual(rgba(VALVE_COLOR).slice(0, 3))
+    expect(v.coordinate.slice(0, 2)).toEqual(geo.intersections.find(i => i.id === 'hamdan-khaleej')?.xy)
+
+    await scene.showAlarmContext('w2')
+    expect(api.ids('marker', 'll-valve-')).toEqual(['marker:ll-valve-valve-PRV-118'])
+    await scene.showAlarmContext('a5')
+    expect(api.ids('marker', 'll-valve-')).toEqual([])
+    await scene.showAlarmContext('a1')
+    await scene.clearAlarmContext()
+    expect(api.ids('marker', 'll-valve-')).toEqual([])
+  })
+
+  it('影响分析：爆管沿受影响管段画缓冲面并标出阀门，收起后只留阀门，清除后全部移除', async () => {
+    await scene.enter()
+    await scene.showImpact('a1')
+    const poly = api.get('polygon:ll-impact-a1')
+    expect(poly.color.slice(0, 3)).toEqual(rgba(LEVEL_COLOR[1]).slice(0, 3))
+    const ring = (poly.coordinates as number[][]).map(p => [p[0], p[1]])
+    // 爆管点和管段两端的路口都在影响范围内
+    const burst = resolveAnchor(geo, data.alarms.find(a => a.id === 'a1')!.anchor)
+    expect(pointInRing(burst, ring)).toBe(true)
+    for (const id of ['hamdan-khaleej', 'zayed1-khaleej']) expect(pointInRing(geo.intersections.find(i => i.id === id)!.xy, ring)).toBe(true)
+    expect(api.ids('marker', 'll-valve-')).toHaveLength(2)
+
+    await scene.hideImpact()
+    expect(api.ids('polygon', 'll-impact-')).toEqual([])
+    expect(api.ids('marker', 'll-valve-')).toHaveLength(2)
+
+    await scene.showImpact('a6')
+    expect(api.ids('polygon', 'll-impact-')).toEqual(['polygon:ll-impact-a6'])
+    // 没有受影响管段的告警：以告警点为圆心
+    const a6 = data.alarms.find(a => a.id === 'a6')!
+    const center = resolveAnchor(geo, a6.anchor)
+    for (const p of api.get('polygon:ll-impact-a6').coordinates as number[][]) expect(Math.hypot(p[0] - center[0], p[1] - center[1])).toBeCloseTo(a6.analysis!.radius, 3)
+
+    await scene.clearAlarmContext()
+    expect(api.ids('polygon', 'll-impact-')).toEqual([])
+    expect(api.ids('marker', 'll-valve-')).toEqual([])
+  })
+
+  it('没有影响分析的告警（桥梁）不画影响范围', async () => {
+    await scene.enter()
+    await scene.showImpact('b1')
+    expect(api.ids('polygon', 'll-impact-')).toEqual([])
+  })
+
+  it('离开时影响范围和阀门一并清掉', async () => {
+    await scene.enter()
+    await scene.showImpact('a1')
+    await scene.leave()
     expect(api.store.size).toBe(0)
-    expect(scene.objectCount()).toBe(0)
+    // 离开后再请求不会往场景里加东西
+    await scene.showImpact('a1')
+    expect(api.store.size).toBe(0)
   })
 
   it('进入前关闭的图层不创建对象，打开后才创建', async () => {
@@ -231,7 +349,7 @@ describe('LifelineScene', () => {
     expect(api.visible.get('marker:ll-alarm-a1')).toBe(true)
   })
 
-  it('六个图层键都能单独关掉', async () => {
+  it('七个图层键都能单独关掉', async () => {
     await scene.enter()
     for (const l of LIFELINE_LAYERS) await scene.setLayerVisible(l, false)
     expect([...api.visible.values()].every(v => v === false)).toBe(true)
@@ -276,11 +394,12 @@ describe('LifelineScene', () => {
   })
 
   it('进入过程中离开，不留下任何对象，路网恢复显示', async () => {
+    await scene.setUnderground(true)
     const entering = scene.enter()
     await scene.leave()
     await entering
     expect(api.store.size).toBe(0)
-    expect(roadCalls[roadCalls.length - 1]).toBe(true)
+    expect(roadCalls.length === 0 || roadCalls[roadCalls.length - 1]).toBe(true)
   })
 
   it('反复进入离开不会累积对象', async () => {
@@ -289,7 +408,7 @@ describe('LifelineScene', () => {
       await scene.leave()
     }
     await scene.enter()
-    const expected = data.pipes.length + 1 + data.substations.length + data.alarms.length * 2 + data.gasStations.length + data.floodPoints.length * 2 + data.pumpStations.length + 6
+    const expected = data.pipes.length + 1 + data.substations.length + data.alarms.length * 2 + data.gasStations.length + data.floodPoints.length * 2 + data.pumpStations.length + 6 + data.coolingPlants.length
     expect(api.store.size).toBe(expected)
   })
 
@@ -320,6 +439,29 @@ describe('anchor', () => {
     expect(resolveAnchor(geo, { kind: 'landmark', id: 'zayed-bridge' })).toEqual(geo.landmark('zayed-bridge')?.xy)
     expect(resolveAnchor(geo, { kind: 'road', roadId: 'salam', t: 0 })).toEqual(geo.road('salam')?.line[0])
     expect(() => resolveAnchor(geo, { kind: 'intersection', id: 'nowhere' })).toThrow(/nowhere/)
+  })
+
+  it('bufferLine：环上的点到折线的距离在缓冲距离和两倍之间，折线在环内', () => {
+    const line = [[0, 0], [1000, 0], [1500, 600]]
+    const ring = bufferLine(line, 200)
+    const distToLine = (p: number[]) => {
+      let best = Infinity
+      for (let i = 1; i < line.length; i++) {
+        const [x0, y0] = line[i - 1]
+        const dx = line[i][0] - x0
+        const dy = line[i][1] - y0
+        const t = Math.min(1, Math.max(0, ((p[0] - x0) * dx + (p[1] - y0) * dy) / (dx * dx + dy * dy)))
+        best = Math.min(best, Math.hypot(p[0] - x0 - dx * t, p[1] - y0 - dy * t))
+      }
+      return best
+    }
+    ring.forEach(p => {
+      expect(distToLine(p)).toBeGreaterThan(199)
+      expect(distToLine(p)).toBeLessThan(400)
+    })
+    for (const p of [[0, 0], [500, 0], [1000, 0], [1250, 300], [1500, 600], [500, 150], [500, -150]]) expect(pointInRing(p, ring)).toBe(true)
+    expect(pointInRing([500, 260], ring)).toBe(false)
+    expect(bufferLine([[5, 5]], 100)).toHaveLength(16)
   })
 
   it('两个路口之间的管段不受路口先后顺序影响', () => {

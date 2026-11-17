@@ -141,7 +141,7 @@ describe('OverviewScene', () => {
       const ranked = [...data.hotspots].sort((a, b) => b.heat - a.heat)
       ranked.forEach((h, i) => {
         const m = api.store.get('marker:hotspot-' + h.id)
-        expect(m.text).toBe(`${i + 1}  ${h.shortName}`)
+        expect(m.text).toBe(`${i + 1} · ${h.shortName}`)
         expect(m.groupId).toBe('sc_hotspot')
         expect(JSON.parse(m.userData)).toEqual({ id: h.id })
         expect(m.coordinate[0]).toBeCloseTo(h.position[0] * 1e5)
@@ -364,6 +364,15 @@ describe('OverviewScene', () => {
       await scene.focusCamera('不存在')
       expect(api.cameraCalls).toEqual([])
       expect(api.focusCalls).toEqual([])
+    })
+
+    it('flies to a district by name from 3600 m and reports unknown names', async () => {
+      await scene.enter()
+      const d = geo.districts[0]
+      expect(await scene.focusDistrict(d.name)).toBe(true)
+      expect(api.cameraCalls).toEqual([focusView(d.centerXY, 3600)])
+      expect(await scene.focusDistrict('不存在的片区')).toBe(false)
+      expect(api.cameraCalls).toHaveLength(1)
     })
 
     it('offers one tour view per hotspot, hottest first, looking from the south-west', async () => {

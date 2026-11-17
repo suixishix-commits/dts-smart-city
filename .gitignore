@@ -31,3 +31,5 @@ coverage
 auto-imports.d.ts
 components.d.ts
 package-lock.json
+# 从公网下载的 OSM 原始数据（scripts/osm/fetch-osm.mjs 可重新拉取；处理结果在 public/data/smart-city/geo.json）
+scripts/osm/*.osm.json

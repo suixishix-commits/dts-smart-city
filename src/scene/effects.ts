@@ -84,6 +84,17 @@ interface Ambience {
   bloom: number
 }
 const DEFAULT_AMBIENCE: Ambience = { tint: [0.78, 0.88, 1, 1], saturation: 0.75, brightness: 0.2, contrast: 1.1, bloom: 0.7 }
+/**
+ * 夜景：场景时间拨到入夜后，影像本身几乎全黑；把影像亮度提上来、饱和度压低，
+ * 城市肌理还看得出来，发光路网和图层从暗底里浮出来。
+ */
+const DEFAULT_NIGHT: Ambience = { tint: [0.7, 0.85, 1, 1], saturation: 0.6, brightness: 4, contrast: 1.2, bloom: 1.2 }
+/** 白天和夜景对应的场景时刻 [时, 分]。白天取傍晚前的低角度阳光：正午光照会把影像冲白、压淡图层 */
+const DAY_TIME = [16, 45]
+const NIGHT_TIME = [20, 30]
+
+/** 夜景是否打开；底图风格开关要按它选白天还是夜景的参数 */
+let night = false
 
 /** 地形/影像图层的 id（图层树里 type 为 EPT_Scene 的项） */
 async function terrainLayerIds(): Promise<string[]> {
@@ -91,12 +102,25 @@ async function terrainLayerIds(): Promise<string[]> {
   return (res?.infotree ?? []).filter((n: any) => n.type === 'EPT_Scene').map((n: any) => n.iD)
 }
 
+function ambienceFor(isNight: boolean): Ambience {
+  const cfg = gVar?.smartCity ?? {}
+  return isNight ? { ...DEFAULT_NIGHT, ...(cfg.nightAmbience ?? {}) } : { ...DEFAULT_AMBIENCE, ...(cfg.ambience ?? {}) }
+}
+
+/** 场景时刻拨到白天或入夜。场景时间留在渲染实例里，页面刷新也不会恢复，所以底座启动时也要拨一次 */
+async function setSceneTime(isNight: boolean): Promise<void> {
+  const [h, m] = isNight ? NIGHT_TIME : DAY_TIME
+  const d = new Date()
+  await __xapi.weather.setDateTime(d.getFullYear(), d.getMonth() + 1, d.getDate(), h, m, 0, false)
+}
+
 /**
- * 底图风格：影像压成偏冷的黄昏色调、关掉云、开一点泛光，让图层从底图里浮出来。
- * 参数在 public/config/smart-city.js 的 ambience 里。
+ * 底图风格：影像压成偏冷的色调、关掉云、开一点泛光，让图层从底图里浮出来。夜景打开时用夜景参数。
+ * 参数在 public/config/smart-city.js 的 ambience / nightAmbience 里。
  */
 export async function applyAmbience(): Promise<void> {
-  const a: Ambience = { ...DEFAULT_AMBIENCE, ...(gVar?.smartCity?.ambience ?? {}) }
+  const a = ambienceFor(night)
+  await setSceneTime(night)
   const ids = await terrainLayerIds()
   if (ids.length) await __xapi.tileLayer.setStyle(ids, 0, a.tint, a.saturation, a.brightness, a.contrast, 0.18)
   await __xapi.weather.setCloudDensity(0)
@@ -104,11 +128,22 @@ export async function applyAmbience(): Promise<void> {
   await __xapi.settings.setBloomIntensity(a.bloom)
 }
 
-/** 开关黄昏底图风格：关掉后恢复影像原色 */
+/** 开关底图风格：关掉后恢复影像原色（夜景下只保留时间，不再提亮影像） */
 export async function setAmbienceEnabled(enabled: boolean): Promise<void> {
   if (enabled) return applyAmbience()
   const ids = await terrainLayerIds()
   if (ids.length) await __xapi.tileLayer.setStyle(ids, 0, [1, 1, 1, 1], 1, 1, 1, 0.18)
+}
+
+/**
+ * 切换夜景：把场景时间拨到入夜 / 白天，再按昼夜换底图参数。
+ * ambience 为 false（用户在图层面板关了底图风格）时只拨时间，不改影像。
+ */
+export async function setNight(on: boolean, ambience = true): Promise<void> {
+  night = on
+  if (ambience) return applyAmbience()
+  await setSceneTime(on)
+  await __xapi.settings.setBloomIntensity(ambienceFor(on).bloom)
 }
 
 /** 截图：SDK 没有截图接口，直接把视频流当前帧画到 canvas 上，下载为 PNG */

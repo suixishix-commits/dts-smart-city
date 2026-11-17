@@ -35,7 +35,8 @@ describe('geo.json', () => {
   it('has the documented amount of content', () => {
     expect(geo.districts).toHaveLength(16)
     expect(geo.roads).toHaveLength(17)
-    expect(geo.intersections).toHaveLength(36)
+    // 12 条横街 × 3 条纵向主干路，减去苏丹·本·扎耶德街到不了的两处（它在岛中部就截止了）
+    expect(geo.intersections).toHaveLength(34)
     expect(geo.landmarks).toHaveLength(21)
   })
 

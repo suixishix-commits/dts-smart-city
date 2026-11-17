@@ -1,9 +1,9 @@
-import { commuteAt, congestionAt, congestionLevel, districtCongestionAt, INCIDENT_TEXT, rankSegmentsAt } from '@/api/mock/traffic'
+import { commuteAt, congestionAt, congestionLevel, districtCongestionAt, INCIDENT_TEXT, rankSegmentsAt, vehicleStateAt } from '@/api/mock/traffic'
 import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import { pointAt, sliceLine, type CityGeo } from '@/scene/geo'
-import { arc, area, COLOR, flowLine, focusView, LEVEL_COLOR, pin, plainLine, prepareFlowLines, rampColor, regionLayer, ripple, STATUS_RAMP } from '@/scene/kit'
-import type { IncidentType, RoadSegment, SignalStatus, TrafficData } from '@/types/traffic'
+import { arc, area, COLOR, flowLine, focusView, LEVEL_COLOR, pin, plainLine, prepareFlowLines, rampColor, regionLayer, ripple, staggerHeights, STATUS_RAMP } from '@/scene/kit'
+import type { DetourLeg, IncidentType, KeyVehicle, RoadSegment, SignalStatus, TrafficData, VehicleKind } from '@/types/traffic'
 
 export interface TrafficSceneOptions {
   /** [x, y, z, pitch, yaw]；为 null 时不动相机 */
@@ -25,6 +25,12 @@ export const INCIDENT_COLOR: Record<IncidentType, string> = {
 export const SIGNAL_COLOR: Record<SignalStatus, string> = { normal: COLOR.accent, offline: COLOR.danger, manual: COLOR.warn }
 export const SIGNAL_TEXT: Record<SignalStatus, string> = { normal: '正常', offline: '离线', manual: '手动控制' }
 
+/** 重点车辆的颜色：公交、巡逻是冷色，急救和清障是需要让行/关注的车辆才用暖色 */
+export const VEHICLE_COLOR: Record<VehicleKind, string> = { bus: COLOR.accent, patrol: COLOR.accentLight, ambulance: COLOR.danger, wrecker: COLOR.caution }
+export const VEHICLE_TEXT: Record<VehicleKind, string> = { bus: '公交', patrol: '巡逻', ambulance: '急救', wrecker: '清障' }
+/** 绕行路线的颜色：冰蓝，和路况的绿黄橙红、通勤飞线的浅蓝都区分得开 */
+export const DETOUR_COLOR = COLOR.ice
+
 /** 片区平均拥堵指数 → 色带颜色。指数 2.0（拥堵）以上才转暖 */
 export function districtColor(index: number): string {
   return rampColor((index - 1) / 1.5)
@@ -35,6 +41,15 @@ const FLOW_SPEED = [0.34, 0.22, 0.13, 0.07]
 /** 各等级道路的线宽，米 */
 const ROAD_WIDTH: Record<number, number> = { 1: 100, 2: 64, 3: 44 }
 const DISTRICT_LAYER_ID = 'sc_traffic_districts'
+/** 车辆轨迹由标注和轨迹线两个图层组成，图层开关 vehicle 同时控制两者 */
+const VEHICLE_LAYER = 'vehicle'
+const VEHICLE_TRAIL_LAYER = 'vehicleTrail'
+const DETOUR_LAYER = 'detour'
+const DETOUR_PIN_LAYER = 'detourPin'
+/** 摄像头定位的相机高度，米 */
+const CAMERA_HEIGHT = 2400
+/** 交通事件相距多近（米）时错开标注高度 */
+const INCIDENT_STAGGER = 1800
 /** 巡航经过的拥堵路段数 */
 const TOUR_STOPS = 5
 
@@ -44,7 +59,9 @@ const TOUR_STOPS = 5
  * - od       通勤 OD：片区中心之间的飞线，上午进城、下午出城；
  * - incident 交通事件：扩散波纹 + 标注，可点击；
  * - signal   信号路口：全部路口的小波纹，异常的加标注（默认关闭）；
- * - district 片区拥堵：按片区平均拥堵指数着色（默认关闭）。
+ * - district 片区拥堵：按片区平均拥堵指数着色（默认关闭）；
+ * - vehicle  车辆轨迹：重点车辆的标注 + 身后一小段轨迹线，位置随所选小时推进（默认关闭）；
+ * - detour   绕行方案：选中交通事件后按需画出，取消选中或离开时删除（不在图层开关里）。
  */
 export class TrafficScene extends ModuleScene {
   private data: TrafficData | null = null
@@ -55,9 +72,10 @@ export class TrafficScene extends ModuleScene {
   /** 路段 id → 投影坐标折线 */
   private paths = new Map<string, number[][]>()
   private xy = new Map<string, number[]>()
-  private layerOn = new Map<string, boolean>()
   /** 上一次画出的内容的签名；没变就不重画，拖动时间轴时省掉大部分指令 */
-  private drawn: { road: string | null; od: string | null; district: string | null } = { road: null, od: null, district: null }
+  private drawn: { road: string | null; od: string | null; district: string | null; vehicle: string | null } = { road: null, od: null, district: null, vehicle: null }
+  /** 当前画出的绕行方案对应的事件 id */
+  private detourId: string | null = null
 
   constructor(
     api: SceneApi,
@@ -75,7 +93,8 @@ export class TrafficScene extends ModuleScene {
 
   protected async onEnter(token: number): Promise<void> {
     this.entered = false
-    this.drawn = { road: null, od: null, district: null }
+    this.drawn = { road: null, od: null, district: null, vehicle: null }
+    this.detourId = null
     const data = this.data
     if (!data) return
     const geo = this.geo
@@ -101,11 +120,13 @@ export class TrafficScene extends ModuleScene {
       incidents.map(i => ripple({ id: 'incident-ripple-' + i.id, groupId: 'sc_traffic_incident_ripple', at: this.xy.get(i.intersectionId) as number[], radius: Math.min(800, 300 + i.queue * 0.5), color: INCIDENT_COLOR[i.type] })),
       'incident'
     )
+    // 西侧老城的事件挨得很近，引线错开高度，文字框才不叠在一起
+    const heights = staggerHeights(incidents.map(i => this.xy.get(i.intersectionId) as number[]), 56, 34, INCIDENT_STAGGER)
     await this.add(
       token,
       'marker',
-      incidents.map(i =>
-        pin({ id: 'incident-' + i.id, groupId: 'sc_traffic_incident', at: this.xy.get(i.intersectionId) as number[], text: `${INCIDENT_TEXT[i.type]} · ${i.title}`, color: INCIDENT_COLOR[i.type], userId: i.id, lineHeight: 56, priority: 10 })
+      incidents.map((i, k) =>
+        pin({ id: 'incident-' + i.id, groupId: 'sc_traffic_incident', at: this.xy.get(i.intersectionId) as number[], tag: INCIDENT_TEXT[i.type], text: i.title, color: INCIDENT_COLOR[i.type], userId: i.id, lineHeight: heights[k], priority: 10 })
       ),
       'incident'
     )
@@ -148,7 +169,8 @@ export class TrafficScene extends ModuleScene {
   protected async onLeave(): Promise<void> {
     this.entered = false
     this.districts = null
-    this.drawn = { road: null, od: null, district: null }
+    this.detourId = null
+    this.drawn = { road: null, od: null, district: null, vehicle: null }
     await this.options.setBaseRoads?.(true)
   }
 
@@ -185,12 +207,89 @@ export class TrafficScene extends ModuleScene {
         tasks.push(this.replaceLayer('district', 'polygon', this.geo.districts.map(d => area({ id: 'district-' + d.id, groupId: 'sc_traffic_district', ring: d.ring, color: colors[d.id], fill: 0.16 }))))
       }
     }
+
+    if (String(this.hour) !== this.drawn.vehicle) {
+      this.drawn.vehicle = String(this.hour)
+      const { pins, trails } = this.buildVehicles(data)
+      tasks.push(this.replaceLayer(VEHICLE_LAYER, 'marker', pins), this.replaceLayer(VEHICLE_TRAIL_LAYER, 'polyline', trails))
+    }
     await Promise.all(tasks)
+  }
+
+  /** 道路上某段比例区间的折线，按 from → to 的方向排列点序 */
+  private along(roadId: string, from: number, to: number): number[][] | null {
+    const road = this.geo.road(roadId)
+    if (!road) return null
+    const path = sliceLine(road.line, Math.min(from, to), Math.max(from, to))
+    return from <= to ? path : path.reverse()
+  }
+
+  /** 重点车辆某时刻在场景里的位置 */
+  private vehiclePoint(v: KeyVehicle, hour: number): number[] | null {
+    const road = this.geo.road(v.roadId)
+    return road ? pointAt(road.line, vehicleStateAt(v, this.data?.segments ?? [], hour).ratio) : null
+  }
+
+  /** 车辆标注 + 身后的轨迹线。标注不常显，交给引擎避让，不和事件标注抢位置 */
+  private buildVehicles(data: TrafficData): { pins: { id: string }[]; trails: { id: string }[] } {
+    const pins: { id: string }[] = []
+    const trails: { id: string }[] = []
+    for (const v of data.vehicles) {
+      const state = vehicleStateAt(v, data.segments, this.hour)
+      const at = this.vehiclePoint(v, this.hour)
+      const trail = this.along(v.roadId, state.trail[0], state.trail[1])
+      if (!at || !trail) continue
+      const color = VEHICLE_COLOR[v.kind]
+      trails.push(flowLine({ id: 'vehicle-trail-' + v.id, groupId: 'sc_traffic_vehicle_trail', path: trail, color, width: 56, style: 'pulse', brightness: 1.1, speed: 0.3, height: 16 }))
+      pins.push(pin({ id: 'vehicle-' + v.id, groupId: 'sc_traffic_vehicle', at, text: v.name, value: `${state.speed} km/h`, color, userId: v.id, lineHeight: 30, fontSize: 12, priority: 5 }))
+    }
+    return { pins, trails }
+  }
+
+  /**
+   * 画出某个事件的绕行方案：沿真实道路的发光线 + 起终点标注，并把相机拉到能看到整条路线的高度。
+   * 没有绕行方案时什么也不画，返回 false。
+   */
+  async showDetour(incidentId: string): Promise<boolean> {
+    const incident = this.data?.incidents.find(i => i.id === incidentId)
+    const plan = incident?.detour
+    if (!this.entered || !plan) return false
+    const path = plan.legs.flatMap((l: DetourLeg, k) => (this.along(l.roadId, l.from, l.to) ?? []).slice(k > 0 ? 1 : 0))
+    if (path.length < 2) return false
+    this.detourId = incidentId
+    const start = path[0]
+    const end = path[path.length - 1]
+    await Promise.all([
+      this.replaceLayer(DETOUR_LAYER, 'polyline', [flowLine({ id: 'detour-' + incidentId, groupId: 'sc_traffic_detour', path, color: DETOUR_COLOR, width: 84, style: 'pulse', brightness: 1.2, height: 20 })]),
+      this.replaceLayer(DETOUR_PIN_LAYER, 'marker', [
+        pin({ id: 'detour-from-' + incidentId, groupId: 'sc_traffic_detour_pin', at: start, text: '绕行起点 · ' + plan.fromName, color: DETOUR_COLOR, lineHeight: 40, fontSize: 12 }),
+        pin({ id: 'detour-to-' + incidentId, groupId: 'sc_traffic_detour_pin', at: end, text: '汇入点 · ' + plan.toName, color: DETOUR_COLOR, lineHeight: 40, fontSize: 12 })
+      ])
+    ])
+    // 机位对准路线外包框的中心，范围越大拉得越高
+    const xs = path.map(p => p[0])
+    const ys = path.map(p => p[1])
+    const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys))
+    const center = [(Math.max(...xs) + Math.min(...xs)) / 2, (Math.max(...ys) + Math.min(...ys)) / 2]
+    await this.api.setCamera(focusView(center, Math.min(6000, Math.max(3600, span * 1.4))), 1.5)
+    return true
+  }
+
+  /** 删除绕行方案 */
+  async clearDetour(): Promise<void> {
+    if (!this.detourId) return
+    this.detourId = null
+    await Promise.all([this.replaceLayer(DETOUR_LAYER, 'polyline', []), this.replaceLayer(DETOUR_PIN_LAYER, 'marker', [])])
+  }
+
+  /** 当前画着绕行方案的事件 id */
+  get activeDetour(): string | null {
+    return this.detourId
   }
 
   /** 每个片区的颜色；没有路段经过的片区按畅通算 */
   private districtColors(data: TrafficData): Record<string, string> {
-    const index = districtCongestionAt(data.segments, this.hour)
+    const index = districtCongestionAt(data.segments, this.hour, this.geo.districts.map(d => d.id))
     return Object.fromEntries(this.geo.districts.map(d => [d.id, districtColor(index[d.id] ?? 1)]))
   }
 
@@ -203,7 +302,7 @@ export class TrafficScene extends ModuleScene {
       const path = this.paths.get(s.id)
       if (!path) return []
       const main = s.level === 1
-      const o = { id: 'seg-' + s.id, groupId: 'sc_traffic_road', path, color: STATUS_RAMP[levels[i]], width: ROAD_WIDTH[s.level], brightness: main ? 2.8 : 1.8 }
+      const o = { id: 'seg-' + s.id, groupId: 'sc_traffic_road', path, color: STATUS_RAMP[levels[i]], width: ROAD_WIDTH[s.level], brightness: main ? 1 : 0.8 }
       if (!this.options.pak) return [plainLine({ ...o, flow: true })]
       const long = this.geo.road(s.roadId)?.direction === 'long'
       return [flowLine({ ...o, style: main ? 'arrow' : 'particles', speed: FLOW_SPEED[levels[i]], spacing: main ? 180 : 110, reverse: long && inbound })]
@@ -218,18 +317,14 @@ export class TrafficScene extends ModuleScene {
       const home = this.geo.district(f.homeId)?.centerXY
       const work = this.geo.district(f.workId)?.centerXY
       if (!home || !work) return []
-      return [arc({ id: 'od-' + f.id, groupId: 'sc_traffic_od', from: inbound ? home : work, to: inbound ? work : home, color: i < 2 ? COLOR.warn : COLOR.accentLight, width: 36 + 28 * (f.volume / max), bend: 0.3, brightness: i < 2 ? 2 : 1.4 })]
+      return [arc({ id: 'od-' + f.id, groupId: 'sc_traffic_od', from: inbound ? home : work, to: inbound ? work : home, color: i < 2 ? COLOR.warn : COLOR.accentLight, width: 36 + 28 * (f.volume / max), bend: 0.3, brightness: i < 2 ? 1 : 0.8 })]
     })
   }
 
-  /** 记录图层开关，定位时用来判断目标对象是否在场景里 */
+  /** 图层开关；车辆轨迹的开关同时控制车辆标注和轨迹线 */
   async setLayerVisible(layer: string, visible: boolean): Promise<void> {
-    this.layerOn.set(layer, visible)
-    await super.setLayerVisible(layer, visible)
-  }
-
-  private isOn(layer: string): boolean {
-    return this.entered && this.layerOn.get(layer) !== false
+    if (layer === VEHICLE_LAYER) await Promise.all([super.setLayerVisible(layer, visible), super.setLayerVisible(VEHICLE_TRAIL_LAYER, visible)])
+    else await super.setLayerVisible(layer, visible)
   }
 
   /** 路段中点的投影坐标 */
@@ -271,5 +366,18 @@ export class TrafficScene extends ModuleScene {
     const segment = this.data?.segments.find(s => s.id === id)
     const mid = segment && this.midOf(segment)
     if (mid) await this.api.setCamera(focusView(mid, Math.min(5200, Math.max(3000, segment.lengthKm * 1500))), 1.5)
+  }
+
+  /** 飞到某辆重点车辆所选小时的位置 */
+  async focusVehicle(id: string): Promise<void> {
+    const v = this.data?.vehicles.find(x => x.id === id)
+    const p = v && this.vehiclePoint(v, this.hour)
+    if (p) await this.api.setCamera(focusView(p), 1.5)
+  }
+
+  /** 飞到某个路口摄像头（摄像头统一 2400 米） */
+  async focusCamera(intersectionId: string): Promise<void> {
+    const p = this.xy.get(intersectionId)
+    if (p) await this.api.setCamera(focusView(p, CAMERA_HEIGHT), 1.5)
   }
 }

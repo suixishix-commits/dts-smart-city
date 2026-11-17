@@ -2,7 +2,7 @@ import { concentrationsAt, noiseDbAt, readingOf, stationReadingsAt, WATER_GRADE_
 import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi, SceneObjectType } from '@/scene/SceneApi'
 import { pointAt, type CityGeo } from '@/scene/geo'
-import { area, circleRing, COLOR, column, focusView, LEVEL_COLOR, pin, rampColor, regionLayer, ripple, STATUS_RAMP } from '@/scene/kit'
+import { area, circleRing, COLOR, column, focusView, LEVEL_COLOR, pin, rampColor, regionLayer, ripple, staggerHeights, STATUS_RAMP } from '@/scene/kit'
 import type { AirIndex, AirLevel, EnvironmentData, PlaceRef, WaterGrade } from '@/types/environment'
 
 export interface EnvironmentSceneOptions {
@@ -18,13 +18,14 @@ export const ENV_LAYERS = [
   { key: 'station', name: '监测站点', on: true },
   { key: 'source', name: '污染源', on: true },
   { key: 'noise', name: '噪声监测', on: false },
-  { key: 'green', name: '生态空间', on: false }
+  { key: 'green', name: '生态空间', on: false },
+  { key: 'water', name: '水质', on: false }
 ] as const
 
 /** 空气质量等级色：优、良、轻度、中度及以上 */
 export const AIR_COLORS: readonly string[] = STATUS_RAMP
-/** 水质类别色：一、二类达标用冷色，三、四类转暖 */
-export const WATER_COLORS: Record<WaterGrade, string> = { 1: COLOR.ok, 2: COLOR.accent, 3: COLOR.caution, 4: COLOR.warn }
+/** 水质类别色：一、二类达标用冷色（深、浅蓝），三、四类超标转暖 */
+export const WATER_COLORS: Record<WaterGrade, string> = { 1: COLOR.accent, 2: COLOR.accentLight, 3: COLOR.caution, 4: COLOR.warn }
 /** 噪声色带的范围，dB(A)：低于下限取最低档，高于上限取最高档 */
 export const NOISE_RANGE: [number, number] = [45, 75]
 
@@ -39,8 +40,12 @@ export function noiseColor(db: number): string {
 }
 
 const AIR_LAYER_ID = 'sc_environment_air'
+/** 片区读数标注的图层 */
+const AIR_LABEL_LAYER = 'airLabel'
 /** 噪声柱半径，米 */
 const NOISE_RADIUS = 110
+/** 标注相距多近（米）时错开高度 */
+const LABEL_STAGGER = 1800
 
 /**
  * 生态环境的场景图层：
@@ -48,7 +53,8 @@ const NOISE_RADIUS = 110
  * - station 监测站点：标注，显示站名和当前读数，按等级着色；
  * - source  污染源与投诉：扩散波纹 + 标注，按告警等级用暖色；
  * - noise   噪声监测：路口上的立体柱，高度和颜色随所选时刻的声级变化（默认关闭）；
- * - green   生态空间：公园、红树林、海滩的范围面 + 沿岸水质采样点（默认关闭）。
+ * - green   生态空间：公园、红树林、海滩的范围面（默认关闭）；
+ * - water   水质：沿岸水质采样点，按水质类别着色，超标点常显（默认关闭）。
  */
 export class EnvironmentScene extends ModuleScene {
   private data: EnvironmentData | null = null
@@ -57,6 +63,8 @@ export class EnvironmentScene extends ModuleScene {
   /** onEnter 已经创建完图层。在此之前 setHour / setIndex 只记录取值 */
   private entered = false
   private regions: Awaited<ReturnType<typeof regionLayer>> | null = null
+  /** 污染源、监测站标注的引线高度（'source:id' / 'station:id' → 高度），进入时按位置算好 */
+  private leads = new Map<string, number>()
   /** 各随时间变化的图层上一次的内容签名，内容没变就不重建（避免标注闪动） */
   private signatures = new Map<string, string>()
   /** 当前被关掉的图层。标注不在场景里时，定位改用相机直接飞 */
@@ -125,9 +133,28 @@ export class EnvironmentScene extends ModuleScene {
       return at ? [{ s, at }] : []
     })
     await this.add(token, 'radiationPoint', sources.map(({ s, at }) => ripple({ id: 'source-ripple-' + s.id, groupId: 'sc_environment_source_ripple', at, radius: s.level <= 2 ? 560 : 380, color: LEVEL_COLOR[s.level] })), 'source')
-    await this.add(token, 'marker', sources.map(({ s, at }) => pin({ id: 'source-' + s.id, groupId: 'sc_environment_source', at, text: s.shortName, color: LEVEL_COLOR[s.level], userId: s.id, lineHeight: 64, priority: 8 })), 'source')
+    // 污染源和监测站的标注一起错开引线高度（顺序固定：污染源按等级在前，监测站随后），拖动时间轴时不跳动
+    const stations = data.stations.flatMap(s => {
+      const at = this.locate(s.place)
+      return at ? [{ id: 'station:' + s.id, at }] : []
+    })
+    const ordered = [...[...sources].sort((a, b) => a.s.level - b.s.level).map(({ s, at }) => ({ id: 'source:' + s.id, at })), ...stations]
+    const heights = staggerHeights(
+      ordered.map(o => o.at),
+      44,
+      34,
+      LABEL_STAGGER
+    )
+    this.leads = new Map(ordered.map((o, k) => [o.id, heights[k]]))
+    // 一、二级污染源常显，其余拉近才显示
+    await this.add(
+      token,
+      'marker',
+      sources.map(({ s, at }) => pin({ id: 'source-' + s.id, groupId: 'sc_environment_source', at, text: s.shortName, color: LEVEL_COLOR[s.level], userId: s.id, lineHeight: this.leads.get('source:' + s.id), priority: s.level <= 2 ? 8 : 2 })),
+      'source'
+    )
 
-    // 生态空间：范围面 + 沿岸水质采样点
+    // 生态空间：范围面
     await this.add(
       token,
       'polygon',
@@ -142,9 +169,10 @@ export class EnvironmentScene extends ModuleScene {
       'marker',
       data.waterSamples.flatMap(w => {
         const at = this.locate(w.place)
-        return at ? [pin({ id: 'water-' + w.id, groupId: 'sc_environment_water', at, text: `${w.id} ${WATER_GRADE_NAMES[w.grade]}`, color: WATER_COLORS[w.grade], userId: w.id, lineHeight: 26, fontSize: 11 })] : []
+        // 超标（三、四类）的点常显，其余参与避让
+        return at ? [pin({ id: 'water-' + w.id, groupId: 'sc_environment_water', at, text: `${w.id} ${WATER_GRADE_NAMES[w.grade]}`, color: WATER_COLORS[w.grade], userId: w.id, lineHeight: 26, fontSize: 11, priority: w.grade >= 3 ? 10 : 5 })] : []
       }),
-      'green'
+      'water'
     )
 
     if (!this.isCurrent(token)) return
@@ -179,9 +207,21 @@ export class EnvironmentScene extends ModuleScene {
     await this.replaceLayer(layer, type, objects)
   }
 
+  /** 片区标注：片区名 + 所选指标的读数，标在片区中心，全城视角下的主要信息（站点细节拉近再看） */
+  private districtLabels(data: EnvironmentData): { id: string }[] {
+    const byId = new Map(data.districts.map(d => [d.id, d]))
+    return this.geo.districts.flatMap(d => {
+      const env = byId.get(d.id)
+      if (!env) return []
+      const r = readingOf(concentrationsAt(env, this.hour), this.index)
+      return [pin({ id: 'air-label-' + d.id, groupId: 'sc_environment_air_label', at: d.centerXY, text: d.name, value: String(r.value), color: airColor(r.level), userId: d.id, lineHeight: 18, fontSize: 12, priority: 6 })]
+    })
+  }
+
   private async apply(data: EnvironmentData): Promise<void> {
     const colors = this.districtColors(data)
     await Promise.all([
+      this.replaceIfChanged(AIR_LABEL_LAYER, 'marker', this.districtLabels(data)),
       // 点阵流光只换颜色；没有效果总包（或创建失败）时用普通面
       this.regions
         ? this.regions.setColors(colors)
@@ -192,8 +232,9 @@ export class EnvironmentScene extends ModuleScene {
         data.stations.flatMap(s => {
           const at = this.locate(s.place)
           if (!at) return []
+          // 空气质量差的站点常显；其余拉近才显示（老城区站点密，全城视角下全显示会挤成一片）
           const r = readingOf(concentrationsAt(s, this.hour), this.index)
-          return [pin({ id: 'station-' + s.id, groupId: 'sc_environment_station', at, text: `${s.shortName}  ${r.value}`, color: airColor(r.level), userId: s.id, lineHeight: 44, priority: r.level >= 2 ? 10 : 7 })]
+          return [pin({ id: 'station-' + s.id, groupId: 'sc_environment_station', at, text: s.shortName, value: String(r.value), color: airColor(r.level), userId: s.id, lineHeight: this.leads.get('station:' + s.id) ?? 44, priority: r.level >= 2 ? 10 : 2 })]
         })
       ),
       this.replaceIfChanged(
@@ -228,6 +269,8 @@ export class EnvironmentScene extends ModuleScene {
     if (visible) this.hidden.delete(layer)
     else this.hidden.add(layer)
     await super.setLayerVisible(layer, visible)
+    // 「空气质量」开关同时控制片区着色和片区标注
+    if (layer === 'air') await super.setLayerVisible(AIR_LABEL_LAYER, visible)
   }
 
   /** 飞到某个位置 */
@@ -244,5 +287,10 @@ export class EnvironmentScene extends ModuleScene {
   /** 飞到某个污染源 */
   async focusSource(id: string): Promise<void> {
     await this.flyTo(this.data?.sources.find(s => s.id === id)?.place)
+  }
+
+  /** 飞到某个近岸水质采样点 */
+  async focusWater(id: string): Promise<void> {
+    await this.flyTo(this.data?.waterSamples.find(w => w.id === id)?.place)
   }
 }

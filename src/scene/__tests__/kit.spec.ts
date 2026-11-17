@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { arc, area, circleRing, COLOR, column, fence, flowLine, focusView, frustum, heatmap, LEVEL_COLOR, pin, plainLine, RAMP, rampColor, regionLayer, rgba, ripple, STATUS_RAMP } from '../kit'
+import { arc, area, circleRing, COLOR, column, fence, flowLine, focusView, frustum, heatmap, LEVEL_COLOR, pin, plainLine, RAMP, rampColor, regionLayer, rgba, ripple, staggerHeights, STATUS_RAMP } from '../kit'
 
 describe('rgba', () => {
   it('converts #rrggbb to 0–1 components with alpha 1 by default', () => {
@@ -122,7 +122,7 @@ describe('arc', () => {
     expect(a.coordinates).toHaveLength(25)
     expect(a.coordinates[0]).toEqual([0, 0, 10])
     expect(a.coordinates[24]).toEqual([1000, 0, 10])
-    expect(a).toMatchObject({ id: 'a1', groupId: 'g', coordinateType: 0, color: [0, 0, 1, 1], style: 4, thickness: 30, intensity: 1.6, depthTest: false })
+    expect(a).toMatchObject({ id: 'a1', groupId: 'g', coordinateType: 0, color: [0, 0, 1, 1], style: 4, thickness: 30, intensity: 1, depthTest: false })
     // 不再带迁徙线的参数
     expect(a).not.toHaveProperty('lineThickness')
     expect(a).not.toHaveProperty('bendDegree')
@@ -143,14 +143,14 @@ describe('arc', () => {
     }
   })
 
-  it('honours width, bend and brightness, clamping the brightness to 0.8–3', () => {
+  it('honours width, bend and brightness, clamping the brightness to 0.5–1.2', () => {
     const a = arc({ id: 'a1', from: [0, 0], to: [1000, 0], color: '#0000ff', width: 50, bend: 0.6, brightness: 1 })
     expect(a.thickness).toBe(50)
     expect(a.intensity).toBe(1)
     expect(a.coordinates[12][1]).toBeCloseTo(-360)
     expect(a.coordinates[12][2]).toBeCloseTo(310)
-    expect(arc({ id: 'a1', from: [0, 0], to: [1, 1], color: '#0000ff', brightness: 9 }).intensity).toBe(3)
-    expect(arc({ id: 'a1', from: [0, 0], to: [1, 1], color: '#0000ff', brightness: 0.1 }).intensity).toBe(0.8)
+    expect(arc({ id: 'a1', from: [0, 0], to: [1, 1], color: '#0000ff', brightness: 9 }).intensity).toBe(1.2)
+    expect(arc({ id: 'a1', from: [0, 0], to: [1, 1], color: '#0000ff', brightness: 0.1 }).intensity).toBe(0.5)
   })
 
   it('stays a finite flat line when both points coincide', () => {
@@ -286,7 +286,7 @@ describe('heatmap', () => {
   it('has a transparent lowest colour stop by default and accepts custom stops', () => {
     const stops = heatmap({ id: 'h', points, range: [0, 4] }).colors.colorStops
     expect(stops[0].color[3]).toBe(0)
-    expect(stops.map(s => s.value)).toEqual([0, 0.3, 0.55, 0.75, 1])
+    expect(stops.map(s => s.value)).toEqual([0, 0.3, 0.6, 0.66, 0.8, 1])
     const custom = [{ value: 0, color: [0, 0, 0, 0] }]
     expect(heatmap({ id: 'h', points, range: [0, 4], stops: custom }).colors.colorStops).toBe(custom)
   })
@@ -297,7 +297,7 @@ describe('flowLine', () => {
     [1, 2],
     [3, 4]
   ]
-  const line = (o: Partial<Parameters<typeof flowLine>[0]> = {}) => flowLine({ id: 'f1', path, color: '#4cc4d4', width: 50, ...o }) as Record<string, any>
+  const line = (o: Partial<Parameters<typeof flowLine>[0]> = {}) => flowLine({ id: 'f1', path, color: '#4c9aff', width: 50, ...o }) as Record<string, any>
 
   it('builds a solid glowing line 12 m above ground that needs no effect library', () => {
     const l = line({ groupId: 'g' })
@@ -306,7 +306,7 @@ describe('flowLine', () => {
       [1, 2, 12],
       [3, 4, 12]
     ])
-    expect(l.color).toEqual(rgba('#4cc4d4'))
+    expect(l.color).toEqual(rgba('#4c9aff'))
   })
 
   it('expresses the style through thickness: pulse and arrow full width, particles 80%, dash 60%', () => {
@@ -327,11 +327,11 @@ describe('flowLine', () => {
     expect(line({ style: 'pulse' }).color[3]).toBe(1)
   })
 
-  it('clamps the brightness to 0.8–3 and defaults to 2.4', () => {
-    expect(line().intensity).toBe(2.4)
-    expect(line({ brightness: 9 }).intensity).toBe(3)
-    expect(line({ brightness: 0.1 }).intensity).toBe(0.8)
-    expect(line({ brightness: 1.6 }).intensity).toBe(1.6)
+  it('clamps the brightness to 0.5–1.2 (above that bloom washes the colour white) and defaults to 1', () => {
+    expect(line().intensity).toBe(1)
+    expect(line({ brightness: 9 }).intensity).toBe(1.2)
+    expect(line({ brightness: 0.1 }).intensity).toBe(0.5)
+    expect(line({ brightness: 0.8 }).intensity).toBe(0.8)
   })
 
   it('honours the height and accepts speed, spacing and reverse without changing the object', () => {
@@ -355,7 +355,7 @@ describe('flowLine', () => {
 describe('效果库图层（适配库为替身）', () => {
   const w = window as any
   const regionLib = {
-    PRESETS: { dots: { dotSpacingM: 10, dotSizeM: 2, preset: 'dots' }, hatch: { dotSpacingM: 20, dotSizeM: 4, preset: 'hatch' } },
+    PRESETS: { dots: { dotSpacingM: 10, dotSizeM: 2, dotIntensity: 1, preset: 'dots' }, hatch: { dotSpacingM: 20, dotSizeM: 4, dotIntensity: 0.8, preset: 'hatch' } },
     DEFAULT_STYLE: { glow: 1, baseOpacity: 0.5 },
     create: vi.fn(async (..._args: any[]) => {}),
     remove: vi.fn(async (..._args: any[]) => {}),
@@ -397,7 +397,8 @@ describe('效果库图层（适配库为替身）', () => {
       const [api, o] = regionLib.create.mock.calls[0]
       expect(api).toBe(xapi)
       expect(o.id).toBe('layer')
-      expect(o.style).toEqual({ glow: 1, preset: 'hatch', dotSpacingM: 40, dotSizeM: 8, baseOpacity: 0.08 })
+      // 点阵亮度减半、关掉描边泛白、收窄外发光（白天影像上不发白）
+      expect(o.style).toEqual({ glow: 1, preset: 'hatch', dotSpacingM: 40, dotSizeM: 8, dotIntensity: 0.4, baseOpacity: 0.08, lineIntensity: 1, lineWhiten: 0, glowIntensity: 0.5, glowOpacity: 0.08, spillIntensity: 0.1, flowIntensity: 1.6 })
       expect(o.regions).toEqual([
         { id: 'a', color: '#111111', rings: [[[0, 0], [10, 0], [10, 10]]] },
         { id: 'b', color: '#222222', rings: [[[10, 0], [20, 0], [20, 10]]] }
@@ -492,5 +493,16 @@ describe('效果库图层（适配库为替身）', () => {
       await frustum('cam-1', [0, 0, 30], [100, 100, 0], { hfov: 90, vfov: 50, range: 400 })
       expect(frustumLib.create.mock.calls[0][1]).toMatchObject({ hfovDeg: 90, vfovDeg: 50, rangeM: 400 })
     })
+  })
+})
+
+describe('staggerHeights', () => {
+  it('keeps isolated pins at the base height', () => {
+    expect(staggerHeights([[0, 0], [5000, 0], [0, 5000]], 56, 34, 1800)).toEqual([56, 56, 56])
+  })
+
+  it('raises each nearby pin to the lowest free level', () => {
+    // 第 3 个和第 1 个重叠、和第 2 个也重叠；第 4 个只挨着第 2 个
+    expect(staggerHeights([[0, 0], [1000, 0], [500, 300], [2600, 0]], 56, 34, 1800)).toEqual([56, 90, 124, 56])
   })
 })

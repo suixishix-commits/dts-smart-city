@@ -6,7 +6,6 @@
 <script setup lang="ts">
 import store from '@/stores/index'
 import { messages } from '@/i18n'
-import { ElMessage } from 'element-plus'
 const locale = computed(() => messages[store.appStore.language]?.el)
 const size = computed(() => store.appStore.componentSize)
 onMounted(() => {

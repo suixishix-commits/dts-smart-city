@@ -1,4 +1,4 @@
-import type { GeoData, GeoDistrict, GeoIntersection, GeoLandmark, GeoRoad, LonLat } from '@/types/geo'
+import type { GeoData, GeoDistrict, GeoIntersection, GeoLandmark, GeoRoad, GeoStreet, LonLat } from '@/types/geo'
 
 /** 投影坐标 [x, y]（米） */
 export type XY = [number, number]
@@ -77,6 +77,8 @@ export class CityGeo {
   readonly roads: (GeoRoad & { line: XY[] })[]
   readonly intersections: (GeoIntersection & { xy: XY })[]
   readonly landmarks: (GeoLandmark & { xy: XY })[]
+  /** 底图街道（投影后）；geo.json 没有街道时为空 */
+  readonly streets: (GeoStreet & { line: XY[] })[]
 
   constructor(
     readonly raw: GeoData,
@@ -88,6 +90,7 @@ export class CityGeo {
     this.roads = raw.roads.map(r => ({ ...r, line: r.path.map(p => this.xy(p)) }))
     this.intersections = raw.intersections.map(i => ({ ...i, xy: this.xy(i.position) }))
     this.landmarks = raw.landmarks.map(l => ({ ...l, xy: this.xy(l.position) }))
+    this.streets = (raw.streets ?? []).map(s => ({ ...s, line: s.path.map(p => this.xy(p)) }))
   }
 
   /** geo.json 里出现过的经纬度 → 投影坐标 */
@@ -140,6 +143,7 @@ export async function buildCityGeo(raw: GeoData, project: (lonLat: number[][]) =
   raw.roads.forEach(r => all.push(...r.path))
   raw.intersections.forEach(i => all.push(i.position))
   raw.landmarks.forEach(l => all.push(l.position))
+  raw.streets?.forEach(s => all.push(...s.path))
   const unique = [...new Map(all.map(p => [p[0] + ',' + p[1], p])).values()]
   const projected = await project(unique)
   const table = new Map<string, XY>()

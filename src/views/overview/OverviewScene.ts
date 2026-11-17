@@ -2,7 +2,7 @@ import { districtDensityAt, heatGridAt, hotspotActivityAt } from '@/api/mock/pop
 import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 import type { CityGeo } from '@/scene/geo'
-import { area, COLOR, focusView, heatmap, pin, rampColor, regionLayer, ripple } from '@/scene/kit'
+import { area, COLOR, focusView, heatmap, pin, rampColor, regionLayer, ripple, staggerHeights } from '@/scene/kit'
 import type { OverviewData } from '@/types/smartCity'
 
 export interface OverviewSceneOptions {
@@ -19,6 +19,8 @@ const DENSITY_MAX = 2.8
 /** 热力网格间距，米 */
 const HEAT_STEP = 480
 const DISTRICT_LAYER_ID = 'sc_overview_districts'
+/** 热点相距多近（米）时错开标注高度 */
+const HOTSPOT_STAGGER = 1800
 
 function heatColor(heat: number): string {
   return heat >= 90 ? COLOR.danger : heat >= 75 ? COLOR.warn : COLOR.caution
@@ -81,7 +83,7 @@ export class OverviewScene extends ModuleScene {
         this.districts = await regionLayer(
           DISTRICT_LAYER_ID,
           geo.districts.map(d => ({ id: d.id, color: this.densityColor(d.id), ring: d.ring })),
-          { pattern: 'dots', scale: 3, fill: 0.08 }
+          { pattern: 'dots', scale: 3, fill: 0.04 }
         )
         return this.districts
       })
@@ -90,10 +92,12 @@ export class OverviewScene extends ModuleScene {
     }
 
     const ranked = [...data.hotspots].sort((a, b) => b.heat - a.heat)
+    // 热点集中在商业区，挨得近的错开引线高度；热度最高的排最低一档
+    const heights = staggerHeights(ranked.map(h => this.hotspotXY.get(h.id) as number[]), 56, 34, HOTSPOT_STAGGER)
     await this.add(
       token,
       'marker',
-      ranked.map((h, i) => pin({ id: 'hotspot-' + h.id, groupId: 'sc_hotspot', at: this.hotspotXY.get(h.id) as number[], text: `${i + 1}  ${h.shortName}`, color: heatColor(h.heat), userId: h.id, lineHeight: 56, priority: 10 })),
+      ranked.map((h, i) => pin({ id: 'hotspot-' + h.id, groupId: 'sc_hotspot', at: this.hotspotXY.get(h.id) as number[], tag: String(i + 1), text: h.shortName, color: heatColor(h.heat), userId: h.id, lineHeight: heights[i], priority: 10 })),
       'hotspot'
     )
     await this.add(
@@ -158,6 +162,14 @@ export class OverviewScene extends ModuleScene {
   async focusHotspot(id: string): Promise<void> {
     const p = this.hotspotXY.get(id)
     if (p) await this.api.setCamera(focusView(p), 1.5)
+  }
+
+  /** 飞到某个片区（按名称，告警只带片区名）。找不到返回 false */
+  async focusDistrict(name: string): Promise<boolean> {
+    const d = this.geo.districts.find(x => x.name === name)
+    if (!d) return false
+    await this.api.setCamera(focusView(d.centerXY, 3600), 1.5)
+    return true
   }
 
   /** 飞到某路摄像头 */

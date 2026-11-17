@@ -77,7 +77,13 @@ export default class EventDispatcher {
             playerId: e.playerId
           }
           //判断e.UserData中disableHighligh=true，如果为true，不高亮
-          let objUserData: any = JSON.parse(markerObj.userData)
+          // 场景自带的标注 userData 可能是普通字符串（如 "case-…"），不是 JSON：解析失败时按空对象处理，不打断事件派发
+          let objUserData: any = {}
+          try {
+            objUserData = JSON.parse(markerObj.userData || '{}')
+          } catch {
+            objUserData = {}
+          }
           let disableH = objUserData.disableHighligh || true
           console.log('场景左键点击信息:', disableH, markerObj, screenPoint)
           if (disableH != true) {

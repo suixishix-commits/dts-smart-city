@@ -2,10 +2,10 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { buildSecurityData, isActive } from '@/api/mock/security'
 import type { SceneApi, SceneObjectType } from '@/scene/SceneApi'
 import { buildCityGeo, pointInRing, type CityGeo } from '@/scene/geo'
-import { COLOR, focusView, LEVEL_COLOR, rgba } from '@/scene/kit'
+import { COLOR, focusView, LABEL_TIERS, LEVEL_COLOR, rgba } from '@/scene/kit'
 import type { GeoData } from '@/types/geo'
 import geoJson from '../../../../public/data/smart-city/geo.json'
-import { SECURITY_GROUP, SECURITY_LAYERS, SecurityScene } from '../SecurityScene'
+import { SECURITY_GROUP, SECURITY_LAYERS, SecurityScene, sectorRing } from '../SecurityScene'
 
 /** 严格的场景替身：重复添加同一个 id、删除不存在的 id 都会抛错 */
 class FakeApi implements SceneApi {
@@ -70,9 +70,20 @@ describe('SecurityScene', () => {
     scene.setData(data, 'today')
   })
 
-  it('图层定义：五个图层，防护区/警情/巡逻默认开，摄像头/热力默认关', () => {
-    expect(SECURITY_LAYERS.map(l => l.key)).toEqual(['fence', 'incident', 'patrol', 'camera', 'heat'])
+  it('图层定义：六个图层，防护区/警情/巡逻默认开，摄像头/监控视域/热力默认关', () => {
+    expect(SECURITY_LAYERS.map(l => l.key)).toEqual(['fence', 'incident', 'patrol', 'camera', 'cone', 'heat'])
+    expect(SECURITY_LAYERS.find(l => l.key === 'cone')?.name).toBe('监控视域')
     expect(SECURITY_LAYERS.filter(l => l.on).map(l => l.key)).toEqual(['fence', 'incident', 'patrol'])
+  })
+
+  it('进入时压暗底座街道，离开时恢复', async () => {
+    const dim: boolean[] = []
+    scene = new SecurityScene(api, geo, { cameraView: null, heatmapZ: [-50, 300], pak: false, dimBaseRoads: async d => void dim.push(d) })
+    scene.setData(data, 'today')
+    await scene.enter()
+    expect(dim).toEqual([true])
+    await scene.leave()
+    expect(dim).toEqual([true, false])
   })
 
   it('进入后只创建默认打开的图层', async () => {
@@ -125,14 +136,14 @@ describe('SecurityScene', () => {
       expect(r.radius).toBeGreaterThanOrEqual(250)
       expect(r.radius).toBeLessThanOrEqual(800)
       const m = api.get('marker:incident-' + i.id)
-      expect(m.text).toBe(i.title)
+      expect(m.text).toBe(`${['', '一级', '二级', '三级', '四级'][i.level]} · ${i.title}`)
       expect(m.groupId).toBe(SECURITY_GROUP.incident)
       expect(JSON.parse(m.userData)).toEqual({ id: i.id })
       expect(m.lineColor).toEqual(rgba(LEVEL_COLOR[i.level], 0.95))
       // 在办的一、二级警情始终显示（优先级 ≥ 10），其余参与避让
       const urgent = isActive(i) && i.level <= 2
       expect(m.priority).toBe(urgent ? 15 - i.level : 8 - i.level)
-      expect(m.displayMode).toBe(urgent ? 2 : 4)
+      expect(m.viewHeightRange).toEqual(urgent ? undefined : [1, LABEL_TIERS.normal])
     }
     const radius = (id: string) => api.get('radiationPoint:incident-ripple-' + id).radius
     const [most, least] = [data.incidents.find(i => i.level === 1), data.incidents.find(i => i.level === 4)]
@@ -350,8 +361,10 @@ describe('SecurityScene', () => {
   it('离开后清空全部对象', async () => {
     await scene.enter()
     await scene.setLayerVisible('camera', true)
+    await scene.setLayerVisible('cone', true)
     await scene.setLayerVisible('heat', true)
-    expect(api.store.size).toBe(DEFAULT_COUNT + data.cameras.length + 1)
+    await scene.projectCamera(data.cameras[0].id)
+    expect(api.store.size).toBe(DEFAULT_COUNT + data.cameras.length + data.viewCones.length + 2)
     await scene.leave()
     expect(api.store.size).toBe(0)
     expect(scene.objectCount()).toBe(0)
@@ -382,6 +395,101 @@ describe('SecurityScene', () => {
     await scene.enter()
     expect(api.store.size).toBe(DEFAULT_COUNT)
     expect(scene.objectCount()).toBe(DEFAULT_COUNT)
+  })
+
+  it('监控视域（兜底）：默认不创建；打开后每个视域一个从摄像头张开、朝向警情的蓝色扇形；关闭隐藏', async () => {
+    await scene.enter()
+    expect(api.ids('polygon', 'cone-')).toEqual([])
+    await scene.setLayerVisible('cone', true)
+    expect(api.ids('polygon', 'cone-')).toHaveLength(data.viewCones.length)
+    for (const c of data.viewCones) {
+      const poly = api.get('polygon:cone-' + c.cameraId)
+      const cam = geo.xy((data.cameras.find(x => x.id === c.cameraId) as { position: number[] }).position)
+      const inc = geo.xy((data.incidents.find(x => x.id === c.incidentId) as { position: number[] }).position)
+      expect(poly.coordinates[0].slice(0, 2)).toEqual(cam)
+      expect(poly.color).toEqual(rgba(COLOR.accent, 0.22))
+      // 扇形中线指向警情
+      const mid = poly.coordinates[Math.floor(poly.coordinates.length / 2)]
+      const a1 = Math.atan2(mid[1] - cam[1], mid[0] - cam[0])
+      const a2 = Math.atan2(inc[1] - cam[1], inc[0] - cam[0])
+      expect(Math.abs(Math.atan2(Math.sin(a1 - a2), Math.cos(a1 - a2)))).toBeLessThan(0.01)
+    }
+    // 摄像头图层与视域图层互不影响
+    expect(api.ids('marker', 'camera-')).toEqual([])
+    await scene.setLayerVisible('cone', false)
+    expect(api.visible.get('polygon:cone-' + data.viewCones[0].cameraId)).toBe(false)
+    expect(api.ids('customObject')).toEqual([])
+    await scene.leave()
+    expect(api.store.size).toBe(0)
+  })
+
+  it('sectorRing：首点是镜头，弧上的点到镜头的距离都是 range，张角为 hfov', () => {
+    const ring = sectorRing([100, 200], [100, 1200], 900, 60, 12)
+    expect(ring).toHaveLength(14)
+    expect(ring[0]).toEqual([100, 200])
+    for (const p of ring.slice(1)) expect(Math.hypot(p[0] - 100, p[1] - 200)).toBeCloseTo(900, 6)
+    const angle = (p: number[]) => (Math.atan2(p[1] - 200, p[0] - 100) * 180) / Math.PI
+    expect(angle(ring[1])).toBeCloseTo(60)
+    expect(angle(ring[13])).toBeCloseTo(120)
+  })
+
+  it('摄像头瞄准点：有视域的对准它的警情，其余落在 150–2500 米内或固定方向上，未知摄像头为 null', async () => {
+    expect(scene.cameraTarget(data.cameras[0].id)).toBeNull()
+    await scene.enter()
+    const cone = data.viewCones[0]
+    expect(scene.cameraTarget(cone.cameraId)).toEqual(geo.xy((data.incidents.find(i => i.id === cone.incidentId) as { position: number[] }).position))
+    for (const c of data.cameras) {
+      const t = scene.cameraTarget(c.id) as number[]
+      const d = Math.hypot(t[0] - geo.xy(c.position)[0], t[1] - geo.xy(c.position)[1])
+      expect(d).toBeGreaterThanOrEqual(150)
+      expect(d).toBeLessThanOrEqual(2500)
+    }
+    expect(scene.cameraTarget('不存在')).toBeNull()
+  })
+
+  it('投射（兜底）：画一个贴地扇形，同一时刻只有一路，取消或离开后清除', async () => {
+    expect(await scene.projectCamera(data.cameras[0].id)).toBe(false)
+    expect(api.store.size).toBe(0)
+    await scene.enter()
+    const [a, b] = [data.cameras[3], data.cameras[7]]
+    expect(await scene.projectCamera(a.id)).toBe(true)
+    expect(scene.projectedCamera()).toBe(a.id)
+    expect(api.ids('polygon', 'projection-')).toEqual(['polygon:projection-' + a.id])
+    const poly = api.get('polygon:projection-' + a.id)
+    expect(poly.coordinates[0].slice(0, 2)).toEqual(geo.xy(a.position))
+    expect(poly.color).toEqual(rgba(COLOR.accent, 0.22))
+    // 投射不受图层开关影响：摄像头、视域图层都关着
+    expect(api.ids('marker', 'camera-')).toEqual([])
+    expect(await scene.projectCamera(b.id)).toBe(true)
+    expect(api.ids('polygon', 'projection-')).toEqual(['polygon:projection-' + b.id])
+    await scene.clearProjection()
+    expect(scene.projectedCamera()).toBeNull()
+    expect(api.ids('polygon', 'projection-')).toEqual([])
+    expect(api.store.size).toBe(DEFAULT_COUNT)
+
+    expect(await scene.projectCamera('不存在')).toBe(false)
+    expect(await scene.projectCamera(a.id)).toBe(true)
+    await scene.leave()
+    expect(api.store.size).toBe(0)
+    expect(scene.projectedCamera()).toBeNull()
+  })
+
+  it('投射后马上取消：过期的投射不留下对象', async () => {
+    await scene.enter()
+    const projecting = scene.projectCamera(data.cameras[2].id)
+    await scene.clearProjection()
+    expect(await projecting).toBe(false)
+    expect(api.ids('polygon', 'projection-')).toEqual([])
+  })
+
+  it('定位片区：飞到片区质心上空 3600 米，未知片区不动相机', async () => {
+    await scene.enter()
+    const d = geo.districts[3]
+    await scene.focusDistrict(d.id)
+    expect(api.cameraCalls).toEqual([focusView(geo.xy(d.centroid), 3600)])
+    api.cameraCalls = []
+    await scene.focusDistrict('不存在')
+    expect(api.cameraCalls).toEqual([])
   })
 
   it('没有设置数据时进入不创建任何对象', async () => {

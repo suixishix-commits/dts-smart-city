@@ -1,8 +1,8 @@
 import type { AlarmLevel } from './smartCity'
 
-/** 四张管网 */
-export type PipeSystem = 'water' | 'power' | 'gas' | 'drain'
-/** 生命线的五类设施（四张管网 + 桥梁） */
+/** 五张管网：供水、电力、燃气、排水、区域供冷 */
+export type PipeSystem = 'water' | 'power' | 'gas' | 'drain' | 'cooling'
+/** 生命线的六类设施（五张管网 + 桥梁） */
 export type LifelineSystem = PipeSystem | 'bridge'
 
 /**
@@ -93,6 +93,48 @@ export interface PumpStation {
   status: FacilityStatus
 }
 
+/** 区域供冷站 */
+export interface CoolingPlant {
+  id: string
+  name: string
+  anchor: Anchor
+  location: string
+  districtId: string | null
+  /** 装机冷量，冷吨（RT） */
+  capacityRt: number
+  /** 当前负荷率，% */
+  loadPercent: number
+  /** 供水 / 回水温度，℃ */
+  supplyTemp: number
+  returnTemp: number
+  status: FacilityStatus
+}
+
+/** 阀门（爆管时关闭、调压时调节的阀） */
+export interface Valve {
+  id: string
+  /** 编号，如 V-1023 */
+  name: string
+  anchor: Anchor
+  location: string
+  /** 当前状态，如 已关闭 / 待关闭 / 已切换 */
+  state: string
+}
+
+/** 告警的影响分析 */
+export interface ImpactAnalysis {
+  /** 影响范围的缓冲距离，米：有受影响管段时沿管段两侧，否则以告警点为圆心 */
+  radius: number
+  /** 受影响的小区及户数 */
+  communities: { name: string; users: number }[]
+  /** 影响用户合计，户 */
+  users: number
+  /** 预计恢复时间，如 17:30 */
+  recovery: string
+  /** 需要操作的阀门 */
+  valves: Valve[]
+}
+
 /** 桥梁健康。id 就是 geo.json 里 bridge 类地标的 id */
 export interface BridgeHealth {
   id: string
@@ -143,12 +185,20 @@ export interface LifelineAlarm {
   status: string
   /** 处置步骤 */
   steps: { name: string; time: string; done: boolean }[]
+  /** 处置建议 */
+  advice: string
+  /** 影响分析；桥梁这类不涉及用户的告警没有 */
+  analysis?: ImpactAnalysis
 }
 
-/** 抢修工单 */
+/** 工单：抢修（由告警派发）或巡检（设施、桥梁） */
 export interface WorkOrder {
   id: string
-  alarmId: string
+  kind: 'repair' | 'inspect'
+  /** 抢修工单关联的告警 */
+  alarmId?: string
+  /** 工单对象：告警 id，或巡检的设施 / 桥梁 id */
+  targetId: string
   title: string
   crew: string
   /** 预计完成时间 */
@@ -188,6 +238,17 @@ export interface LifelineSummary {
   integrity: number
 }
 
+/** 今日与昨日的逐时供水量，万 m³/时 */
+export interface WaterSupply {
+  /** [小时, 供水量]，今日只到数据时刻 */
+  today: [number, number][]
+  yesterday: [number, number][]
+  /** 今日截至数据时刻的累计供水量，万 m³ */
+  todayTotal: number
+  /** 昨日同一时刻的累计供水量，万 m³ */
+  yesterdaySameTime: number
+}
+
 export interface LifelineData {
   /** 数据时刻（小时，如 14.5 = 14:30） */
   hour: number
@@ -196,9 +257,11 @@ export interface LifelineData {
   gasStations: GasStation[]
   floodPoints: FloodPoint[]
   pumpStations: PumpStation[]
+  coolingPlants: CoolingPlant[]
   bridges: BridgeHealth[]
   alarms: LifelineAlarm[]
   orders: WorkOrder[]
   systems: SystemStatus[]
   summary: LifelineSummary
+  supply: WaterSupply
 }

@@ -5,9 +5,6 @@ const CURVE: [number, number][] = [
   [0, 62], [3, 58], [6, 61], [8, 74], [10, 79], [12, 80],
   [14.5, 78.6], [16, 82], [18, 88], [19.5, 91.2], [21, 84], [24, 66]
 ]
-/** 密度基准时刻的人口（12:00） */
-const BASELINE = 80
-
 /** 某时刻的在岛人口（万人），控制点之间线性插值 */
 export function islandPopulationAt(hour: number): number {
   const h = Math.min(24, Math.max(0, hour))
@@ -33,6 +30,14 @@ export function populationSeries(): [number, number][] {
     out.push([h, Math.round(islandPopulationAt(h) * 10) / 10])
   }
   return out
+}
+
+/** 昨日同时段的全天序列：形状与今日相同，白天略低、晚高峰略早（昨日是工作日，没有大型活动） */
+export function populationSeriesYesterday(): [number, number][] {
+  return populationSeries().map(([h, v]) => {
+    const evening = Math.exp(-((h - 18.5) ** 2) / 4) // 18:30 附近的晚高峰
+    return [h, Math.round((v * 0.97 - evening * 2.6 + Math.sin(h * 1.3) * 0.6) * 10) / 10]
+  })
 }
 
 /**

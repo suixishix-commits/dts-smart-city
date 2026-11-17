@@ -29,4 +29,21 @@ describe('alarm store', () => {
     s.setAlarms(list)
     expect(s.total).toBe(3)
   })
+
+  it('puts a pushed alarm first and remembers it as the latest', () => {
+    const s = alarmStoreDefine()
+    s.setAlarms(list)
+    const live: Alarm = { id: 'live-0', module: '交通', level: 4, title: 'n', area: 'x', time: '15:00' }
+    s.pushAlarm(live)
+    expect(s.alarms[0]).toEqual(live)
+    expect(s.latest).toEqual(live)
+    expect(s.total).toBe(4)
+  })
+
+  it('keeps pushed alarms when the page reloads its data', () => {
+    const s = alarmStoreDefine()
+    s.pushAlarm({ id: 'live-0', module: '交通', level: 4, title: 'n', area: 'x', time: '15:00' })
+    s.setAlarms(list)
+    expect(s.alarms.map(a => a.id)).toEqual(['live-0', 'a3', 'a1', 'a2'])
+  })
 })

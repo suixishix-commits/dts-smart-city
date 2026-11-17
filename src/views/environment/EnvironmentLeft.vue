@@ -1,43 +1,85 @@
 <template>
   <aside class="environment-left">
-    <PanelCard title="环境质量" :extra="'首要污染物 ' + primaryName + ' · 优良片区 ' + goodDistricts + ' / ' + data.districts.length">
-      <div class="stats">
-        <StatItem label="空气质量指数 AQI" :value="city.aqi" :unit="AIR_LEVEL_NAMES[cityLevel]" size="lg" :color="airColor(cityLevel)" />
-        <StatItem label="PM2.5" :value="city.c.pm25" unit="μg/m³" size="lg" />
-        <StatItem label="PM10" :value="city.c.pm10" unit="μg/m³" size="lg" />
-        <StatItem label="优良天数比例" :value="goodDayRatio" :unit="'% · 本月 ' + data.goodDays.good + '/' + data.goodDays.total" size="lg" />
-      </div>
-      <div class="others">
-        <span v-for="p in others" :key="p.name" class="other">
-          <span class="other-name">{{ p.name }}</span>
-          <span class="other-value">{{ p.value }}</span>
-          <span class="other-unit">{{ p.unit }}</span>
+    <PanelCard title="空气质量" :extra="'优良天数 ' + data.goodDays.good + '/' + data.goodDays.total + ' · ' + goodDayRatio + '%'">
+      <div class="headline">
+        <span class="aqi">{{ city.aqi }}</span>
+        <span class="headline-text">
+          <span class="level"><i class="dot" :style="{ background: airColor(cityLevel) }"></i>AQI · {{ AIR_LEVEL_NAMES[cityLevel] }}</span>
+          <span class="primary">首要污染物 {{ primaryName }} · 更新于 {{ formatHour(hour) }}</span>
         </span>
       </div>
+      <!-- 六项污染物：全岛均值，超过国标二级限值的用暖色 -->
+      <div class="pollutants">
+        <div v-for="p in pollutants" :key="p.key" class="pollutant" :title="p.name + ' 二级限值 ' + p.limit + ' ' + p.unit">
+          <span class="p-name">{{ p.name }}</span>
+          <span class="p-line">
+            <span class="p-value" :style="p.over ? { color: COLOR.warn } : undefined">{{ p.value }}</span>
+            <span class="p-unit">{{ p.unit }}</span>
+          </span>
+        </div>
+      </div>
     </PanelCard>
 
-    <PanelCard title="24 小时趋势">
+    <PanelCard title="监测排名" grow>
       <template #extra>
-        <span class="chart-legend">{{ meta.name }} 全岛均值 <i class="dashed"></i>{{ meta.limitName }} {{ meta.limit }}</span>
+        <SegmentedTabs :model-value="tab" :options="TABS" label="排名对象" @update:model-value="tab = $event as typeof tab" />
       </template>
-      <LineChart :option="chartOption" :label="meta.name + ' 全岛均值二十四小时曲线'" />
-    </PanelCard>
-
-    <PanelCard title="片区排名" :extra="'最差 6 个 · ' + meta.name + (meta.unit ? ' ' + meta.unit : '')" grow>
-      <div class="rows">
+      <div class="rank-note">{{ meta.name }}{{ meta.unit ? ' ' + meta.unit : '' }} · 由高到低</div>
+      <!-- 监测站点：可点击，飞到站点并打开站点卡片 -->
+      <div v-if="tab === 'station'" class="list scroll">
+        <button v-for="r in stations" :key="r.station.id" type="button" class="row" :class="{ active: r.station.id === activeStation }" @click="emit('station', r.station.id)">
+          <i class="dot" :style="{ background: airColor(r.reading.level) }"></i>
+          <span class="main">
+            <span class="name">{{ r.station.name }}</span>
+            <span class="sub">{{ r.station.districtName }} · {{ r.station.kind }}</span>
+          </span>
+          <span class="value">{{ r.reading.value }}</span>
+          <span class="status" :style="{ color: airColor(r.reading.level) }">{{ AIR_LEVEL_SHORT[r.reading.level] }}</span>
+        </button>
+      </div>
+      <div v-else class="rows">
         <BarRow v-for="r in rankRows" :key="r.id" :name="r.name" :value="r.value" :percent="r.percent" :color="r.color" :note="r.note" :note-color="r.color" />
       </div>
+    </PanelCard>
+
+    <PanelCard :title="'24 小时 ' + meta.name">
+      <template #extra>
+        <span class="chart-legend">全岛均值 <i class="dashed"></i>{{ meta.limitName }} {{ meta.limit }}</span>
+      </template>
+      <LineChart class="bars" :option="chartOption" :label="meta.name + ' 全岛均值二十四小时柱状图'" />
     </PanelCard>
   </aside>
 </template>
 
 <script setup lang="ts">
-import { AIR_INDEXES, AIR_LEVEL_NAMES, AIR_LEVEL_SHORT, airLevel, aqiOf, cityConcentrationsAt, citySeries, districtReadingsAt, pollutantName, readingOf } from '@/api/mock/environment'
+import {
+  AIR_INDEXES,
+  AIR_LEVEL_NAMES,
+  AIR_LEVEL_SHORT,
+  airLevel,
+  aqiOf,
+  cityConcentrationsAt,
+  cityHourly,
+  districtReadingsAt,
+  formatHour,
+  isOverLimit,
+  pollutantName,
+  POLLUTANTS,
+  stationReadingsAt
+} from '@/api/mock/environment'
+import { COLOR } from '@/scene/kit'
 import type { AirIndex, EnvironmentData } from '@/types/environment'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { airColor } from './EnvironmentScene'
 
-const props = defineProps<{ data: EnvironmentData; hour: number; index: AirIndex }>()
+const props = defineProps<{ data: EnvironmentData; hour: number; index: AirIndex; activeStation: string | null }>()
+const emit = defineEmits<{ (e: 'station', id: string): void }>()
+
+const TABS = [
+  { key: 'station', name: '站点' },
+  { key: 'district', name: '片区' }
+] as const
+const tab = ref<(typeof TABS)[number]['key']>('station')
 
 const meta = computed(() => AIR_INDEXES.find(i => i.key === props.index) ?? AIR_INDEXES[0])
 
@@ -48,15 +90,16 @@ const city = computed(() => {
 })
 const cityLevel = computed(() => airLevel(city.value.aqi))
 const primaryName = computed(() => pollutantName(city.value.primary))
-const goodDistricts = computed(() => districtReadingsAt(props.data, props.hour, 'aqi').filter(d => d.reading.level <= 1).length)
 const goodDayRatio = computed(() => ((props.data.goodDays.good / props.data.goodDays.total) * 100).toFixed(1))
 
-const others = computed(() => [
-  { name: 'O₃', value: city.value.c.o3, unit: 'μg/m³' },
-  { name: 'NO₂', value: city.value.c.no2, unit: 'μg/m³' },
-  { name: 'SO₂', value: city.value.c.so2, unit: 'μg/m³' },
-  { name: 'CO', value: city.value.c.co.toFixed(1), unit: 'mg/m³' }
-])
+const pollutants = computed(() =>
+  POLLUTANTS.map(p => {
+    const v = city.value.c[p.key]
+    return { ...p, value: p.key === 'co' ? v.toFixed(1) : v, over: isOverLimit(p.key, v) }
+  })
+)
+
+const stations = computed(() => stationReadingsAt(props.data, props.hour, props.index))
 
 /** 最差的 6 个片区；颜色与场景里片区的等级色一致 */
 const rankRows = computed(() =>
@@ -73,52 +116,48 @@ const rankRows = computed(() =>
     }))
 )
 
-function formatHour(hour: number): string {
-  const h = Math.floor(hour)
-  return String(h).padStart(2, '0') + ':' + String(Math.round((hour - h) * 60)).padStart(2, '0')
-}
+const hourly = computed(() => cityHourly(props.data, props.index))
 
-const series = computed(() => citySeries(props.data, props.index))
-
+/** 逐小时柱状图：柱子按等级着色（和场景片区同色），虚线为限值，竖线和高亮柱为所选时刻 */
 const chartOption = computed(() => {
   const limit = meta.value.limit
-  const top = Math.max(limit, ...series.value.map(p => p[1]))
+  const top = Math.max(limit, ...hourly.value.map(p => p.value))
   const max = Math.ceil((top * 1.15) / 50) * 50
-  const now = readingOf(city.value.c, props.index)
+  const current = Math.min(23, Math.floor(props.hour))
   return {
     animation: false,
-    grid: { left: 36, right: 12, top: 20, bottom: 24 },
+    grid: { left: 36, right: 8, top: 20, bottom: 24 },
     xAxis: {
-      type: 'value', min: 0, max: 24, interval: 6,
-      axisLabel: { color: '#8b9aa3', fontSize: 12, formatter: (v: number) => String(v).padStart(2, '0') },
+      type: 'category',
+      data: hourly.value.map(p => String(p.hour).padStart(2, '0')),
+      axisLabel: { color: '#9aa4b2', fontSize: 12, interval: 3 },
       axisLine: { lineStyle: { color: 'rgba(255,255,255,0.2)' } },
-      axisTick: { show: false },
-      splitLine: { show: false }
+      axisTick: { show: false }
     },
     yAxis: {
-      type: 'value', min: 0, max, interval: max / 2,
-      axisLabel: { color: '#8b9aa3', fontSize: 12 },
+      type: 'value', min: 0, max, interval: max / 3,
+      axisLabel: { color: '#9aa4b2', fontSize: 12 },
       splitLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } }
     },
     series: [
       {
-        type: 'line', data: series.value, showSymbol: false, smooth: 0.3,
-        lineStyle: { color: '#4cc4d4', width: 2 },
-        areaStyle: { color: 'rgba(76,196,212,0.12)' },
+        type: 'bar',
+        barWidth: '60%',
+        data: hourly.value.map(p => ({
+          value: p.value,
+          itemStyle: { color: airColor(p.level), opacity: p.hour === current ? 1 : 0.6, borderRadius: [2, 2, 0, 0] }
+        })),
         markLine: {
           symbol: 'none', silent: true,
           data: [
-            // 国标限值：虚线
-            { yAxis: limit, lineStyle: { color: '#e8b04f', type: 'dashed', width: 1 }, label: { color: '#e8b04f', fontSize: 12, position: 'insideEndTop', formatter: meta.value.limitName + ' ' + limit } },
-            // 所选时刻：竖线
-            { xAxis: props.hour, lineStyle: { color: 'rgba(255,255,255,0.5)', type: 'solid', width: 1 }, label: { color: '#8b9aa3', fontSize: 12, formatter: formatHour(props.hour) } }
+            { yAxis: limit, lineStyle: { color: COLOR.warn, type: 'dashed', width: 1 }, label: { show: false } },
+            // 所选时刻：竖线 + 读数
+            {
+              xAxis: current,
+              lineStyle: { color: 'rgba(255,255,255,0.5)', type: 'solid', width: 1 },
+              label: { color: '#f3f5f8', fontSize: 12, position: 'end', formatter: formatHour(props.hour) + '  ' + hourly.value[current].value }
+            }
           ]
-        },
-        markPoint: {
-          symbol: 'circle', symbolSize: 8, silent: true,
-          itemStyle: { color: '#10151c', borderColor: airColor(now.level), borderWidth: 2 },
-          label: { color: '#eef5f8', fontSize: 12, position: props.hour > 20 ? 'left' : 'right', formatter: String(now.value) },
-          data: [{ coord: [props.hour, now.value] }]
         }
       }
     ]
@@ -137,47 +176,146 @@ const chartOption = computed(() => {
   flex-direction: column;
   gap: $panel-gap;
 }
-.stats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px 24px;
+.headline {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
-.others {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+.aqi {
+  font-size: 48px;
+  font-weight: 600;
+  line-height: 56px;
+  color: $text-strong;
+}
+.headline-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.level {
+  display: flex;
+  align-items: center;
   gap: 8px;
+  font-size: 15px;
+  color: $text;
+}
+.primary {
+  font-size: $fs-aux;
+  color: $text-muted;
+}
+.pollutants {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+.pollutant {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   padding-top: 12px;
   border-top: 1px solid $divider;
 }
-.other {
+.p-name {
+  font-size: $fs-aux;
+  color: $text-muted;
+}
+.p-line {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.p-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: $text-strong;
+}
+.p-unit {
+  font-size: 12px;
+  color: $text-muted;
+}
+.rank-note {
+  margin-top: -8px;
+  font-size: $fs-aux;
+  color: $text-muted;
+}
+.list {
+  display: flex;
+  flex-direction: column;
+  &.scroll {
+    flex-grow: 1;
+    min-height: 0;
+    // 让出滚动条的位置，不压住右侧的数值
+    margin-right: -8px;
+    padding-right: 8px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: $border-strong transparent;
+  }
+}
+.row {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 4px 8px;
+  margin: 0 0 0 -8px;
+  border: 0;
+  border-top: 1px solid $divider;
+  border-radius: $radius-sm;
+  text-align: left;
+  font-family: inherit;
+  color: $text;
+  background: transparent;
+  cursor: pointer;
+  &.active {
+    background: rgba(76, 154, 255, 0.14);
+  }
+}
+.dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.row .dot {
+  width: 10px;
+  height: 10px;
+}
+.main {
+  flex-grow: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.other-name,
-.other-unit {
+.name {
+  font-size: $fs-body;
+  color: $text-strong;
+}
+.name,
+.sub {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sub {
   font-size: $fs-aux;
   color: $text-muted;
 }
-.other-unit {
-  font-size: 12px;
-}
-.other-value {
-  font-size: 18px;
+.value {
+  flex-shrink: 0;
+  width: 36px;
+  text-align: right;
+  font-size: 16px;
   font-weight: 600;
   color: $text-strong;
 }
-.chart-legend {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  i {
-    display: inline-block;
-    width: 14px;
-    height: 0;
-    margin-left: 6px;
-    border-top: 2px dashed $level-2;
-  }
+.status {
+  flex-shrink: 0;
+  width: 32px;
+  text-align: right;
+  font-size: $fs-aux;
 }
 .rows {
   flex-grow: 1;
@@ -192,5 +330,21 @@ const chartOption = computed(() => {
     width: 88px;
     white-space: nowrap;
   }
+}
+.chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  i {
+    display: inline-block;
+    width: 14px;
+    height: 0;
+    margin-left: 6px;
+    border-top: 2px dashed $level-2;
+  }
+}
+// 多写一层选择器，压过 LineChart 自带的高度
+.environment-left .bars {
+  height: 200px;
 }
 </style>

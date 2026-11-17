@@ -5,6 +5,7 @@
       <h3 class="name">{{ detail.title }}</h3>
       <button type="button" class="close" aria-label="关闭" @click="emit('close')">×</button>
     </div>
+    <CameraFeed v-if="detail.camera" class="feed" :camera-id="detail.camera.id" :online="detail.camera.online" :replay-minutes="detail.camera.replayMinutes ?? 0" />
     <div v-if="detail.stats?.length" class="stats">
       <StatItem v-for="s in detail.stats" :key="s.label" :label="s.label" :value="s.value" :unit="s.unit" :color="s.color" />
     </div>
@@ -14,15 +15,19 @@
         <dd>{{ row.value }}</dd>
       </template>
     </dl>
+    <div v-if="detail.actions?.length" class="actions">
+      <button v-for="(a, i) in detail.actions.slice(0, 2)" :key="a.key" type="button" :class="i === 0 ? 'primary' : 'secondary'" @click="emit('action', a.key)">{{ a.label }}</button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import CameraFeed from '@/components/video/CameraFeed.vue'
 import type { DetailModel } from '@/types/detail'
 import StatItem from './StatItem.vue'
 
 defineProps<{ detail: DetailModel }>()
-const emit = defineEmits<{ (e: 'close'): void }>()
+const emit = defineEmits<{ (e: 'close'): void; (e: 'action', key: string): void }>()
 </script>
 
 <style lang="scss" scoped>
@@ -99,6 +104,44 @@ const emit = defineEmits<{ (e: 'close'): void }>()
   dd {
     margin: 0;
     color: $text;
+  }
+}
+.feed {
+  height: 140px;
+  flex-shrink: 0;
+}
+// 按设计稿：两个等宽按钮，主按钮实色强调，次按钮描边
+.actions {
+  display: flex;
+  gap: 8px;
+  button {
+    flex: 1 1 0;
+    height: 44px;
+    border-radius: $radius-sm;
+    font: inherit;
+    font-size: $fs-body;
+    cursor: pointer;
+  }
+  .primary {
+    font-weight: 500;
+    color: $bg-page;
+    background: $accent;
+    border: 0;
+    &:hover {
+      background: $accent-light;
+    }
+  }
+  .secondary {
+    color: $text;
+    background: none;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    &:hover {
+      border-color: $accent-light;
+    }
+  }
+  button:focus-visible {
+    outline: 2px solid $accent-light;
+    outline-offset: 2px;
   }
 }
 </style>

@@ -59,7 +59,7 @@ function toggle(key: string) {
     border: 1.5px solid #5d6b74;
   }
   &:hover {
-    background: rgba(221, 244, 250, 0.06);
+    background: rgba(255, 255, 255, 0.06);
   }
   &:focus-visible {
     outline: 2px solid $accent-light;
@@ -67,7 +67,7 @@ function toggle(key: string) {
   }
   &.on {
     color: $text-strong;
-    background: rgba(221, 244, 250, 0.1);
+    background: rgba(255, 255, 255, 0.1);
     .dot {
       border-color: $accent;
       background: $accent;

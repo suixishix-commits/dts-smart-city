@@ -3,7 +3,24 @@ import { pointInRing } from '@/scene/geo'
 import type { GeoData } from '@/types/geo'
 import type { SecurityPeriod } from '@/types/security'
 import geoJson from '../../../../public/data/smart-city/geo.json'
-import { buildSecurityData, dailyIncidents, distanceMeters, hourlyIncidents, incidentHeatGrid, incidentTrend, INCIDENT_TYPES, isActive, periodTotal, typeDistribution } from '../security'
+import {
+  buildEvents,
+  buildSecurityData,
+  dailyIncidents,
+  DEPARTMENTS,
+  DEPT_WARN_MINUTES,
+  distanceMeters,
+  EVENT_STAGES,
+  EVENT_TIME_LIMIT,
+  eventStats,
+  hourlyIncidents,
+  incidentHeatGrid,
+  incidentTrend,
+  INCIDENT_TYPES,
+  isActive,
+  periodTotal,
+  typeDistribution
+} from '../security'
 
 const geo = geoJson as unknown as GeoData
 const data = buildSecurityData(geo, 14.5)
@@ -282,5 +299,117 @@ describe('数据落在主岛上', () => {
     })
     // 警情发生地都在岛内
     data.incidents.forEach(i => expect(pointInRing(i.position, geo.island)).toBe(true))
+  })
+})
+
+describe('今日事件统计', () => {
+  const events = data.events
+  const stats = data.eventStats
+  const districtIds = new Set(geo.districts.map(d => d.id))
+
+  it('事件条数与警情趋势的今日合计一致，每次生成都一样', () => {
+    expect(events).toHaveLength(dailyIncidents(0, 14.5))
+    expect(buildEvents(geo, 14.5)).toEqual(events)
+    expect(buildSecurityData(geo, 0.25).events).toHaveLength(dailyIncidents(0, 0.25))
+    expect(new Set(events.map(e => e.id)).size).toBe(events.length)
+  })
+
+  it('每条事件落在真实片区、由五个部门之一承办，上报时刻不晚于现在', () => {
+    for (const e of events) {
+      expect(districtIds.has(e.districtId)).toBe(true)
+      expect(DEPARTMENTS).toContain(e.department)
+      expect(EVENT_STAGES).toContain(e.stage)
+      expect(e.reportedAt).toBeGreaterThanOrEqual(0)
+      expect(e.reportedAt).toBeLessThanOrEqual(14.5 * 60)
+      expect(e.handleMinutes).toBeGreaterThanOrEqual(0)
+      // 超时只针对未办结且超过时限的事件
+      expect(e.overdue).toBe(e.stage !== '办结' && 14.5 * 60 - e.reportedAt > EVENT_TIME_LIMIT)
+    }
+  })
+
+  it('今日事件：上报 = 处置中 + 已办结 + 超时，有超时，越晚办结越多', () => {
+    const s = stats.summary
+    expect(s.reported).toBe(events.length)
+    expect(s.active + s.closed + s.overdue).toBe(s.reported)
+    expect(s.closed).toBe(events.filter(e => e.stage === '办结').length)
+    expect(s.overdue).toBe(events.filter(e => e.overdue).length)
+    expect(s.overdue).toBeGreaterThan(0)
+    expect(s.overdue / s.reported).toBeLessThan(0.2)
+    expect(buildSecurityData(geo, 23.5).eventStats.summary.closed).toBeGreaterThan(s.closed)
+  })
+
+  it('处置流程：上报 → 派单 → 处置 → 办结，逐级不增，办结数与今日事件一致', () => {
+    expect(stats.flow.map(f => f.name)).toEqual(['上报', '派单', '处置', '办结'])
+    expect(stats.flow[0].count).toBe(stats.summary.reported)
+    expect(stats.flow[0].rate).toBe(1)
+    expect(stats.flow[3].count).toBe(stats.summary.closed)
+    for (let i = 1; i < 4; i++) {
+      expect(stats.flow[i].count).toBeLessThanOrEqual(stats.flow[i - 1].count)
+      expect(stats.flow[i].rate).toBeCloseTo(stats.flow[i].count / stats.flow[0].count)
+    }
+  })
+
+  it('部门处置效率：五个部门按固定顺序，承办数合计等于上报数，有的超过警示线有的没有', () => {
+    expect(stats.departments.map(d => d.department)).toEqual(['城管', '交警', '消防', '市政', '环卫'])
+    expect(stats.departments.reduce((n, d) => n + d.events, 0)).toBe(events.length)
+    for (const d of stats.departments) {
+      expect(d.avgMinutes).toBeGreaterThan(0)
+      const done = events.filter(e => e.department === d.department && e.stage === '办结')
+      if (done.length) expect(d.avgMinutes).toBe(Math.round(done.reduce((n, e) => n + e.handleMinutes, 0) / done.length))
+    }
+    expect(stats.departments.some(d => d.avgMinutes > DEPT_WARN_MINUTES)).toBe(true)
+    expect(stats.departments.some(d => d.avgMinutes <= DEPT_WARN_MINUTES)).toBe(true)
+  })
+
+  it('片区事件量：覆盖全部片区，按事件量排序，名称取自 geo.json，各项合计一致', () => {
+    expect(stats.districts).toHaveLength(geo.districts.length)
+    expect(stats.districts.reduce((n, d) => n + d.total, 0)).toBe(events.length)
+    for (let i = 1; i < stats.districts.length; i++) expect(stats.districts[i].total).toBeLessThanOrEqual(stats.districts[i - 1].total)
+    for (const d of stats.districts) {
+      expect(d.name).toBe(geo.districts.find(x => x.id === d.districtId)?.name)
+      expect(d.closed + d.active + d.overdue).toBe(d.total)
+      expect(d.closeRate).toBeGreaterThanOrEqual(0)
+      expect(d.closeRate).toBeLessThanOrEqual(1)
+      if (d.total) expect(d.closeRate).toBeCloseTo(d.closed / d.total)
+      expect(DEPARTMENTS).toContain(d.topDepartment)
+    }
+    // 繁忙的商务片区排在前面
+    expect(['markaziyah', 'wahda', 'zahiyah', 'khalidiyah', 'danah']).toContain(stats.districts[0].districtId)
+  })
+
+  it('没有事件时统计全为 0，不出现 NaN', () => {
+    const empty = eventStats([], geo.districts)
+    expect(empty.summary).toEqual({ reported: 0, active: 0, closed: 0, overdue: 0 })
+    expect(empty.flow.every(f => f.count === 0 && f.rate === 0)).toBe(true)
+    expect(empty.departments.every(d => d.avgMinutes === 0)).toBe(true)
+    expect(empty.districts.every(d => d.closeRate === 0)).toBe(true)
+  })
+})
+
+describe('视频智能告警', () => {
+  const alarms = data.aiAlarms
+
+  it('6 条，落在不重复的在线摄像头上，按时间由近到远', () => {
+    expect(alarms).toHaveLength(6)
+    expect(new Set(alarms.map(a => a.cameraId)).size).toBe(alarms.length)
+    for (const a of alarms) {
+      const cam = data.cameras.find(c => c.id === a.cameraId)
+      expect(cam?.online).toBe(true)
+      expect([1, 2, 3, 4]).toContain(a.level)
+      expect(a.time).toMatch(/^\d{2}:\d{2}$/)
+      expect(a.ageMinutes).toBeGreaterThan(0)
+      expect(a.confidence).toBeGreaterThan(0.8)
+      expect(a.confidence).toBeLessThanOrEqual(1)
+    }
+    for (let i = 1; i < alarms.length; i++) expect(alarms[i].ageMinutes).toBeGreaterThan(alarms[i - 1].ageMinutes)
+    expect(alarms[0].time).toBe('14:24')
+  })
+
+  it('人员聚集告警用的是科尼什海滩旁的摄像头；状态有待确认、已派单、已办结', () => {
+    const crowd = alarms.find(a => a.type === '人员聚集')
+    const beach = geo.landmarks.find(l => l.id === 'corniche-beach')
+    const cam = data.cameras.find(c => c.id === crowd?.cameraId)
+    expect(distanceMeters(cam?.position as number[], beach?.position as number[])).toBeLessThan(1500)
+    expect(new Set(alarms.map(a => a.status))).toEqual(new Set(['待确认', '已派单', '已办结']))
   })
 })

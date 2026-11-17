@@ -3,21 +3,30 @@ import { describe, expect, it } from 'vitest'
 import type { GeoData } from '@/types/geo'
 import {
   airLevel,
+  alarmsAt,
   aqiOf,
   buildEnvironmentData,
   cityConcentrationsAt,
+  cityHourly,
   citySeries,
   concentrationsAt,
   districtReadingsAt,
+  formatHour,
   iaqi,
   isNight,
+  isOverLimit,
   noiseDbAt,
   noiseSummary,
+  noiseZoneRows,
+  POLLUTANTS,
   readingOf,
   seeded,
   stationReadingsAt,
   stationSeries,
   waterDistribution,
+  waterExceedance,
+  WATER_LIMIT,
+  waterSummary,
   worstHour
 } from '../environment'
 
@@ -241,5 +250,110 @@ describe('噪声与水质', () => {
     const dist = waterDistribution(data.waterSamples)
     expect(dist.map(d => d.name)).toEqual(['一类', '二类', '三类', '四类'])
     expect(dist.reduce((n, d) => n + d.count, 0)).toBe(data.waterSamples.length)
+  })
+})
+
+describe('逐小时柱状图与污染物网格', () => {
+  it('cityHourly：0–23 时 24 根柱，读数与全岛均值一致，等级按分指数', () => {
+    const bars = cityHourly(data, 'aqi')
+    expect(bars.map(b => b.hour)).toEqual(Array.from({ length: 24 }, (_, h) => h))
+    for (const b of bars) {
+      const r = readingOf(cityConcentrationsAt(data, b.hour), 'aqi')
+      expect(b.value).toBe(r.value)
+      expect(b.level).toBe(r.level)
+    }
+    // 白天比深夜差
+    expect(bars[9].value).toBeGreaterThan(bars[3].value)
+    expect(cityHourly(data, 'pm10')[11].value).toBe(cityConcentrationsAt(data, 11).pm10)
+  })
+
+  it('isOverLimit 按国标二级限值判断，六项都有限值', () => {
+    expect(POLLUTANTS.map(p => p.key)).toEqual(['pm25', 'pm10', 'o3', 'no2', 'so2', 'co'])
+    expect(isOverLimit('pm10', 150)).toBe(false)
+    expect(isOverLimit('pm10', 151)).toBe(true)
+    expect(isOverLimit('co', 10.5)).toBe(true)
+  })
+
+  it('formatHour 补零到 HH:mm', () => {
+    expect([0, 8.5, 13, 23.5].map(formatHour)).toEqual(['00:00', '08:30', '13:00', '23:30'])
+  })
+})
+
+describe('近岸水质', () => {
+  it('达标率 = 一、二类占比，超标 = 三、四类', () => {
+    const s = waterSummary(data.waterSamples)
+    expect(s.grade1 + s.grade2 + s.over).toBe(data.waterSamples.length)
+    expect(s.rate).toBeCloseTo(((s.grade1 + s.grade2) / data.waterSamples.length) * 100, 1)
+    expect(s.over).toBe(2)
+    expect(waterSummary([])).toEqual({ rate: 0, grade1: 0, grade2: 0, over: 0 })
+  })
+
+  it('各指标落在类别对应的标准区间，采样时间在上午', () => {
+    for (const w of data.waterSamples) {
+      const i = w.indicators
+      if (w.grade <= 2) {
+        expect(i.do, w.id).toBeGreaterThan(WATER_LIMIT.do)
+        expect(i.din, w.id).toBeLessThanOrEqual(WATER_LIMIT.din)
+        expect(i.po4, w.id).toBeLessThanOrEqual(WATER_LIMIT.po4)
+        expect(waterExceedance(w)).toBeNull()
+      } else {
+        expect(waterExceedance(w), w.id).not.toBeNull()
+      }
+      expect(w.sampledAt >= '08:00' && w.sampledAt <= '11:50', w.sampledAt).toBe(true)
+    }
+    const worst = data.waterSamples.find(w => w.grade === 4)!
+    expect(waterExceedance(worst)).toMatchObject({ name: '无机氮', limit: 0.3, unit: 'mg/L' })
+  })
+})
+
+describe('功能区噪声', () => {
+  it('四个功能区各有昼、夜两行，限值按 GB 3096', () => {
+    const rows = noiseZoneRows(data)
+    expect(rows).toHaveLength(8)
+    expect([...new Set(rows.map(r => r.name))]).toEqual(['居住区', '商业区', '港区仓储', '交通干线'])
+    expect(rows.map(r => r.limit)).toEqual([55, 45, 60, 50, 65, 55, 70, 55])
+    rows.forEach(r => expect(r.over).toBe(r.db > r.limit))
+  })
+
+  it('昼间高于夜间，越靠近交通和港区越吵；超标的只是少数（暖色不超过两成）', () => {
+    const rows = noiseZoneRows(data)
+    const day = rows.filter(r => r.period === '昼').map(r => r.db)
+    for (let i = 0; i < rows.length; i += 2) expect(rows[i].db).toBeGreaterThan(rows[i + 1].db)
+    expect([...day].sort((a, b) => a - b)).toEqual(day)
+    expect(rows.filter(r => r.over).length / rows.length).toBeLessThanOrEqual(0.2)
+    // 交通干线两行与路口噪声点的统计一致
+    const s = noiseSummary(data.noisePoints)
+    expect(rows[6].db).toBeCloseTo(s.day, 0)
+    expect(rows[7].db).toBeCloseTo(s.night, 0)
+  })
+})
+
+describe('超标告警', () => {
+  it('上午港区站 PM10 超标为二级告警，指向监测站，带实测值和限值', () => {
+    const alarms = alarmsAt(data, 11)
+    const port = alarms.find(a => a.id === 'station:mina-zayed:pm10')!
+    const c = concentrationsAt(station('mina-zayed'), 11)
+    expect(port).toMatchObject({ kind: 'station', targetId: 'mina-zayed', level: 2, time: '11:00', status: '待处置' })
+    expect(port.metric).toEqual({ name: 'PM10', value: c.pm10, limit: 150, unit: 'μg/m³' })
+    // 每条监测站告警都确实超过限值
+    alarms.filter(a => a.kind === 'station').forEach(a => expect(a.metric!.value).toBeGreaterThan(a.metric!.limit))
+  })
+
+  it('污染源与投诉全部并入，等级和状态沿用；超标水质点各一条', () => {
+    const alarms = alarmsAt(data, 3)
+    for (const s of data.sources) expect(alarms.find(a => a.id === 'source:' + s.id)).toMatchObject({ kind: 'source', targetId: s.id, level: s.level, status: s.status, time: s.time })
+    const water = alarms.filter(a => a.kind === 'water')
+    expect(water.map(a => a.targetId).sort()).toEqual(data.waterSamples.filter(w => w.grade >= 3).map(w => w.id).sort())
+  })
+
+  it('按等级从高到低排序，id 不重复，结果固定', () => {
+    for (const h of [3, 8.5, 11, 18]) {
+      const alarms = alarmsAt(data, h)
+      for (let i = 1; i < alarms.length; i++) expect(alarms[i].level).toBeGreaterThanOrEqual(alarms[i - 1].level)
+      expect(new Set(alarms.map(a => a.id)).size).toBe(alarms.length)
+      expect(alarmsAt(data, h)).toEqual(alarms)
+    }
+    // 深夜港区作业少，监测站告警比上午少
+    expect(alarmsAt(data, 3).filter(a => a.kind === 'station').length).toBeLessThan(alarmsAt(data, 11).filter(a => a.kind === 'station').length)
   })
 })

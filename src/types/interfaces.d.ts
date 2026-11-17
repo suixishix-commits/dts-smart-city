@@ -32,7 +32,7 @@ type FloodShowData = {
 
 type ScenePlayerOption = {
 	/**订阅消息 */
-	topic: String = 'ScenePlayerTopic'
+	topic: string // 默认 'ScenePlayerTopic'
 	/**关键帧路线 */
 	keyframePath: KeyframePath
 	/**加速度 */

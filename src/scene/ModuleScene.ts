@@ -1,3 +1,4 @@
+import { resetPinSelection } from './pinSelection'
 import type { SceneApi, SceneObjectType } from './SceneApi'
 
 /** 图层里的一个对象。每次 add()/replaceLayer() 都生成新的 Entry，所以同一个 id 的新旧载荷可以区分 */
@@ -80,6 +81,7 @@ export abstract class ModuleScene {
     const generation = ++this.generation
     // 先清空期望状态，进行中的同步不会再往已离开的场景里加对象
     this.layers.forEach(layer => (layer.wanted = []))
+    resetPinSelection()
     await this.onLeave()
     const effects = this.effects
     this.effects = []

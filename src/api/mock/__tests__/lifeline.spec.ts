@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { GeoData } from '@/types/geo'
 import type { Anchor } from '@/types/lifeline'
 import geoJson from '../../../../public/data/smart-city/geo.json'
-import { bridgeStatus, buildLifelineData, buildPipes, depthStatus, lifelineSeries, loadStatus, powerLoadAt, powerLoadPeak, sortAlarms, waterPressureAt } from '../lifeline'
+import { bridgeStatus, bridgeTrend, buildLifelineData, buildPipes, depthStatus, JOINT_LIMIT, lifelineSeries, loadStatus, powerLoadAt, powerLoadPeak, sortAlarms, waterPressureAt, waterSupplySeries } from '../lifeline'
 
 const geo = geoJson as unknown as GeoData
 const data = buildLifelineData(geo)
@@ -54,6 +54,49 @@ describe('24 小时曲线', () => {
 
   it('负荷峰值在晚高峰', () => {
     expect(powerLoadPeak()).toEqual({ hour: 20.5, value: 985 })
+  })
+})
+
+describe('今日供水量', () => {
+  const s = waterSupplySeries(14.5)
+
+  it('昨日 25 个整点，今日只到数据时刻', () => {
+    expect(s.yesterday).toHaveLength(25)
+    expect(s.today).toHaveLength(15)
+    expect(s.today[s.today.length - 1][0]).toBe(14)
+  })
+
+  it('早晚两个用水高峰，夜间最低；数值在 1–4 万 m³/时', () => {
+    const at = (h: number) => s.yesterday[h][1]
+    expect(at(8)).toBeGreaterThan(at(4))
+    expect(at(19)).toBeGreaterThan(at(14))
+    expect(at(4)).toBeLessThan(at(12))
+    for (const [, v] of [...s.today, ...s.yesterday]) {
+      expect(v).toBeGreaterThan(0.9)
+      expect(v).toBeLessThan(4)
+    }
+  })
+
+  it('累计量是数据时刻之前各整点之和，结果可重复', () => {
+    expect(s.todayTotal).toBeCloseTo(s.today.slice(0, 15).reduce((n, p) => n + p[1], 0), 1)
+    expect(s.yesterdaySameTime).toBeCloseTo(s.yesterday.slice(0, 15).reduce((n, p) => n + p[1], 0), 1)
+    expect(waterSupplySeries(14.5)).toEqual(s)
+    expect(data.supply).toEqual(s)
+  })
+})
+
+describe('桥梁监测曲线', () => {
+  it('每半小时一个点到数据时刻，午后位移最大', () => {
+    const t = bridgeTrend('maqta-bridge', 14.5)
+    expect(t).toHaveLength(30)
+    expect(t[28][1]).toBeGreaterThan(t[8][1])
+  })
+
+  it('穆萨法桥午后超过阈值（与伸缩缝位移告警一致），其余两座不超', () => {
+    const peak = (id: string) => Math.max(...bridgeTrend(id).map(p => p[1]))
+    expect(peak('mussafah-bridge')).toBeGreaterThan(JOINT_LIMIT)
+    expect(peak('zayed-bridge')).toBeLessThan(JOINT_LIMIT)
+    expect(peak('maqta-bridge')).toBeLessThan(JOINT_LIMIT)
   })
 })
 
@@ -112,11 +155,13 @@ describe('buildLifelineData', () => {
     expect(data.pumpStations.length).toBeGreaterThanOrEqual(3)
     expect(data.bridges.map(b => b.id).sort()).toEqual(['maqta-bridge', 'mussafah-bridge', 'zayed-bridge'])
     expect(data.alarms.length).toBeGreaterThanOrEqual(6)
-    expect(data.alarms.length).toBeLessThanOrEqual(8)
+    expect(data.alarms.length).toBeLessThanOrEqual(9)
+    expect(data.coolingPlants.length).toBeGreaterThanOrEqual(3)
   })
 
   it('所有设施和告警都落在 geo.json 的道路、路口或地标上', () => {
-    const anchors = [...data.substations, ...data.gasStations, ...data.floodPoints, ...data.pumpStations, ...data.alarms].map(x => x.anchor)
+    const valves = data.alarms.flatMap(a => a.analysis?.valves ?? [])
+    const anchors = [...data.substations, ...data.gasStations, ...data.floodPoints, ...data.pumpStations, ...data.coolingPlants, ...data.alarms, ...valves].map(x => x.anchor)
     anchors.forEach(expectOnGeo)
     data.floodPoints.forEach(f => {
       expect(f.radius).toBeGreaterThanOrEqual(220)
@@ -134,6 +179,53 @@ describe('buildLifelineData', () => {
     data.gasStations.forEach(g => expect(onNetwork('gas', g.anchor)).toBe(true))
     data.pumpStations.forEach(p => expect(onNetwork('drain', p.anchor)).toBe(true))
     data.floodPoints.forEach(f => expect(onNetwork('drain', f.anchor)).toBe(true))
+    data.coolingPlants.forEach(c => expect(onNetwork('cooling', c.anchor)).toBe(true))
+  })
+
+  it('区域供冷：主管沿滨海大道，支管只铺市中心一段，供冷站有一座回水温度偏高并对应一条告警', () => {
+    const cooling = data.pipes.filter(p => p.system === 'cooling')
+    expect(cooling.find(p => p.grade === 'trunk')?.roadId).toBe('corniche')
+    for (const p of cooling.filter(p => p.grade === 'branch')) {
+      expect(p.from).toBeGreaterThan(0)
+      expect(p.to).toBe(1)
+    }
+    const hot = data.coolingPlants.filter(c => c.status > 0)
+    expect(hot).toHaveLength(1)
+    expect(hot[0].name).toBe('扎希亚 2 号供冷站')
+    expect(data.alarms.find(a => a.system === 'cooling')).toMatchObject({ id: 'c1', facilityId: hot[0].id, area: '扎希亚' })
+    expect(new Set(data.coolingPlants.map(c => c.id)).size).toBe(data.coolingPlants.length)
+  })
+
+  it('每条告警都有处置建议；除桥梁外都有影响分析，用户数等于各小区之和', () => {
+    for (const a of data.alarms) {
+      expect(a.advice.length).toBeGreaterThan(4)
+      if (a.system === 'bridge') {
+        expect(a.analysis).toBeUndefined()
+        continue
+      }
+      const an = a.analysis
+      expect(an, a.id).toBeTruthy()
+      expect(an?.users).toBe(an?.communities.reduce((n, c) => n + c.users, 0))
+      expect(an?.communities.length).toBeGreaterThanOrEqual(2)
+      expect(an?.recovery).toMatch(/^\d\d:\d\d$/)
+      expect(an?.radius).toBeGreaterThanOrEqual(250)
+      expect(an?.radius).toBeLessThanOrEqual(800)
+    }
+  })
+
+  it('爆管的影响分析：3 个小区 2,140 户，17:30 恢复，关闭的两个阀门在管段两端的路口，建议里写明阀门', () => {
+    const a1 = data.alarms.find(a => a.id === 'a1')
+    expect(a1?.analysis).toMatchObject({ users: 2140, recovery: '17:30' })
+    expect(a1?.analysis?.communities).toHaveLength(3)
+    expect(a1?.analysis?.communities[0].name).toBe('哈利迪亚 · 阿拉伯湾街 12–18 号')
+    expect(a1?.analysis?.valves.map(v => [v.name, v.anchor])).toEqual([
+      ['V-1023', { kind: 'intersection', id: a1?.segment?.from }],
+      ['V-1027', { kind: 'intersection', id: a1?.segment?.to }]
+    ])
+    expect(a1?.advice).toContain('V-1023')
+    expect(a1?.advice).toContain('V-1027')
+    const ids = data.alarms.flatMap(a => a.analysis?.valves ?? []).map(v => v.id)
+    expect(new Set(ids).size).toBe(ids.length)
   })
 
   it('包含总览告警列表里的三条生命线告警，标题、等级、时间一致', () => {
@@ -160,13 +252,15 @@ describe('buildLifelineData', () => {
       expect(a.steps.length).toBeGreaterThan(1)
       expect(a.location && a.facility && a.impact && a.crew && a.status).toBeTruthy()
     }
-    const facilityIds = new Set([...data.substations, ...data.gasStations, ...data.floodPoints, ...data.pumpStations, ...data.bridges].map(x => x.id))
+    const facilityIds = new Set([...data.substations, ...data.gasStations, ...data.floodPoints, ...data.pumpStations, ...data.coolingPlants, ...data.bridges].map(x => x.id))
     data.alarms.filter(a => a.facilityId).forEach(a => expect(facilityIds.has(a.facilityId as string)).toBe(true))
   })
 
   it('工单都关联到存在的告警', () => {
     expect(data.orders.length).toBeGreaterThanOrEqual(4)
     for (const o of data.orders) {
+      expect(o.kind).toBe('repair')
+      expect(o.targetId).toBe(o.alarmId)
       const a = data.alarms.find(x => x.id === o.alarmId)
       expect(a?.title).toBe(o.title)
       expect(o.progress).toBeGreaterThan(0)
@@ -184,9 +278,11 @@ describe('buildLifelineData', () => {
     expect(data.summary.integrity).toBeLessThan(100)
   })
 
-  it('四个分系统各有一行，状态取该系统最严重的告警', () => {
-    expect(data.systems.map(s => s.key)).toEqual(['water', 'power', 'gas', 'drain'])
-    expect(data.systems.map(s => s.unit)).toEqual(['MPa', '%', 'kPa', '台'])
+  it('五个分系统各有一行，状态取该系统最严重的告警', () => {
+    expect(data.systems.map(s => s.key)).toEqual(['water', 'power', 'gas', 'drain', 'cooling'])
+    expect(data.systems.map(s => s.unit)).toEqual(['MPa', '%', 'kPa', '台', '%'])
+    expect(data.systems[4]).toMatchObject({ name: '区域供冷', level: 4, note: `供冷站 ${data.coolingPlants.length} 座` })
+    expect(data.summary.kmBySystem.cooling).toBeGreaterThan(0)
     expect(data.systems[0]).toMatchObject({ level: 1, status: '告警', value: waterPressureAt(data.hour).toFixed(2) })
     expect(data.systems[3].value).toBe('6 / 9')
   })

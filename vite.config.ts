@@ -6,11 +6,10 @@ import IconsResolver from 'unplugin-icons/resolver'; // icon相关
 import Icons from 'unplugin-icons/vite'; // icon相关
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'; // elementPlus
 import Components from 'unplugin-vue-components/vite'; // 组件注册
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd())
+export default defineConfig(() => {
   return {
     base: './',
     plugins: [

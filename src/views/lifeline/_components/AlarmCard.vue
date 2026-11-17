@@ -4,6 +4,13 @@
       <LevelTag :level="alarm.level" />
       <h3 class="name">{{ SYSTEM_NAME[alarm.system] }} · {{ alarm.type }}</h3>
       <span class="time">{{ alarm.time }}</span>
+      <button type="button" class="icon" aria-label="定位到现场" title="定位到现场" @click="emit('locate', alarm.id)">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+          <circle cx="8" cy="8" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5" />
+          <circle cx="8" cy="8" r="1.5" fill="currentColor" />
+          <path d="M8 0.5v3M8 12.5v3M0.5 8h3M12.5 8h3" stroke="currentColor" stroke-width="1.5" />
+        </svg>
+      </button>
       <button type="button" class="close" aria-label="关闭" @click="emit('close')">×</button>
     </div>
     <p class="title">{{ alarm.title }}</p>
@@ -17,6 +24,8 @@
       <dd>{{ alarm.impact }}</dd>
       <dt>队伍</dt>
       <dd>{{ alarm.crew }}</dd>
+      <dt>建议</dt>
+      <dd class="advice">{{ alarm.advice }}</dd>
     </dl>
 
     <div class="readings">
@@ -27,6 +36,20 @@
       </div>
     </div>
 
+    <div v-if="impactOn && alarm.analysis" class="impact" aria-label="影响分析">
+      <span
+        ><b>{{ alarm.analysis.communities.length }}</b>个小区</span
+      >
+      <span
+        ><b>{{ alarm.analysis.users.toLocaleString() }}</b>户</span
+      >
+      <span>预计 <b>{{ alarm.analysis.recovery }}</b> 恢复</span>
+    </div>
+
+    <p v-if="order" class="order">
+      工单 {{ order.id }} · {{ order.status }} · 进度 {{ order.progress }}% · 预计 {{ order.eta }}
+    </p>
+
     <ol class="steps" :aria-label="'处置进度：' + alarm.status">
       <li v-for="s in alarm.steps" :key="s.name" class="step" :class="{ done: s.done }">
         <i class="dot" aria-hidden="true"></i>
@@ -35,17 +58,33 @@
       </li>
     </ol>
 
-    <button type="button" class="primary" @click="emit('locate', alarm.id)">定位到现场</button>
+    <div class="actions">
+      <button v-if="alarm.analysis" type="button" class="primary" :aria-pressed="impactOn ? 'true' : 'false'" @click="emit('impact', alarm.id)">
+        {{ impactOn ? '收起影响范围' : '影响分析' }}
+      </button>
+      <button v-else type="button" class="primary" @click="emit('locate', alarm.id)">定位到现场</button>
+      <button type="button" class="secondary" @click="emit('dispatch', alarm.id)">{{ order ? '催办工单' : '派发工单' }}</button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import type { LifelineAlarm, LifelineSystem } from '@/types/lifeline'
+import type { LifelineAlarm, WorkOrder } from '@/types/lifeline'
+import { SYSTEM_NAME } from '../names'
 
-defineProps<{ alarm: LifelineAlarm }>()
-const emit = defineEmits<{ (e: 'close'): void; (e: 'locate', id: string): void }>()
-
-const SYSTEM_NAME: Record<LifelineSystem, string> = { water: '供水', power: '电力', gas: '燃气', drain: '排水', bridge: '桥梁' }
+defineProps<{
+  alarm: LifelineAlarm
+  /** 该告警未完成的工单 */
+  order?: WorkOrder
+  /** 影响范围是否已画在场景里 */
+  impactOn: boolean
+}>()
+const emit = defineEmits<{
+  (e: 'close'): void
+  (e: 'locate', id: string): void
+  (e: 'impact', id: string): void
+  (e: 'dispatch', id: string): void
+}>()
 </script>
 
 <style lang="scss" scoped>
@@ -77,6 +116,22 @@ const SYSTEM_NAME: Record<LifelineSystem, string> = { water: '供水', power: '�
   font-size: $fs-aux;
   color: $text-muted;
 }
+.icon {
+  width: 32px;
+  height: 32px;
+  margin: -6px -4px;
+  border: 0;
+  border-radius: $radius-sm;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: $text-muted;
+  background: none;
+  cursor: pointer;
+  &:hover {
+    color: $accent;
+  }
+}
 .close {
   width: 44px;
   height: 44px;
@@ -106,7 +161,30 @@ const SYSTEM_NAME: Record<LifelineSystem, string> = { water: '供水', power: '�
   dd {
     margin: 0;
     color: $text;
+    &.advice {
+      color: $accent-light;
+    }
   }
+}
+.impact {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: $fs-aux;
+  color: $text-muted;
+  background: rgba(76, 154, 255, 0.1);
+  b {
+    margin: 0 2px;
+    font-size: 16px;
+    font-weight: 600;
+    color: $text-strong;
+  }
+}
+.order {
+  margin: 0;
+  font-size: $fs-aux;
+  color: $accent-light;
 }
 .readings {
   display: flex;
@@ -174,15 +252,33 @@ const SYSTEM_NAME: Record<LifelineSystem, string> = { water: '供水', power: '�
   flex-shrink: 0;
   color: $text-muted;
 }
+.actions {
+  display: flex;
+  gap: 8px;
+  button {
+    flex: 1 1 0;
+    height: 44px;
+    border-radius: $radius-sm;
+    font-family: inherit;
+    font-size: $fs-body;
+    cursor: pointer;
+  }
+}
 .primary {
-  height: 44px;
   border: 0;
-  border-radius: $radius-sm;
-  font-family: inherit;
-  font-size: $fs-body;
   font-weight: 500;
   color: $bg-page;
   background: $accent;
-  cursor: pointer;
+  &:hover {
+    background: $accent-light;
+  }
+}
+.secondary {
+  color: $text;
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  &:hover {
+    border-color: $accent-light;
+  }
 }
 </style>

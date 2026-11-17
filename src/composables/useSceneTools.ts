@@ -1,5 +1,5 @@
 import { cityBase } from '@/scene/CityBase'
-import { downloadSnapshot, setAmbienceEnabled } from '@/scene/effects'
+import { downloadSnapshot, setAmbienceEnabled, setNight } from '@/scene/effects'
 import store from '@/stores'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
@@ -89,7 +89,8 @@ export function useSceneTools(options: SceneToolsOptions) {
     } else if (key === 'night') {
       set('night', !isOn('night'))
       shared.night = isOn('night')
-      __xapi.weather.setDarkMode(isOn('night'))
+      // 夜景：场景时间拨到入夜，影像压暗但保留城市肌理，发光图层浮出来
+      await setNight(shared.night, base.ambience)
     } else if (key === 'rain') {
       set('rain', !isOn('rain'))
       shared.rain = isOn('rain')

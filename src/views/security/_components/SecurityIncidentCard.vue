@@ -170,7 +170,7 @@ const emit = defineEmits<{ (e: 'close'): void; (e: 'camera', id: string): void }
   background: transparent;
   cursor: pointer;
   &:hover {
-    background: rgba(76, 196, 212, 0.14);
+    background: rgba(76, 154, 255, 0.14);
   }
 }
 .dot {

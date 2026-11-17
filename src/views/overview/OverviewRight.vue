@@ -22,14 +22,14 @@
 
     <PanelCard title="实时告警" :extra="'共 ' + alarmTotal + ' 条'" grow>
       <div class="list">
-        <div v-for="a in alarms" :key="a.id" class="row static">
+        <button v-for="a in alarms" :key="a.id" type="button" class="row" :class="{ active: a.id === activeAlarm, fresh: a.id === latestId }" @click="emit('alarm', a.id)">
           <LevelTag :level="a.level" />
           <span class="main">
             <span class="name">{{ a.title }}</span>
             <span class="sub">{{ a.module }} · {{ a.area }}</span>
           </span>
-          <span class="time">{{ a.time }}</span>
-        </div>
+          <span class="time"><i v-if="a.id === latestId" class="new">新</i>{{ a.time }}</span>
+        </button>
       </div>
     </PanelCard>
   </aside>
@@ -40,13 +40,19 @@ import store from '@/stores'
 import type { OverviewData } from '@/types/smartCity'
 import { computed } from 'vue'
 
-const props = defineProps<{ data: OverviewData; activeHotspot: string | null; activeCamera: string | null }>()
-const emit = defineEmits<{ (e: 'hotspot', id: string): void; (e: 'camera', id: string): void }>()
+const props = defineProps<{ data: OverviewData; activeHotspot: string | null; activeCamera: string | null; activeAlarm?: string | null }>()
+const emit = defineEmits<{ (e: 'hotspot', id: string): void; (e: 'camera', id: string): void; (e: 'alarm', id: string): void }>()
 
 const hotspots = computed(() => [...props.data.hotspots].sort((a, b) => b.heat - a.heat))
 const featured = computed(() => props.data.cameras.filter(c => c.featured).slice(0, 4))
 const onlineCount = computed(() => props.data.cameras.filter(c => c.online).length)
-const alarms = computed(() => store.alarmStore.top(4))
+/** 最新推送的告警固定在第一行（不论等级），其余按等级排 */
+const latestId = computed(() => store.alarmStore.latest?.id ?? null)
+const alarms = computed(() => {
+  const latest = store.alarmStore.latest
+  const rest = store.alarmStore.top(5).filter(a => a.id !== latest?.id)
+  return (latest ? [latest, ...rest] : rest).slice(0, 5)
+})
 const alarmTotal = computed(() => store.alarmStore.total)
 
 function districtName(id: string): string {
@@ -89,7 +95,7 @@ function heatClass(heat: number): string {
   background: transparent;
   cursor: pointer;
   &.active {
-    background: rgba(76, 196, 212, 0.14);
+    background: rgba(76, 154, 255, 0.14);
   }
   &.static {
     cursor: default;
@@ -153,5 +159,34 @@ function heatClass(heat: number): string {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+// 新推送的告警：插入时闪一下，右侧带「新」字
+.row.fresh {
+  animation: fresh-flash 1.6s ease-out 2;
+}
+@keyframes fresh-flash {
+  0%,
+  100% {
+    background-color: transparent;
+  }
+  30% {
+    background-color: rgba(255, 169, 77, 0.18);
+  }
+}
+.new {
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  color: #10151c;
+  background: #ffa94d;
+}
+@media (prefers-reduced-motion: reduce) {
+  .row.fresh {
+    animation: none;
+  }
 }
 </style>

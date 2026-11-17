@@ -6,6 +6,7 @@
 import * as echarts from 'echarts'
 import { scaleOptionSizes } from '@/utils/viewportScale'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { withTooltip } from './chartTooltip'
 
 const props = defineProps<{ option: Record<string, any>; label: string }>()
 const el = ref<HTMLElement>()
@@ -14,7 +15,7 @@ let chart: echarts.ECharts | null = null
 let observer: ResizeObserver | null = null
 
 /** option 按设计稿 px 书写，这里换算成当前视口的尺寸 */
-const render = () => chart?.setOption(scaleOptionSizes(props.option), true)
+const render = () => chart?.setOption(scaleOptionSizes(withTooltip(props.option)), true)
 
 onMounted(() => {
   chart = echarts.init(el.value as HTMLElement)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { loadGeoJson } from '@/scene/__tests__/fixtures'
-import { districtDensityAt, heatGridAt, hotspotActivityAt, islandPopulationAt, populationPeak, populationSeries } from '../population'
+import { districtDensityAt, heatGridAt, hotspotActivityAt, islandPopulationAt, populationPeak, populationSeries, populationSeriesYesterday } from '../population'
 
 /** 三种功能类型各取一个真实片区 */
 const business = { id: 'danah', baseDensity: 2 }
@@ -195,5 +195,17 @@ describe('heatGridAt', () => {
 
   it('returns nothing for an empty grid without hotspots', () => {
     expect(heatGridAt(12, [], districts, [], 480)).toEqual([])
+  })
+})
+
+describe('populationSeriesYesterday', () => {
+  it('has the same half-hour points as today, close to but not equal to today, and no evening event peak', () => {
+    const today = populationSeries()
+    const y = populationSeriesYesterday()
+    expect(y.map(p => p[0])).toEqual(today.map(p => p[0]))
+    y.forEach((p, i) => expect(Math.abs(p[1] - today[i][1])).toBeLessThan(6))
+    expect(y).not.toEqual(today)
+    const at = (s: [number, number][], h: number) => s.find(p => p[0] === h)![1]
+    expect(at(y, 19.5)).toBeLessThan(at(today, 19.5))
   })
 })

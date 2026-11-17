@@ -44,6 +44,9 @@ export interface EnvStation {
 
 export type SourceType = '港区扬尘' | '施工工地' | '餐饮油烟' | '噪声投诉'
 
+/** 告警、污染源、水质超标的处置状态 */
+export type HandleStatus = '待处置' | '核查中' | '已办结'
+
 /** 污染源或环境投诉 */
 export interface PollutionSource {
   id: string
@@ -56,6 +59,8 @@ export interface PollutionSource {
   /** 现状与处置进度 */
   note: string
   time: string
+  /** 处置状态（页面上派发核查后在本地更新） */
+  status: HandleStatus
 }
 
 /** 噪声监测点（设在路口） */
@@ -65,6 +70,19 @@ export interface NoisePoint {
   place: { intersection: string }
   /** 昼间平峰的基准声级，dB(A) */
   base: number
+}
+
+/** 声环境功能区（GB 3096）：由若干片区组成，按片区车流估算昼夜声级 */
+export interface NoiseZone {
+  id: string
+  name: string
+  /** 昼间、夜间限值，dB(A) */
+  limit: { day: number; night: number }
+  districtIds: string[]
+  /** 基准声级，dB(A) */
+  base: number
+  /** 随时段起伏的幅度（相对交通干线），0–1 */
+  sway: number
 }
 
 /** 生态空间（以地标为圆心的范围） */
@@ -85,6 +103,40 @@ export interface WaterSample {
   name: string
   place: { road: string; t: number }
   grade: WaterGrade
+  /** 主要监测指标 */
+  indicators: WaterIndicators
+  /** 最近一次采样时间 HH:mm */
+  sampledAt: string
+}
+
+/** 海水水质主要指标（GB 3097）。溶解氧越高越好，其余越低越好 */
+export interface WaterIndicators {
+  /** 溶解氧，mg/L */
+  do: number
+  /** 无机氮，mg/L */
+  din: number
+  /** 活性磷酸盐，mg/L */
+  po4: number
+  ph: number
+}
+
+/** 告警来源：监测站污染物超标、污染源与投诉、近岸水质超标 */
+export type AlarmKind = 'station' | 'source' | 'water'
+
+/** 超标告警 */
+export interface EnvAlarm {
+  id: string
+  kind: AlarmKind
+  /** 监测站 / 污染源 / 水质采样点的 id */
+  targetId: string
+  level: AlarmLevel
+  title: string
+  note: string
+  time: string
+  /** 初始处置状态（页面可在本地覆盖） */
+  status: HandleStatus
+  /** 超标的指标：名称、实测值、限值、单位 */
+  metric?: { name: string; value: number; limit: number; unit: string }
 }
 
 export interface EnvironmentData {
@@ -92,6 +144,7 @@ export interface EnvironmentData {
   stations: EnvStation[]
   sources: PollutionSource[]
   noisePoints: NoisePoint[]
+  noiseZones: NoiseZone[]
   greenSpaces: GreenSpace[]
   waterSamples: WaterSample[]
   /** 本月优良天数 */

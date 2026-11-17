@@ -1,12 +1,25 @@
 <template>
   <aside class="lifeline-left">
-    <PanelCard title="运行总览" :extra="'数据时刻 ' + formatHour(data.hour)">
-      <div class="vitals">
-        <StatItem label="管网总长" :value="data.summary.totalKm.toFixed(1)" unit="km" size="lg" />
+    <!-- 运行总览和管网规模：都是系统的「家底」数字，放在同一张卡片里切换 -->
+    <PanelCard title="运行总览">
+      <template #extra>
+        <SegmentedTabs v-model="overviewTab" :options="OVERVIEW_TABS" label="总览视角" />
+      </template>
+      <div v-if="overviewTab === 'summary'" class="vitals">
         <StatItem label="在线监测点" :value="data.summary.sensors.toLocaleString()" unit="个" size="lg" />
         <StatItem label="今日告警" :value="data.summary.alarmsToday" unit="条" size="lg" :color="LEVEL_COLOR[topLevel]" />
         <StatItem label="设施完好率" :value="data.summary.integrity.toFixed(1)" unit="%" size="lg" />
       </div>
+      <template v-else>
+        <div class="list-note">合计 {{ data.summary.totalKm.toFixed(1) }} km · 含区域供冷 {{ data.summary.kmBySystem.cooling.toFixed(1) }} km</div>
+        <div class="scale">
+          <div v-for="s in SCALE" :key="s.key" class="scale-item">
+            <i class="swatch" :class="s.key" :style="{ borderTopColor: PIPE_COLOR[s.key] }"></i>
+            <StatItem :label="s.name" :value="data.summary.kmBySystem[s.key].toFixed(1)" unit="km" />
+          </div>
+        </div>
+      </template>
+      <div class="list-note time">数据时刻 {{ formatHour(data.hour) }}</div>
     </PanelCard>
 
     <PanelCard title="分系统状态" extra="关键指标 · 状态">
@@ -29,16 +42,29 @@
       </div>
     </PanelCard>
 
-    <PanelCard title="24 小时供水压力与用电负荷" grow>
+    <!-- 供水量和压力 / 负荷两条 24 小时曲线，用页签切换 -->
+    <PanelCard title="运行趋势" grow>
       <template #extra>
-        <span class="legend"><i class="pressure"></i>压力 MPa <i class="load"></i>负荷 MW</span>
+        <SegmentedTabs v-model="trendTab" :options="TREND_TABS" label="趋势指标" />
       </template>
-      <div class="chart-stats">
-        <StatItem label="当前出厂压力" :value="waterPressureAt(data.hour).toFixed(2)" unit="MPa" />
-        <StatItem label="当前负荷" :value="Math.round(powerLoadAt(data.hour))" unit="MW" />
-        <StatItem label="预计晚高峰" :value="peak.value" :unit="'MW · ' + formatHour(peak.hour)" />
-      </div>
-      <LineChart class="chart" :option="chartOption" label="二十四小时供水压力与用电负荷曲线" />
+      <template v-if="trendTab === 'supply'">
+        <div class="chart-stats">
+          <StatItem label="今日累计" :value="data.supply.todayTotal.toFixed(1)" unit="万 m³" />
+          <StatItem label="当前供水" :value="currentSupply.toFixed(1)" unit="万 m³/时" />
+          <StatItem label="较昨日同时" :value="(supplyDelta > 0 ? '+' : '') + supplyDelta.toFixed(1)" unit="%" />
+        </div>
+        <span class="legend"><i></i>今日 <i class="yesterday"></i>昨日</span>
+        <LineChart class="chart" :option="supplyOption" label="今日与昨日逐时供水量曲线" />
+      </template>
+      <template v-else>
+        <div class="chart-stats">
+          <StatItem label="当前出厂压力" :value="waterPressureAt(data.hour).toFixed(2)" unit="MPa" />
+          <StatItem label="当前负荷" :value="Math.round(powerLoadAt(data.hour))" unit="MW" />
+          <StatItem label="预计晚高峰" :value="peak.value" :unit="'MW · ' + formatHour(peak.hour)" />
+        </div>
+        <span class="legend"><i class="pressure"></i>压力 MPa <i class="load"></i>负荷 MW</span>
+        <LineChart class="chart" :option="chartOption" label="二十四小时供水压力与用电负荷曲线" />
+      </template>
     </PanelCard>
   </aside>
 </template>
@@ -46,11 +72,67 @@
 <script setup lang="ts">
 import { lifelineSeries, powerLoadAt, powerLoadPeak, waterPressureAt } from '@/api/mock/lifeline'
 import { COLOR, LEVEL_COLOR } from '@/scene/kit'
-import type { LifelineData } from '@/types/lifeline'
-import { computed } from 'vue'
+import type { LifelineData, PipeSystem } from '@/types/lifeline'
+import { computed, ref } from 'vue'
 import { PIPE_COLOR } from './LifelineScene'
 
 const props = defineProps<{ data: LifelineData }>()
+
+const OVERVIEW_TABS = [
+  { key: 'summary', name: '概况' },
+  { key: 'scale', name: '管网规模' }
+]
+const TREND_TABS = [
+  { key: 'supply', name: '供水量' },
+  { key: 'pressure', name: '压力与负荷' }
+]
+const overviewTab = ref('summary')
+const trendTab = ref('supply')
+
+/** 管网规模卡片列出的四张管网 */
+const SCALE: { key: PipeSystem; name: string }[] = [
+  { key: 'water', name: '供水' },
+  { key: 'power', name: '电力' },
+  { key: 'gas', name: '燃气' },
+  { key: 'drain', name: '排水' }
+]
+
+/** 当前（最近一个整点）的供水量，万 m³/时 */
+const currentSupply = computed(() => props.data.supply.today[props.data.supply.today.length - 1]?.[1] ?? 0)
+/** 今日累计较昨日同一时刻的变化，% */
+const supplyDelta = computed(() => {
+  const { todayTotal, yesterdaySameTime } = props.data.supply
+  return yesterdaySameTime ? ((todayTotal - yesterdaySameTime) / yesterdaySameTime) * 100 : 0
+})
+
+const supplyOption = computed(() => {
+  const axisLabel = { color: '#9aa4b2', fontSize: 12 }
+  return {
+    animation: false,
+    grid: { left: 32, right: 12, top: 16, bottom: 24 },
+    xAxis: {
+      type: 'value', min: 0, max: 24, interval: 4,
+      axisLabel: { ...axisLabel, formatter: (v: number) => String(v).padStart(2, '0') },
+      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.2)' } },
+      axisTick: { show: false },
+      splitLine: { show: false }
+    },
+    yAxis: { type: 'value', min: 0, max: 4, interval: 1, axisLabel: { ...axisLabel, formatter: (v: number) => v.toFixed(1) }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } } },
+    series: [
+      { name: '昨日', type: 'line', data: props.data.supply.yesterday, showSymbol: false, lineStyle: { color: COLOR.muted, width: 1.5, type: 'dashed' } },
+      {
+        name: '今日',
+        type: 'line',
+        data: props.data.supply.today,
+        showSymbol: false,
+        lineStyle: { color: COLOR.accent, width: 2 },
+        areaStyle: {
+          color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(76,154,255,0.32)' }, { offset: 1, color: 'rgba(76,154,255,0)' }] }
+        }
+      }
+    ]
+  }
+})
 
 const series = lifelineSeries()
 const peak = powerLoadPeak()
@@ -70,7 +152,7 @@ function tagStyle(level: number) {
 
 const chartOption = computed(() => {
   const now = props.data.hour
-  const axisLabel = { color: '#8b9aa3', fontSize: 12 }
+  const axisLabel = { color: '#9aa4b2', fontSize: 12 }
   // 实线是今日实测，虚线是预测
   const line = (name: string, points: [number, number][], color: string, yAxisIndex: number) => [
     { name, type: 'line', yAxisIndex, data: points.filter(p => p[0] <= now), showSymbol: false, lineStyle: { color, width: 2 } },
@@ -98,7 +180,7 @@ const chartOption = computed(() => {
         markLine: {
           symbol: 'none', silent: true,
           lineStyle: { color: 'rgba(255,255,255,0.5)', type: 'solid', width: 1 },
-          label: { color: '#8b9aa3', fontSize: 12, formatter: formatHour(now) },
+          label: { color: '#9aa4b2', fontSize: 12, formatter: formatHour(now) },
           data: [{ xAxis: now }]
         }
       },
@@ -109,7 +191,7 @@ const chartOption = computed(() => {
         markPoint: {
           symbol: 'circle', symbolSize: 8,
           itemStyle: { color: '#10151c', borderColor: COLOR.ice, borderWidth: 2 },
-          label: { color: '#eef5f8', fontSize: 12, position: 'top', formatter: '峰值 ' + peak.value },
+          label: { color: '#f3f5f8', fontSize: 12, position: 'top', formatter: '峰值 ' + peak.value },
           data: [{ coord: [peak.hour, peak.value] }]
         }
       }
@@ -131,8 +213,18 @@ const chartOption = computed(() => {
 }
 .vitals {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px 24px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.scale {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.scale-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .systems {
   display: flex;
@@ -207,17 +299,18 @@ const chartOption = computed(() => {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
 }
+// 左栏有四张卡片，内容超出时面板整体滚动，图表固定高度
 .lifeline-left .chart {
-  flex-grow: 1;
-  height: auto;
-  min-height: 176px;
-  // 窗口比 16:9 更高时面板会变长，限制图表高度
-  max-height: 300px;
+  height: 160px;
 }
 .legend {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
+  margin: -6px 0 -16px;
+  font-size: $fs-aux;
+  color: $text-muted;
   i {
     display: inline-block;
     width: 12px;
@@ -225,8 +318,20 @@ const chartOption = computed(() => {
     margin-left: 6px;
     border-top: 2px solid $accent;
     &.load {
-      border-top-color: #d9f4f8;
+      border-top-color: #dbe9ff;
     }
+    &.yesterday {
+      border-top: 2px dashed #9aa4b2;
+    }
+  }
+}
+.list-note {
+  margin-top: -6px;
+  font-size: $fs-aux;
+  color: $text-muted;
+  &.time {
+    margin: -6px 0 0;
+    text-align: right;
   }
 }
 </style>

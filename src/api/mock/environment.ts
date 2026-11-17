@@ -5,15 +5,18 @@ import type {
   AirReading,
   Concentrations,
   EmissionProfile,
+  EnvAlarm,
   EnvDistrict,
   EnvironmentData,
   EnvStation,
   GreenSpace,
   NoisePoint,
+  NoiseZone,
   PlaceRef,
   PollutantKey,
   PollutionSource,
   WaterGrade,
+  WaterIndicators,
   WaterSample
 } from '@/types/environment'
 
@@ -81,12 +84,12 @@ const STATION_SPECS: { landmark: string; shortName: string; kind: string; profil
 ]
 
 /** 污染源与投诉。name 里的 {place} 会换成所在地标、路口或道路的真实名称 */
-const SOURCE_SPECS: (Pick<PollutionSource, 'id' | 'type' | 'level' | 'place' | 'note' | 'time' | 'shortName'> & { name: string; district?: string })[] = [
-  { id: 'src-port-dust', type: '港区扬尘', level: 2, place: { road: 'salam', t: 0.04 }, district: 'zahiyah', name: '扎耶德港散货堆场扬尘', shortName: '港区扬尘', note: 'PM10 小时值超标 · 已通知港务喷淋', time: '10:15' },
-  { id: 'src-site-wahda', type: '施工工地', level: 2, place: { intersection: 'hazza-muroor' }, name: '{place}工地扬尘', shortName: '工地扬尘', note: '裸土未覆盖 · 已派单', time: '09:48' },
-  { id: 'src-fume-hamdan', type: '餐饮油烟', level: 3, place: { intersection: 'hamdan-airport' }, name: '{place}餐饮油烟', shortName: '餐饮油烟', note: '净化设施未运行 · 待复查', time: '12:30' },
-  { id: 'src-noise-khalidiyah', type: '噪声投诉', level: 3, place: { intersection: 'hamdan-khaleej' }, name: '{place}夜间施工噪声', shortName: '噪声投诉', note: '居民投诉 6 起 · 已约谈施工方', time: '02:10' },
-  { id: 'src-site-adnec', type: '施工工地', level: 3, place: { landmark: 'adnec' }, name: '{place}扩建工地扬尘', shortName: '工地扬尘', note: '在线监测偏高 · 已办结', time: '08:20' }
+const SOURCE_SPECS: (Pick<PollutionSource, 'id' | 'type' | 'level' | 'place' | 'note' | 'time' | 'shortName' | 'status'> & { name: string; district?: string })[] = [
+  { id: 'src-port-dust', type: '港区扬尘', level: 2, place: { road: 'salam', t: 0.04 }, district: 'zahiyah', name: '扎耶德港散货堆场扬尘', shortName: '港区扬尘', note: 'PM10 小时值超标 · 已通知港务喷淋', time: '10:15', status: '核查中' },
+  { id: 'src-site-wahda', type: '施工工地', level: 2, place: { intersection: 'hazza-muroor' }, name: '{place}工地扬尘', shortName: '工地扬尘', note: '裸土未覆盖 · 已派单', time: '09:48', status: '核查中' },
+  { id: 'src-fume-hamdan', type: '餐饮油烟', level: 3, place: { intersection: 'hamdan-airport' }, name: '{place}餐饮油烟', shortName: '餐饮油烟', note: '净化设施未运行 · 待复查', time: '12:30', status: '待处置' },
+  { id: 'src-noise-khalidiyah', type: '噪声投诉', level: 3, place: { intersection: 'hamdan-khaleej' }, name: '{place}夜间施工噪声', shortName: '噪声投诉', note: '居民投诉 6 起 · 已约谈施工方', time: '02:10', status: '核查中' },
+  { id: 'src-site-adnec', type: '施工工地', level: 3, place: { landmark: 'adnec' }, name: '{place}扩建工地扬尘', shortName: '工地扬尘', note: '在线监测偏高 · 已办结', time: '08:20', status: '已办结' }
 ]
 
 /** 生态空间：以公园、红树林、海滩地标为圆心。半径不超过 500 米，保证落在陆地上 */
@@ -107,6 +110,16 @@ const WATER_SPECS: { road: string; t: number; grade: WaterGrade }[] = [
   { road: 'salam', t: 0.47, grade: 1 },
   { road: 'salam', t: 0.75, grade: 2 }
 ]
+
+/** 声环境功能区：居住区（1 类）、商业区（2 类）、港区仓储（3 类）。交通干线（4a 类）直接用路口噪声点统计 */
+const NOISE_ZONE_SPECS: NoiseZone[] = [
+  { id: 'zone-1', name: '居住区', limit: { day: 55, night: 45 }, districtIds: ['khalidiyah', 'bateen', 'rawdah', 'mushrif', 'safarat'], base: 51.4, sway: 0.55 },
+  { id: 'zone-2', name: '商业区', limit: { day: 60, night: 50 }, districtIds: ['markaziyah', 'danah', 'wahda'], base: 54, sway: 0.6 },
+  { id: 'zone-3', name: '港区仓储', limit: { day: 65, night: 55 }, districtIds: ['zahiyah'], base: 58, sway: 0.5 }
+]
+
+/** 近岸海域按二类水质考核：三、四类即超标。各指标的二类标准（GB 3097） */
+export const WATER_LIMIT = { do: 5, din: 0.3, po4: 0.03 } as const
 
 /** 以字符串为种子的确定性伪随机数 0–1：同一个 id 每次得到同样的值 */
 export function seeded(id: string): number {
@@ -309,6 +322,149 @@ export function waterDistribution(samples: WaterSample[]): { grade: WaterGrade; 
   return ([1, 2, 3, 4] as WaterGrade[]).map(grade => ({ grade, name: WATER_GRADE_NAMES[grade], count: samples.filter(s => s.grade === grade).length }))
 }
 
+/** 小时 → 'HH:mm' */
+export function formatHour(hour: number): string {
+  const h = Math.floor(hour)
+  return String(h).padStart(2, '0') + ':' + String(Math.round((hour - h) * 60)).padStart(2, '0')
+}
+
+/** 全岛均值逐小时读数（0–23 时，每小时一根柱），带等级 */
+export function cityHourly(data: EnvironmentData, index: AirIndex): { hour: number; value: number; level: AirLevel }[] {
+  return Array.from({ length: 24 }, (_, hour) => {
+    const r = readingOf(cityConcentrationsAt(data, hour), index)
+    return { hour, value: r.value, level: r.level }
+  })
+}
+
+/** 污染物是否超过二级限值 */
+export function isOverLimit(key: PollutantKey, value: number): boolean {
+  const p = POLLUTANTS.find(x => x.key === key)
+  return !!p && value > p.limit
+}
+
+/** 功能区某时刻的声级：基准 + 片区车流 + 按幅度缩放的时段起伏 */
+export function zoneDbAt(zone: NoiseZone, districts: EnvDistrict[], hour: number): number {
+  const ds = districts.filter(d => zone.districtIds.includes(d.id))
+  const traffic = ds.length ? ds.reduce((n, d) => n + d.profile.traffic, 0) / ds.length : 0.5
+  return Math.round((zone.base + 3 * traffic + zone.sway * interpolate(NOISE_CURVE, hour)) * 10) / 10
+}
+
+/** 功能区噪声的一行：某功能区某时段的平均声级和限值 */
+export interface NoiseZoneRow {
+  id: string
+  name: string
+  period: '昼' | '夜'
+  db: number
+  limit: number
+  over: boolean
+}
+
+/** 各功能区昼间、夜间的平均声级与限值（昼 06–22，夜 22–06）；最后两行是交通干线（路口噪声点） */
+export function noiseZoneRows(data: EnvironmentData): NoiseZoneRow[] {
+  const zones: { id: string; name: string; limit: { day: number; night: number }; dbAt: (h: number) => number[] }[] = [
+    ...data.noiseZones.map(z => ({ id: z.id, name: z.name, limit: z.limit, dbAt: (h: number) => [zoneDbAt(z, data.districts, h)] })),
+    { id: 'zone-4a', name: '交通干线', limit: NOISE_LIMIT, dbAt: (h: number) => data.noisePoints.map(p => noiseDbAt(p, h)) }
+  ]
+  const avg = (vs: number[]) => Math.round((vs.reduce((n, v) => n + v, 0) / vs.length) * 10) / 10
+  return zones.flatMap(z => {
+    const day: number[] = []
+    const night: number[] = []
+    for (let h = 0; h < 24; h++) (isNight(h) ? night : day).push(...z.dbAt(h))
+    if (!day.length || !night.length) return []
+    const d = avg(day)
+    const n = avg(night)
+    return [
+      { id: z.id + '-day', name: z.name, period: '昼' as const, db: d, limit: z.limit.day, over: d > z.limit.day },
+      { id: z.id + '-night', name: z.name, period: '夜' as const, db: n, limit: z.limit.night, over: n > z.limit.night }
+    ]
+  })
+}
+
+/** 近岸水质概况：达标率（一、二类占比，%）和一类、二类、超标（三、四类）的点数 */
+export function waterSummary(samples: WaterSample[]): { rate: number; grade1: number; grade2: number; over: number } {
+  const grade1 = samples.filter(s => s.grade === 1).length
+  const grade2 = samples.filter(s => s.grade === 2).length
+  const over = samples.length - grade1 - grade2
+  return { rate: samples.length ? Math.round(((grade1 + grade2) / samples.length) * 1000) / 10 : 0, grade1, grade2, over }
+}
+
+/** 水质采样点相对二类标准最突出的超标指标；不超标时返回 null */
+export function waterExceedance(sample: WaterSample): { name: string; value: number; limit: number; unit: string } | null {
+  if (sample.grade <= 2) return null
+  const w = sample.indicators
+  if (w.din > WATER_LIMIT.din) return { name: '无机氮', value: w.din, limit: WATER_LIMIT.din, unit: 'mg/L' }
+  if (w.po4 > WATER_LIMIT.po4) return { name: '活性磷酸盐', value: w.po4, limit: WATER_LIMIT.po4, unit: 'mg/L' }
+  return { name: '溶解氧', value: w.do, limit: WATER_LIMIT.do, unit: 'mg/L' }
+}
+
+/**
+ * 某时刻的超标告警：
+ * - 监测站：该时刻超过二级限值的污染物，每站每项一条，超标 50% 以上为二级，否则三级；
+ * - 污染源与投诉：每处一条，等级和状态沿用污染源本身；
+ * - 近岸水质：三、四类采样点（超二类标准），四类三级、三类四级。
+ * 按等级从高到低排，同级按时间倒序。
+ */
+export function alarmsAt(data: EnvironmentData, hour: number): EnvAlarm[] {
+  const time = formatHour(hour)
+  const stationAlarms: EnvAlarm[] = data.stations.flatMap(st => {
+    const c = concentrationsAt(st, hour)
+    return POLLUTANTS.filter(p => c[p.key] > p.limit).map(p => {
+      const ratio = c[p.key] / p.limit
+      const alarm: EnvAlarm = {
+        id: `station:${st.id}:${p.key}`,
+        kind: 'station',
+        targetId: st.id,
+        level: ratio >= 1.5 ? 2 : 3,
+        title: `${st.shortName} ${p.name} 小时值 ${c[p.key]}`,
+        note: `限值 ${p.limit} · 超标 ${Math.round((ratio - 1) * 100)}% · ${st.districtName}`,
+        time,
+        status: '待处置',
+        metric: { name: p.name, value: c[p.key], limit: p.limit, unit: p.unit }
+      }
+      return alarm
+    })
+  })
+  const sourceAlarms: EnvAlarm[] = data.sources.map(s => ({
+    id: 'source:' + s.id,
+    kind: 'source',
+    targetId: s.id,
+    level: s.level,
+    title: s.name,
+    note: `${s.type} · ${s.note}`,
+    time: s.time,
+    status: s.status
+  }))
+  const waterAlarms: EnvAlarm[] = data.waterSamples.flatMap(w => {
+    const m = waterExceedance(w)
+    if (!m) return []
+    const alarm: EnvAlarm = {
+      id: 'water:' + w.id,
+      kind: 'water',
+      targetId: w.id,
+      level: w.grade === 4 ? 3 : 4,
+      title: `${w.id} 近岸水质${WATER_GRADE_NAMES[w.grade]}`,
+      note: `${m.name} ${m.value} ${m.unit} · 二类限值 ${m.limit}`,
+      time: w.sampledAt,
+      status: '待处置',
+      metric: m
+    }
+    return [alarm]
+  })
+  return [...stationAlarms, ...sourceAlarms, ...waterAlarms].sort((a, b) => a.level - b.level || b.time.localeCompare(a.time))
+}
+
+/** 按水质类别生成各指标（落在该类别的标准区间内），同一个 id 每次一样 */
+function waterIndicators(id: string, grade: WaterGrade): WaterIndicators {
+  const pick = (range: [number, number], k: string, digits: number) => {
+    const f = 10 ** digits
+    return Math.round((range[0] + (range[1] - range[0]) * seeded(id + k)) * f) / f
+  }
+  const DO: Record<WaterGrade, [number, number]> = { 1: [6.2, 7.4], 2: [5.2, 5.9], 3: [4.3, 4.9], 4: [3.4, 3.9] }
+  const DIN: Record<WaterGrade, [number, number]> = { 1: [0.08, 0.18], 2: [0.21, 0.28], 3: [0.31, 0.38], 4: [0.42, 0.48] }
+  const PO4: Record<WaterGrade, [number, number]> = { 1: [0.006, 0.013], 2: [0.016, 0.027], 3: [0.018, 0.028], 4: [0.032, 0.042] }
+  return { do: pick(DO[grade], 'do', 1), din: pick(DIN[grade], 'din', 2), po4: pick(PO4[grade], 'po4', 3), ph: pick(grade <= 2 ? [8.0, 8.3] : [7.7, 8.0], 'ph', 2) }
+}
+
 /** 路口名「甲街 / 乙街」→「甲街与乙街口」 */
 function crossingName(name: string): string {
   return name.replace(' / ', '与') + '口'
@@ -346,7 +502,7 @@ export function buildEnvironmentData(geo: GeoData): EnvironmentData {
   const sources: PollutionSource[] = SOURCE_SPECS.flatMap(s => {
     const at = describePlace(geo, s.place)
     if (!at) return []
-    return [{ id: s.id, name: s.name.replace('{place}', at.name), shortName: s.shortName, type: s.type, level: s.level, place: s.place, districtName: districtName(s.district ?? at.districtId), note: s.note, time: s.time }]
+    return [{ id: s.id, name: s.name.replace('{place}', at.name), shortName: s.shortName, type: s.type, level: s.level, place: s.place, districtName: districtName(s.district ?? at.districtId), note: s.note, time: s.time, status: s.status }]
   })
 
   // 噪声点：阿拉伯湾街、苏丹·本·扎耶德街上与次干路相交的路口，加上谢赫拉希德街上与支路相交的路口
@@ -368,8 +524,14 @@ export function buildEnvironmentData(geo: GeoData): EnvironmentData {
   const waterSamples: WaterSample[] = WATER_SPECS.flatMap((w, i) => {
     const r = geo.roads.find(x => x.id === w.road)
     const id = 'W-' + String(i + 1).padStart(2, '0')
-    return r ? [{ id, name: r.name + '近岸 ' + id, place: { road: w.road, t: w.t }, grade: w.grade }] : []
+    if (!r) return []
+    // 采样在上午 08:00–11:50 之间
+    const sampledAt = formatHour(8 + Math.floor(seeded(id + 'h') * 4) + Math.floor(seeded(id + 'm') * 6) / 6)
+    return [{ id, name: r.name + '近岸 ' + id, place: { road: w.road, t: w.t }, grade: w.grade, indicators: waterIndicators(id, w.grade), sampledAt }]
   })
 
-  return { districts, stations, sources, noisePoints, greenSpaces, waterSamples, goodDays: { good: 27, total: 31 } }
+  const districtIds = new Set(geo.districts.map(d => d.id))
+  const noiseZones = NOISE_ZONE_SPECS.map(z => ({ ...z, districtIds: z.districtIds.filter(id => districtIds.has(id)) }))
+
+  return { districts, stations, sources, noisePoints, noiseZones, greenSpaces, waterSamples, goodDays: { good: 27, total: 31 } }
 }
