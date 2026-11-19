@@ -3,7 +3,7 @@ import { downloadSnapshot, setAmbienceEnabled, setNight } from '@/scene/effects'
 import store from '@/stores'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
-import { onBeforeUnmount, reactive, ref } from 'vue'
+import { onBeforeUnmount, reactive, readonly, ref } from 'vue'
 
 export interface SceneToolsOptions {
   /** 视角复位：回到本模块的默认相机位 */
@@ -14,6 +14,8 @@ export interface SceneToolsOptions {
 
 /** 昼夜、天气、底图风格、云层改的是整个场景，切换模块后仍然有效，所以状态放在模块之外，五个模块共用 */
 const shared = reactive({ night: false, rain: false, ambience: true, cloud: false })
+/** 场景当前的天气和昼夜（只读），顶栏的天气跟着它显示 */
+export const sceneWeather = readonly(shared)
 
 const TOUR_ID = 'sc_tour'
 /** 巡航时相邻机位之间的飞行时间，秒 */

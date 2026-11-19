@@ -24,7 +24,7 @@
       <span v-if="sceneState === 'failed'" class="chip scene-failed" role="status">场景未连接</span>
       <span v-else-if="sceneState === 'connecting'" class="chip" role="status">场景连接中…</span>
       <span class="chip">
-        <span>晴 29℃</span>
+        <span>{{ weather }}</span>
         <i class="sep"></i>
         <span>阿布扎比主岛</span>
       </span>
@@ -38,6 +38,7 @@
 </template>
 
 <script setup lang="ts">
+import { sceneWeather } from '@/composables/useSceneTools'
 import store from '@/stores'
 import { now as clockNow } from '@/utils/clock'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
@@ -55,6 +56,8 @@ const now = ref(clockNow())
 const date = computed(() => `${now.value.format('YYYY-MM-DD')} ${WEEK[now.value.day()]}`)
 const clock = computed(() => now.value.format('HH:mm:ss'))
 const sceneState = computed(() => store.dtsStore.sceneState)
+/** 天气跟着场景的天气模拟走：开了下雨就显示小雨（气温略降），和画面一致 */
+const weather = computed(() => (sceneWeather.rain ? '小雨 27℃' : '晴 29℃'))
 
 let timer = 0
 onMounted(() => {
