@@ -306,8 +306,9 @@ onBeforeUnmount(async () => {
 </script>
 
 <style lang="scss" scoped>
-$scene-left: $page-margin + $panel-width + 24px; // 480
-$scene-right: $scene-left;
+// 场景区的左右边界：两侧面板展开时 480，收起时靠边（变量在 Layout 上，随面板收起平滑过渡）
+$scene-left: var(--scene-left);
+$scene-right: var(--scene-right);
 // 图层开关的高度：按钮 44 + 内边距 8 + 描边 2
 $toggle-height: 54px;
 
@@ -323,7 +324,7 @@ $toggle-height: 54px;
 }
 .base-layers {
   position: absolute;
-  left: $scene-left + 64px;
+  left: calc(#{$scene-left} + 64px);
   top: $panel-top;
 }
 .card {
@@ -349,7 +350,7 @@ $toggle-height: 54px;
   height: auto;
   min-height: 52px;
   box-sizing: border-box;
-  max-width: calc(100% - #{$scene-left * 2});
+  max-width: calc(100% - #{$scene-left} - #{$scene-right});
   flex-wrap: wrap;
   row-gap: 4px;
   padding-top: 8px;

@@ -329,8 +329,9 @@ onBeforeUnmount(async () => {
 </script>
 
 <style lang="scss" scoped>
-$scene-left: $page-margin + $panel-width + 24px; // 480
-$scene-right: $scene-left;
+// 场景区的左右边界：两侧面板展开时 480，收起时靠边（变量在 Layout 上，随面板收起平滑过渡）
+$scene-left: var(--scene-left);
+$scene-right: var(--scene-right);
 
 .overview-main {
   position: absolute;
@@ -344,7 +345,7 @@ $scene-right: $scene-left;
 }
 .base-layers {
   position: absolute;
-  left: $scene-left + 64px;
+  left: calc(#{$scene-left} + 64px);
   top: $panel-top;
 }
 .card {

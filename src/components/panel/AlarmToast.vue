@@ -45,11 +45,11 @@ function view() {
 </script>
 
 <style lang="scss" scoped>
-// 场景区左上、工具栏右侧：不挡右边的详情卡片（right: 480px，宽 300）
+// 场景区左上、工具栏右侧：不挡右边的详情卡片；随左侧面板收起一起左移
 .alarm-toast {
   position: absolute;
   top: $panel-top;
-  left: $page-margin + $panel-width + 24px + 52px + 16px;
+  left: calc(var(--scene-left) + 52px + 16px);
   width: 520px;
   box-sizing: border-box;
   padding: 12px 8px 12px 16px;

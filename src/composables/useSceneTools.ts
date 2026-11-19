@@ -1,5 +1,6 @@
 import { cityBase } from '@/scene/CityBase'
 import { downloadSnapshot, setAmbienceEnabled, setNight } from '@/scene/effects'
+import { isTopDown, rotated, toggledTopDown, zoomed } from '@/scene/viewControl'
 import store from '@/stores'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
@@ -18,6 +19,12 @@ const shared = reactive({ night: false, rain: false, ambience: true, cloud: fals
 export const sceneWeather = readonly(shared)
 
 const TOUR_ID = 'sc_tour'
+/** 视角控件：每次缩放的倍数、每次旋转的角度、镜头过渡时间（秒） */
+const ZOOM_STEP = 0.6
+const ROTATE_STEP = 45
+const VIEW_FLY = 0.8
+/** 视角控件的按键（不是开关，按下即执行；2D/3D 按当前机位显示按下状态） */
+export const VIEW_KEYS = ['topdown', 'zoomIn', 'zoomOut', 'rotateLeft', 'rotateRight'] as const
 /** 巡航时相邻机位之间的飞行时间，秒 */
 const TOUR_STEP = 7
 
@@ -75,8 +82,10 @@ export function useSceneTools(options: SceneToolsOptions) {
       return
     }
     if (!sceneReady()) return
+    if ((VIEW_KEYS as readonly string[]).includes(key)) return moveView(key)
     if (key === 'reset') {
       stopTour()
+      set('topdown', false)
       await options.reset()
     } else if (key === 'tour') {
       if (isOn('tour')) stopTour()
@@ -106,6 +115,24 @@ export function useSceneTools(options: SceneToolsOptions) {
     } else if (key === 'snapshot') {
       if (!downloadSnapshot('智慧城市-' + dayjs().format('YYYYMMDD-HHmmss') + '.png')) ElMessage.warning('场景画面还没有就绪，无法截图')
     }
+  }
+
+  /** 视角控件：都绕画面中心看着的那个点操作；巡航中先停下 */
+  async function moveView(key: string) {
+    stopTour()
+    const res = await __xapi.camera.get()
+    const camera: number[] | undefined = res?.camera
+    if (!camera || camera.length < 5) return
+    const next =
+      key === 'topdown'
+        ? toggledTopDown(camera)
+        : key === 'zoomIn'
+          ? zoomed(camera, ZOOM_STEP)
+          : key === 'zoomOut'
+            ? zoomed(camera, 1 / ZOOM_STEP)
+            : rotated(camera, key === 'rotateLeft' ? -ROTATE_STEP : ROTATE_STEP)
+    set('topdown', isTopDown(next))
+    await __xapi.camera.set(next[0], next[1], next[2], next[3], next[4], VIEW_FLY)
   }
 
   /** 图层管理面板里的开关 */

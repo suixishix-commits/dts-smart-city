@@ -4,6 +4,18 @@
 @use './layout.scss';
 @use './element.scss';
 
+// 场景区左右边界（Layout 上设置，模块的工具栏、图例、时间轴、卡片据此定位）。注册成 <length> 才能在面板收起时平滑过渡
+@property --scene-left {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 0; // 必须与根字号无关（px 会被 pxtorem 换成 rem，注册就失效）
+}
+@property --scene-right {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 0; // 必须与根字号无关（px 会被 pxtorem 换成 rem，注册就失效）
+}
+
 
 // ---- PANES：按设计稿，左右两栏是一列独立卡片（PanelCard），每张卡片自带底色、描边和圆角，卡片间距 16 ----
 #layout-container aside {

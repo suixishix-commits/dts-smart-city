@@ -10,6 +10,9 @@
       <span class="mode" :class="{ live: isLive }"><i></i>{{ isLive ? '实时' : playing ? '回放中' : '历史时刻' }}</span>
     </div>
 
+    <!-- 播放倍速：点一下切到下一档 -->
+    <button type="button" class="speed" :aria-label="`播放速度 ${rate} 倍，点击切换`" :title="`播放速度（一天约 ${Math.round(24 / SPEED / rate)} 秒）`" @click="nextRate">{{ rate }}×</button>
+
     <div ref="trackEl" class="track" @pointerdown="onDown" @pointermove="onHover" @pointerleave="hoverX = null">
       <!-- 峰值：轨道上方的小旗，不和下方刻度抢位置 -->
       <span class="peak" :style="{ left: pct(peakHour) }">
@@ -59,8 +62,10 @@ const emit = defineEmits<{ (e: 'update:modelValue', v: number): void }>()
 const MAJOR = [0, 6, 12, 18, 24]
 /** 数据的时间粒度：场景和面板按半小时更新 */
 const STEP = 0.5
-/** 播放速度：每秒走过的小时数（一天约 30 秒） */
+/** 播放速度：每秒走过的小时数（1 倍时一天约 30 秒） */
 const SPEED = 0.8
+/** 可选的播放倍速 */
+const RATES = [1, 2, 4] as const
 
 function format(hour: number): string {
   const total = Math.round(Math.min(24, Math.max(0, hour)) * 60)
@@ -74,6 +79,10 @@ const pct = (h: number) => (Math.min(24, Math.max(0, h)) / 24) * 100 + '%'
  * 对外只在跨过半小时整点时 emit，场景和面板不会被逐帧刷新。
  */
 const display = ref(props.modelValue)
+const rate = ref<(typeof RATES)[number]>(1)
+function nextRate() {
+  rate.value = RATES[(RATES.indexOf(rate.value) + 1) % RATES.length]
+}
 const playing = ref(false)
 const dragging = ref(false)
 const hoverX = ref<number | null>(null)
@@ -109,7 +118,7 @@ let frame = 0
 let last: number | null = null
 function tick(t: number) {
   if (last !== null) {
-    let next = display.value + ((t - last) / 1000) * SPEED
+    let next = display.value + ((t - last) / 1000) * SPEED * rate.value
     if (next >= 24) next = 0
     display.value = next
     // 播放时向下取整到半小时：画面先走到，数据在整点切换
@@ -239,6 +248,29 @@ onBeforeUnmount(() => cancelAnimationFrame(frame))
   to {
     transform: scale(1.25);
     opacity: 0;
+  }
+}
+.speed {
+  flex-shrink: 0;
+  width: 36px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid $border;
+  border-radius: $radius-sm;
+  font-family: $font-num;
+  font-size: 13px;
+  font-weight: 600;
+  color: $text;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease;
+  &:hover {
+    color: $text-strong;
+    border-color: $accent;
+    background: $accent-soft;
   }
 }
 .clock {

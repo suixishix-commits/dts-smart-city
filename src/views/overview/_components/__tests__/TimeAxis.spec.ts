@@ -30,6 +30,22 @@ describe('TimeAxis', () => {
     expect(emitted(w)).toEqual([15])
   })
 
+  it('plays faster at a higher rate and cycles 1× → 2× → 4× → 1×', async () => {
+    const w = mount(TimeAxis, { props: { modelValue: 10, peakHour: 19.5 } })
+    const speed = w.find('button.speed')
+    expect(speed.text()).toBe('1×')
+    await speed.trigger('click')
+    await speed.trigger('click')
+    expect(speed.text()).toBe('4×')
+    await w.find('button.play').trigger('click')
+    // 4 倍：1 秒走 3.2 小时，从 10:00 到约 13:12，对外发过 10:30 … 13:00
+    vi.advanceTimersByTime(1000)
+    await w.vm.$nextTick()
+    expect(emitted(w).at(-1)).toBe(13)
+    await speed.trigger('click')
+    expect(speed.text()).toBe('1×')
+  })
+
   it('wraps to 0 after 24', async () => {
     const w = mount(TimeAxis, { props: { modelValue: 24, peakHour: 19.5 } })
     await w.find('button.play').trigger('click')
