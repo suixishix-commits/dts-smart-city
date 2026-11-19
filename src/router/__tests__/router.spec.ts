@@ -28,9 +28,9 @@ describe('router', () => {
     }
   })
 
-  it('registers exactly the five module routes under the layout', () => {
+  it('registers the five module routes and the heat demo under the layout', () => {
     const modules = router.getRoutes().filter(r => r.name && r.name !== 'app')
-    expect(modules.map(r => r.name).sort()).toEqual(['environment', 'lifeline', 'overview', 'security', 'traffic'])
+    expect(modules.map(r => r.name).sort()).toEqual(['environment', 'heatmap', 'lifeline', 'overview', 'security', 'traffic'])
     expect(modules.every(r => typeof r.components?.default === 'function')).toBe(true)
   })
 })

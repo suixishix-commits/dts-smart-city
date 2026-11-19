@@ -31,6 +31,12 @@ const routes: RouteRecordRaw[] = [
         path: '/lifeline',
         name: 'lifeline',
         component: () => import('@/views/lifeline/LifelineMain.vue')
+      },
+      // 片区热力演示（不在顶部导航里，直接访问 #/heatmap）
+      {
+        path: '/heatmap',
+        name: 'heatmap',
+        component: () => import('@/views/heatdemo/HeatDemoMain.vue')
       }
     ]
   },
