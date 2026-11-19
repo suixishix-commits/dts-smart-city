@@ -275,7 +275,7 @@ describe('EnvironmentScene', () => {
     await scene.focusSource(source.id)
     expect(api.cameraCalls).toEqual([focusView(xy), focusView(sourceXY)])
     expect(api.cameraCalls[0][0]).toBeLessThan(xy[0])
-    expect(api.cameraCalls[0].slice(2)).toEqual([1700, -42, -38])
+    expect(api.cameraCalls[0].slice(2)).toEqual([1700, -42, 60])
 
     api.cameraCalls = []
     await scene.setLayerVisible('station', false)

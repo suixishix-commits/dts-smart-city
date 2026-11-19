@@ -335,12 +335,12 @@ describe('SecurityScene', () => {
       .sort((a, b) => a.level - b.level)
       .slice(0, 3)
     expect(views).toEqual([...data.zones.map(z => focusView(geo.xy(z.position), 3600)), ...worst.map(i => focusView(geo.xy(i.position)))])
-    // 机位在目标的西南上方
+    // 机位在目标的西北上方（朝东南看）
     const first = geo.xy(data.zones[0].position)
     expect(views[0][0]).toBeLessThan(first[0])
-    expect(views[0][1]).toBeLessThan(first[1])
-    expect(views[0].slice(2)).toEqual([3600, -42, -38])
-    expect(views[data.zones.length].slice(2)).toEqual([1700, -42, -38])
+    expect(views[0][1]).toBeGreaterThan(first[1])
+    expect(views[0].slice(2)).toEqual([3600, -42, 60])
+    expect(views[data.zones.length].slice(2)).toEqual([1700, -42, 60])
   })
 
   it('定位警情、防护区、摄像头：不论图层开关都飞到统一的俯瞰机位，高度按对象大小；未知 id 不动相机', async () => {

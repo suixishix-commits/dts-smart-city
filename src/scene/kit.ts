@@ -44,9 +44,9 @@ export function rampColor(t: number, ramp: readonly string[] = RAMP): string {
 
 /** 定位机位的俯仰角、朝向：朝向与各模块默认机位一致，飞过去画面不打转 */
 const FOCUS_PITCH = -42
-const FOCUS_YAW = -38
+const FOCUS_YAW = 60
 /** 全城默认机位（smart-city.js 的 cameras 没配时各模块用的就是它） */
-const DEFAULT_CAMERA = [225780, 2698610, 9600, -38, -38]
+const DEFAULT_CAMERA = [228203, 2717338, 10960, -45, 60]
 
 /**
  * 俯瞰某一点的机位 [x, y, z, pitch, yaw]，目标点落在画面正中。五个模块的列表定位、标注点击、巡航都用它，

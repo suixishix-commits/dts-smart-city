@@ -371,8 +371,8 @@ describe('LifelineScene', () => {
     await scene.focusAlarm('不存在')
     await scene.focusBridge('不存在')
     expect(api.cameraCalls).toEqual([focusView(alarmAt('a1')), focusView(bridgeAt('maqta-bridge'), 3600)])
-    expect(api.cameraCalls[0].slice(2)).toEqual([1700, -42, -38])
-    expect(api.cameraCalls[1].slice(2)).toEqual([3600, -42, -38])
+    expect(api.cameraCalls[0].slice(2)).toEqual([1700, -42, 60])
+    expect(api.cameraCalls[1].slice(2)).toEqual([3600, -42, 60])
 
     api.cameraCalls = []
     await scene.setLayerVisible('alarm', false)
@@ -390,7 +390,7 @@ describe('LifelineScene', () => {
     expect(urgent[0].id).toBe('a1')
     expect(data.bridges).toHaveLength(3)
     expect(views).toEqual([...urgent.map(a => focusView(resolveAnchor(geo, a.anchor))), ...data.bridges.map(b => focusView(resolveAnchor(geo, { kind: 'landmark', id: b.id })))])
-    views.forEach(v => expect(v.slice(2)).toEqual([1700, -42, -38]))
+    views.forEach(v => expect(v.slice(2)).toEqual([1700, -42, 60]))
   })
 
   it('进入过程中离开，不留下任何对象，路网恢复显示', async () => {

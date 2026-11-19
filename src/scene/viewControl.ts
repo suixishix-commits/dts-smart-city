@@ -6,7 +6,7 @@
 /** 俯视（2D）时的俯仰角；DTS 不接受正好 -90 */
 export const TOP_DOWN_PITCH = -89
 /** 回到斜视（3D）时的俯仰角，和各模块主页机位一致 */
-export const TILT_PITCH = -38
+export const TILT_PITCH = -45
 /** 俯仰角低于它就算俯视 */
 const TOP_DOWN_BELOW = -80
 /** 镜头高度范围，米：太低会钻进楼里，太高底图出边 */

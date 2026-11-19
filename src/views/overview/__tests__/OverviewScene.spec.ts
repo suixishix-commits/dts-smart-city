@@ -322,8 +322,8 @@ describe('OverviewScene', () => {
       await scene.focusHotspot('h1')
       await scene.focusCamera('CAM-0705')
       expect(api.cameraCalls).toEqual([focusView(xy(hotspot('h1').position)), focusView(xy(camera('CAM-0705').position), 2400)])
-      expect(api.cameraCalls[0].slice(2)).toEqual([1700, -42, -38])
-      expect(api.cameraCalls[1].slice(2)).toEqual([2400, -42, -38])
+      expect(api.cameraCalls[0].slice(2)).toEqual([1700, -42, 60])
+      expect(api.cameraCalls[1].slice(2)).toEqual([2400, -42, 60])
       expect(api.focusCalls).toEqual([])
     })
 
@@ -354,7 +354,7 @@ describe('OverviewScene', () => {
       expect(api.cameraCalls).toHaveLength(1)
     })
 
-    it('offers one tour view per hotspot, hottest first, looking from the south-west', async () => {
+    it('offers one tour view per hotspot, hottest first, looking south-east from the north-west', async () => {
       expect(scene.tourViews()).toEqual([])
       await scene.enter()
       const ranked = [...data.hotspots].sort((a, b) => b.heat - a.heat)
@@ -362,8 +362,8 @@ describe('OverviewScene', () => {
       expect(views).toEqual(ranked.map(h => focusView(xy(h.position))))
       views.forEach((v, i) => {
         expect(v[0]).toBeLessThan(ranked[i].position[0] * 1e5)
-        expect(v[1]).toBeLessThan(ranked[i].position[1] * 1e5)
-        expect(v.slice(2)).toEqual([1700, -42, -38])
+        expect(v[1]).toBeGreaterThan(ranked[i].position[1] * 1e5)
+        expect(v.slice(2)).toEqual([1700, -42, 60])
       })
     })
   })

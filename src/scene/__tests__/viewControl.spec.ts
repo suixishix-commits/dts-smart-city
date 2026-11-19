@@ -42,7 +42,7 @@ describe('viewControl', () => {
     near(viewTarget(top).target, viewTarget(home).target)
     const back = toggledTopDown(top)
     expect(isTopDown(back)).toBe(false)
-    expect(back[3]).toBe(-38)
+    expect(back[3]).toBe(-45)
     near(viewTarget(back).target, viewTarget(home).target)
   })
 })
