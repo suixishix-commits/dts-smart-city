@@ -551,18 +551,18 @@ describe('staggerLabels', () => {
   })
 
   it('raises a label that would cover an earlier one on screen', () => {
-    expect(staggerLabels([{ at: c, width: 160 }, { at: right(1500), width: 160 }], 56, 34, { camera })).toEqual([56, 90])
+    expect(staggerLabels([{ at: c, width: 160 }, { at: right(1500), width: 160 }], 56, 34, { camera })).toEqual([56, 94])
   })
 
   it('takes the next free level when two lower ones are taken', () => {
-    expect(staggerLabels([{ at: c, width: 160 }, { at: right(700), width: 160 }, { at: right(1400), width: 160 }], 56, 34, { camera })).toEqual([56, 90, 124])
+    expect(staggerLabels([{ at: c, width: 160 }, { at: right(700), width: 160 }, { at: right(1400), width: 160 }], 56, 34, { camera })).toEqual([56, 94, 132])
   })
 
   it('keeps fixed labels where they are and moves the others around them', () => {
-    // 固定的在 90：另一个的 56 档和它上下错开一档，不重叠
-    expect(staggerLabels([{ at: c, width: 160, lead: 90 }, { at: right(700), width: 160 }], 56, 34, { camera })).toEqual([90, 56])
+    // 固定的在 132：另一个的 56 档和它上下隔开两档，不重叠
+    expect(staggerLabels([{ at: c, width: 160, lead: 132 }, { at: right(700), width: 160 }], 56, 34, { camera })).toEqual([132, 56])
     // 固定的占了 56，移动的让到 90
-    expect(staggerLabels([{ at: c, width: 160, lead: 56 }, { at: right(700), width: 160 }], 56, 34, { camera })).toEqual([56, 90])
+    expect(staggerLabels([{ at: c, width: 160, lead: 56 }, { at: right(700), width: 160 }], 56, 34, { camera })).toEqual([56, 94])
   })
 
   it('estimates wider boxes for longer text', () => {

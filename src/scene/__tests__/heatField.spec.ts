@@ -147,3 +147,25 @@ describe('HeatFieldLayer', () => {
     expect(api.log.at(-1)).toBe('visible h-b false')
   })
 })
+
+describe('sampleHeatField options', () => {
+  const points = [{ at: [0, 0], radius: 500, value: 0.8 }]
+
+  it('keeps the true weighted average at the edge when fade is off', () => {
+    const faded = sampleHeatField({ points, range: [0, 1], step: 100 })
+    const kept = sampleHeatField({ points, range: [0, 1], step: 100, fade: false })
+    // 离点 600 米的格点：覆盖度低，淡出后变小；不淡出时仍是 0.8
+    const at = (f: typeof kept, x: number) => f.values[Math.round((0 - f.origin[1]) / f.step) * f.cols + Math.round((x - f.origin[0]) / f.step)]
+    expect(at(faded, 600)).toBeLessThan(0.5)
+    expect(at(kept, 600)).toBeCloseTo(0.8, 5)
+  })
+
+  it('leaves masked cells uncovered', () => {
+    const f = sampleHeatField({ points, range: [0, 1], step: 100, mask: xy => xy[0] >= 0 })
+    for (let i = 0; i < f.covered.length; i++) {
+      const x = f.origin[0] + (i % f.cols) * f.step
+      if (x < 0) expect(f.covered[i]).toBe(0)
+    }
+    expect([...f.covered].some(c => c === 1)).toBe(true)
+  })
+})

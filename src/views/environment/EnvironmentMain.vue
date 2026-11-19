@@ -15,7 +15,8 @@
         <b>{{ meta.name }}等级</b>
         <template v-for="(name, i) in AIR_LEVEL_NAMES" :key="name"><i class="swatch" :style="{ background: AIR_COLORS[i] }"></i>{{ name }}</template>
       </span>
-      <span v-if="shows('air')" class="legend-item"><i class="region" :style="{ borderColor: AIR_COLORS[0] }"></i>片区</span>
+      <span v-if="shows('air') && airField" class="legend-item"><i class="field" :style="{ background: airFieldRamp }"></i>监测插值面</span>
+      <span v-else-if="shows('air')" class="legend-item"><i class="region" :style="{ borderColor: AIR_COLORS[0] }"></i>片区</span>
       <span v-if="shows('station')" class="legend-item"><i class="pin" :style="{ background: AIR_COLORS[1] }"></i>监测站 · 读数</span>
       <span v-if="shows('source') && sourceLevels.length" class="legend-item">
         <i class="ring" :style="{ borderColor: LEVEL_COLOR[sourceLevels[0]] }"></i>污染源
@@ -67,6 +68,9 @@ const SOURCE_EVENT = 'sc_environment_source'
 const WATER_EVENT = 'sc_environment_water'
 /** 噪声色带，和场景里噪声柱用的是同一组颜色 */
 const noiseRamp = `linear-gradient(to right, ${RAMP.join(', ')})`
+const airFieldRamp = `linear-gradient(to right, ${AIR_COLORS.join(', ')})`
+/** 空气质量是否画成连续场（热力场材质可用时），图例跟着换 */
+const airField = ref(false)
 
 const data = ref<EnvironmentData | null>(null)
 // 当前真实时刻，取整到半小时
@@ -242,7 +246,8 @@ onMounted(async () => {
 
   const geo = await cityBase.start()
   if (!geo || unmounting.signal.aborted) return
-  scene = new EnvironmentScene(new DtsSceneApi(), geo, { cameraView: HOME, pak: cityBase.pak, beacons: cityBase.beacons })
+  airField.value = cityBase.heatField
+  scene = new EnvironmentScene(new DtsSceneApi(), geo, { cameraView: HOME, pak: cityBase.pak, beacons: cityBase.beacons, heatField: cityBase.heatField })
   scene.setData(loaded, hour.value, index.value)
   // 场景就绪前用户可能已经改过图层开关
   for (const l of LAYERS) scene.setLayerVisible(l.key, layers.value.includes(l.key))
@@ -327,6 +332,12 @@ $scene-right: $scene-left;
     height: 12px;
     margin-left: 4px;
     border-radius: 3px;
+  }
+  .field {
+    width: 28px;
+    height: 8px;
+    border-radius: 2px;
+    opacity: 0.85;
   }
   .region {
     width: 14px;

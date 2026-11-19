@@ -6,7 +6,8 @@ import { buildCityGeo, pointAt, type CityGeo } from '@/scene/geo'
 import { COLOR, focusView, LABEL_TIERS, LEVEL_COLOR, rgba } from '@/scene/kit'
 import type { EnvironmentData } from '@/types/environment'
 import type { GeoData } from '@/types/geo'
-import { ENV_LAYERS, EnvironmentScene, noiseColor, WATER_COLORS } from '../EnvironmentScene'
+import { HEAT_FIELD_MATERIAL } from '@/scene/heatField'
+import { airFieldValue, ENV_LAYERS, EnvironmentScene, noiseColor, WATER_COLORS } from '../EnvironmentScene'
 
 /** 严格的场景替身：重复添加同一个 id、删除不存在的 id 都会抛错 */
 class FakeApi implements SceneApi {
@@ -325,5 +326,33 @@ describe('EnvironmentScene', () => {
     const empty = new EnvironmentScene(api, geo, { cameraView: null, pak: false })
     await empty.enter()
     expect(api.store.size).toBe(0)
+  })
+})
+
+describe('空气质量连续场', () => {
+  it('指数映射到材质密度：等级内部平，等级分界处陡', () => {
+    expect(airFieldValue(0)).toBeCloseTo(0.56)
+    expect(airFieldValue(75)).toBeGreaterThan(0.8)
+    expect(airFieldValue(75)).toBeLessThan(0.81)
+    expect(airFieldValue(125)).toBeCloseTo(0.9, 1)
+    expect(airFieldValue(400)).toBe(1)
+    for (let i = 0; i < 250; i += 5) expect(airFieldValue(i + 5)).toBeGreaterThanOrEqual(airFieldValue(i))
+  })
+
+  it('热力场可用时画一张带 AQI 色带的连续面，不画片区面', async () => {
+    const api = new FakeApi()
+    const scene = new EnvironmentScene(api, geo, { cameraView: null, pak: false, heatField: true })
+    scene.setData(data, 11)
+    await scene.enter()
+    const fields = api.ids('customMesh')
+    expect(fields).toHaveLength(1)
+    const mesh = api.store.get(fields[0])
+    expect(mesh.material).toBe(HEAT_FIELD_MATERIAL)
+    expect(mesh.vectorParameters.map((p: { name: string }) => p.name)).toEqual(['C0', 'C1', 'C2', 'C3', 'C4', 'C5'])
+    expect(api.ids('polygon', 'air-')).toEqual([])
+    await scene.setLayerVisible('air', false)
+    expect(api.visible.get(fields[0])).toBe(false)
+    await scene.leave()
+    expect(api.ids('customMesh')).toEqual([])
   })
 })

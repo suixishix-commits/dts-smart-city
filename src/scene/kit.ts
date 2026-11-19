@@ -240,8 +240,8 @@ export function pin(o: { id: string; groupId: string; at: number[]; text: string
   }
 }
 
-/** 标注框高度，像素；两个框之间至少留的横向 / 纵向空隙 */
-const LABEL_BOX_H = 30
+/** 标注框高度，像素（胶囊式字号 13 时 36，卡片式 34，取大的）；两个框之间至少留的横向 / 纵向空隙 */
+const LABEL_BOX_H = 36
 const LABEL_GAP_X = 6
 const LABEL_GAP_Y = 2
 /** 推流画面尺寸和水平视场角（UE 默认 90°） */
@@ -284,6 +284,8 @@ export function screenOf(camera: number[], p: number[]): [number, number] | null
 export function staggerLabels(items: { at: number[]; width: number; lead?: number }[], base: number, step: number, o: { camera?: number[] | null; levels?: number } = {}): number[] {
   const camera = o.camera ?? DEFAULT_CAMERA
   const levels = o.levels ?? 6
+  // 每档至少抬一个框高，否则上下相邻两档的框还是挨在一起
+  step = Math.max(step, LABEL_BOX_H + LABEL_GAP_Y)
   const placed: { x: number; y: number; w: number }[] = []
   return items.map(item => {
     const s = screenOf(camera, item.at)

@@ -8,6 +8,7 @@
  * - 换数据只用 customMesh.update 改顶点颜色（实测约 40 ms、几十 KB），并从当前显示值分几帧插值到新值。
  *   不新增、不删除对象，画面上始终是同一张面，不会闪。
  */
+import { linearColor } from './lineFlow'
 import type { SceneApi } from './SceneApi'
 
 export const HEAT_FIELD_MATERIAL = '/JC_CustomAssets/HeatField/MI_HeatField_V1_FX'
@@ -39,8 +40,10 @@ const COVER_MIN = 0.02
  * 在规则网格上采样热力点。
  * points 做加权平均（高斯核，σ = 半径 × 0.6）：相邻格点的密度连成一张平滑的面，边缘随覆盖度淡出；
  * extra 直接叠加（热点事件这类局部峰值，平均会把它们冲淡）。结果按 range 归一化并截到 0–1。
+ * fade 为 false 时不按覆盖度淡出，取真实的加权平均（空气质量这类读数，边上淡出会被读成「变好了」）；
+ * mask 限定哪些格点可以建面（例如只在陆地上）。
  */
-export function sampleHeatField(o: { points: HeatSource[]; extra?: HeatSource[]; range: [number, number]; step: number }): HeatField {
+export function sampleHeatField(o: { points: HeatSource[]; extra?: HeatSource[]; range: [number, number]; step: number; fade?: boolean; mask?: (xy: number[]) => boolean }): HeatField {
   const all = [...o.points, ...(o.extra ?? [])]
   const step = o.step
   if (all.length === 0) return { origin: [0, 0], step, cols: 0, rows: 0, values: new Float32Array(0), covered: new Uint8Array(0) }
@@ -86,9 +89,9 @@ export function sampleHeatField(o: { points: HeatSource[]; extra?: HeatSource[];
   const covered = new Uint8Array(n)
   for (let i = 0; i < n; i++) {
     // 覆盖度不足 1 时（陆地边缘、海上）按覆盖度淡出，而不是把边上的一个点放大成整片
-    const base = wsum[i] > 0 ? vsum[i] / Math.max(wsum[i], 1) : 0
+    const base = wsum[i] > 0 ? vsum[i] / (o.fade === false ? wsum[i] : Math.max(wsum[i], 1)) : 0
     values[i] = Math.min(1, Math.max(0, (base + add[i] - lo) / span))
-    covered[i] = reachW[i] >= COVER_MIN ? 1 : 0
+    covered[i] = reachW[i] >= COVER_MIN && (!o.mask || o.mask([x0 + (i % cols) * step, y0 + Math.floor(i / cols) * step])) ? 1 : 0
   }
   return { origin: [x0, y0], step, cols, rows, values, covered }
 }
@@ -116,7 +119,7 @@ export function heatFieldColors(field: HeatField, layout: HeatFieldLayout, value
 export function heatFieldMesh(
   id: string,
   field: HeatField,
-  o: { groupId?: string; brightness?: number; levels?: number } = {}
+  o: { groupId?: string; brightness?: number; levels?: number; colors?: readonly string[]; opacity?: number } = {}
 ): { mesh: Record<string, unknown> & { id: string }; layout: HeatFieldLayout } | null {
   const { cols, rows, covered, step } = field
   const [x0, y0] = field.origin
@@ -136,17 +139,31 @@ export function heatFieldMesh(
   for (let r = 0; r + 1 < rows; r++) {
     for (let c = 0; c + 1 < cols; c++) {
       const a = r * cols + c
-      if (!(covered[a] && covered[a + 1] && covered[a + cols] && covered[a + cols + 1])) continue
-      const v00 = vertex(r, c)
-      const v10 = vertex(r, c + 1)
-      const v11 = vertex(r + 1, c + 1)
-      const v01 = vertex(r + 1, c)
-      indices.push(v00, v10, v11, v00, v11, v01)
+      const k00 = covered[a]
+      const k10 = covered[a + 1]
+      const k11 = covered[a + cols + 1]
+      const k01 = covered[a + cols]
+      const n = k00 + k10 + k11 + k01
+      if (n === 4) {
+        const v00 = vertex(r, c)
+        const v10 = vertex(r, c + 1)
+        const v11 = vertex(r + 1, c + 1)
+        const v01 = vertex(r + 1, c)
+        indices.push(v00, v10, v11, v00, v11, v01)
+      } else if (n === 3) {
+        // 边缘的格子只缺一个角：画另外三个角的三角形，边界是斜边而不是直角台阶
+        const corners: [number, number][] = []
+        if (k00) corners.push([r, c])
+        if (k10) corners.push([r, c + 1])
+        if (k11) corners.push([r + 1, c + 1])
+        if (k01) corners.push([r + 1, c])
+        indices.push(...corners.map(([rr, cc]) => vertex(rr, cc)))
+      }
     }
   }
   if (indices.length === 0) return null
   const layout: HeatFieldLayout = { key: `${x0},${y0},${step},${cols},${rows},${vertices.length},${indices.length}`, vertices: Int32Array.from(vertices) }
-  const scalarParameters = [{ name: 'Opacity', value: 1 }]
+  const scalarParameters = [{ name: 'Opacity', value: o.opacity ?? 1 }]
   if (o.brightness !== undefined) scalarParameters.push({ name: 'Brightness', value: o.brightness })
   if (o.levels !== undefined) scalarParameters.push({ name: 'Levels', value: o.levels })
   return {
@@ -160,7 +177,9 @@ export function heatFieldMesh(
       color: [1, 1, 1, 1],
       createCollision: false,
       material: HEAT_FIELD_MATERIAL,
-      scalarParameters
+      scalarParameters,
+      // 色带 C0–C5（密度 0.35 / 0.55 / 0.68 / 0.8 / 0.9 / 1.0 处的颜色），不传用材质默认的人口热力色带
+      ...(o.colors ? { vectorParameters: o.colors.map((c, i) => ({ name: 'C' + i, value: linearColor(c) })) } : {})
     },
     layout
   }
@@ -188,7 +207,7 @@ export class HeatFieldLayer {
 
   constructor(
     private readonly api: SceneApi,
-    private readonly o: { id: string; groupId?: string; brightness?: number; levels?: number; tweenMs?: number; tweenSteps?: number }
+    private readonly o: { id: string; groupId?: string; brightness?: number; levels?: number; colors?: readonly string[]; opacity?: number; tweenMs?: number; tweenSteps?: number }
   ) {}
 
   show(field: HeatField): Promise<void> {
@@ -252,7 +271,7 @@ export class HeatFieldLayer {
   }
 
   private async apply(field: HeatField): Promise<void> {
-    const built = heatFieldMesh(`${this.o.id}-${this.slot ? 'a' : 'b'}`, field, { groupId: this.o.groupId, brightness: this.o.brightness, levels: this.o.levels })
+    const built = heatFieldMesh(`${this.o.id}-${this.slot ? 'a' : 'b'}`, field, { groupId: this.o.groupId, brightness: this.o.brightness, levels: this.o.levels, colors: this.o.colors, opacity: this.o.opacity })
     const sameShape = !!built && !!this.id && !!this.layout && built.layout.key === this.layout.key
     if (sameShape && this.api.update && this.shown) {
       await this.tween(field)

@@ -1,4 +1,5 @@
 import { concentrationsAt, noiseDbAt, readingOf, stationReadingsAt, WATER_GRADE_NAMES } from '@/api/mock/environment'
+import { HeatFieldLayer, sampleHeatField, type HeatField } from '@/scene/heatField'
 import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi, SceneObjectType } from '@/scene/SceneApi'
 import { pointAt, type CityGeo } from '@/scene/geo'
@@ -12,6 +13,8 @@ export interface EnvironmentSceneOptions {
   pak: boolean
   /** 分级点位材质包是否可用；不可用时污染源用扩散波纹 */
   beacons?: boolean
+  /** 热力场材质包是否可用；可用时空气质量画成按监测读数插值的连续场，否则按片区着色 */
+  heatField?: boolean
 }
 
 /** 图层清单：key、名称、是否默认打开。页面的图层开关和场景共用这一份 */
@@ -42,6 +45,46 @@ export function noiseColor(db: number): string {
 }
 
 const AIR_LAYER_ID = 'sc_environment_air'
+/** 空气质量场的采样：陆地网格间距、格点影响半径、场的网格间距，米 */
+const AIR_GRID_STEP = 500
+const AIR_GRID_RADIUS = 900
+const AIR_STATION_RADIUS = 1100
+const AIR_FIELD_STEP = 120
+/**
+ * 空气质量场的色带（热力场材质的 C0–C5），和等级色一致：优绿、良黄、轻度橙、中度及以上红。
+ * 指数按 AIR_FIELD_KNOTS 映射到材质的密度值，颜色在等级分界（50 / 100 / 150）附近才跳变，等级内部保持本色。
+ */
+const AIR_FIELD_COLORS = ['#2f9e44', '#40c057', STATUS_RAMP[0], STATUS_RAMP[1], STATUS_RAMP[2], STATUS_RAMP[3]] as const
+/**
+ * 空气质量场的材质参数：半透明、压低亮度，城市肌理透得出来；
+ * 等值线只留一条在密度 1（中度以上才有）：读数大多落在等级平台上，平台正好压在等值线上会画成一片亮带
+ */
+const AIR_FIELD_STYLE = { colors: AIR_FIELD_COLORS, brightness: 0.75, opacity: 0.6, levels: 1 }
+/** [指数, 材质密度]：0.55–0.68 绿、0.8 黄、0.9 橙、1.0 红（见热力场材质的色带位置） */
+const AIR_FIELD_KNOTS: [number, number][] = [
+  [0, 0.56],
+  [45, 0.67],
+  [55, 0.8],
+  [95, 0.81],
+  [105, 0.895],
+  [145, 0.905],
+  [155, 0.99],
+  [200, 1]
+]
+
+/** 空气质量分指数 → 热力场材质的密度值 */
+export function airFieldValue(index: number): number {
+  const k = AIR_FIELD_KNOTS
+  if (index <= k[0][0]) return k[0][1]
+  for (let i = 1; i < k.length; i++) {
+    const [x1, y1] = k[i]
+    if (index <= x1) {
+      const [x0, y0] = k[i - 1]
+      return y0 + ((y1 - y0) * (index - x0)) / (x1 - x0)
+    }
+  }
+  return k[k.length - 1][1]
+}
 /** 片区读数标注的图层 */
 const AIR_LABEL_LAYER = 'airLabel'
 /** 噪声柱半径，米 */
@@ -64,6 +107,12 @@ export class EnvironmentScene extends ModuleScene {
   /** onEnter 已经创建完图层。在此之前 setHour / setIndex 只记录取值 */
   private entered = false
   private regions: Awaited<ReturnType<typeof regionLayer>> | null = null
+  /** 空气质量连续场（热力场材质可用时） */
+  private readonly airField: HeatFieldLayer | null
+  /** 空气质量场的陆地采样网格，进入时生成 */
+  private airGrid: { xy: number[]; districtId: string }[] = []
+  /** 场格点是否在陆地上（格点位置每次都一样，换时刻时不重复判断） */
+  private landCache = new Map<string, boolean>()
   /** 污染源、监测站标注的引线高度（'source:id' / 'station:id' → 高度），进入时按位置算好 */
   private leads = new Map<string, number>()
   /** 各随时间变化的图层上一次的内容签名，内容没变就不重建（避免标注闪动） */
@@ -77,6 +126,7 @@ export class EnvironmentScene extends ModuleScene {
     private readonly options: EnvironmentSceneOptions
   ) {
     super(api)
+    this.airField = options.heatField ? new HeatFieldLayer(api, { id: 'env-air-field', groupId: AIR_LAYER_ID, ...AIR_FIELD_STYLE }) : null
     // 默认关闭的图层先记成隐藏，进入时就不会创建
     for (const l of ENV_LAYERS) if (!l.on) void this.setLayerVisible(l.key, false)
   }
@@ -116,7 +166,8 @@ export class EnvironmentScene extends ModuleScene {
 
     if (this.options.cameraView) await this.api.setCamera(this.options.cameraView)
 
-    if (this.options.pak) {
+    if (this.airField) this.airGrid = geo.landGrid(AIR_GRID_STEP)
+    else if (this.options.pak) {
       const colors = this.districtColors(data)
       await this.effect(token, 'air', async () => {
         this.regions = await regionLayer(
@@ -147,8 +198,12 @@ export class EnvironmentScene extends ModuleScene {
       return at ? [{ id: 'station:' + s.id, at, width: labelWidth(s.shortName, { value: '000', icon: true }) }] : []
     })
     const ordered = [...[...sources].sort((a, b) => a.s.level - b.s.level).map(({ s, at }) => ({ id: 'source:' + s.id, at, width: labelWidth(s.shortName, { icon: true }) })), ...stations]
-    const heights = staggerLabels(ordered, 44, 34, { camera: this.options.cameraView })
-    this.leads = new Map(ordered.map((o, k) => [o.id, heights[k]]))
+    // 片区读数标注是全城视角下的主要信息，先放（读数随时间变，按三位数留宽度）；污染源、监测站再避开它们
+    const districtItems = this.geo.districts.map(d => ({ id: 'district:' + d.id, at: d.centerXY, width: labelWidth(d.name, { value: '000', icon: true }) }))
+    const districtLeads = staggerLabels(districtItems, 18, 34, { camera: this.options.cameraView })
+    const fixed = districtItems.map((d, k) => ({ ...d, lead: districtLeads[k] }))
+    const heights = staggerLabels([...fixed, ...ordered], 44, 34, { camera: this.options.cameraView })
+    this.leads = new Map([...fixed, ...ordered].map((o, k) => [o.id, heights[k]]))
     // 一、二级污染源常显，其余拉近才显示
     await this.add(
       token,
@@ -188,6 +243,38 @@ export class EnvironmentScene extends ModuleScene {
     this.entered = false
     this.regions = null
     this.signatures.clear()
+    await this.airField?.clear()
+  }
+
+  protected onAbandon(): void {
+    this.airField?.abandon()
+  }
+
+  private onLandCached(xy: number[]): boolean {
+    const key = xy[0] + ',' + xy[1]
+    let hit = this.landCache.get(key)
+    if (hit === undefined) {
+      hit = this.geo.onLand(xy)
+      this.landCache.set(key, hit)
+    }
+    return hit
+  }
+
+  /**
+   * 空气质量场：陆地网格上每个格点取所在片区的读数，监测站按自己的读数加进来，加权平均成一张平滑的面。
+   * 片区交界处自然过渡，港区站这类局部高值也看得出来。值已经映射成材质密度，所以 range 是 [0, 1]。
+   */
+  private airFieldAt(data: EnvironmentData): HeatField {
+    const byId = new Map(data.districts.map(d => [d.id, d]))
+    const districtValue = new Map(
+      data.districts.map(d => [d.id, airFieldValue(readingOf(concentrationsAt(d, this.hour), this.index).index)])
+    )
+    const points = this.airGrid.flatMap(g => (byId.has(g.districtId) ? [{ at: g.xy, radius: AIR_GRID_RADIUS, value: districtValue.get(g.districtId) as number }] : []))
+    for (const s of data.stations) {
+      const at = this.locate(s.place)
+      if (at) points.push({ at, radius: AIR_STATION_RADIUS, value: airFieldValue(readingOf(concentrationsAt(s, this.hour), this.index).index) })
+    }
+    return sampleHeatField({ points, range: [0, 1], step: AIR_FIELD_STEP, fade: false, mask: xy => this.onLandCached(xy) })
   }
 
   /** 切换到某个小时。进入完成前只记录，由 onEnter 应用最新值 */
@@ -217,7 +304,7 @@ export class EnvironmentScene extends ModuleScene {
       const env = byId.get(d.id)
       if (!env) return []
       const r = readingOf(concentrationsAt(env, this.hour), this.index)
-      return [pin({ id: 'air-label-' + d.id, icon: 'air', groupId: 'sc_environment_air_label', at: d.centerXY, text: d.name, value: String(r.value), color: airColor(r.level), userId: d.id, lineHeight: 18, fontSize: 12, priority: 6 })]
+      return [pin({ id: 'air-label-' + d.id, icon: 'air', groupId: 'sc_environment_air_label', at: d.centerXY, text: d.name, value: String(r.value), color: airColor(r.level), userId: d.id, lineHeight: this.leads.get('district:' + d.id) ?? 18, fontSize: 12, priority: 6 })]
     })
   }
 
@@ -225,8 +312,10 @@ export class EnvironmentScene extends ModuleScene {
     const colors = this.districtColors(data)
     await Promise.all([
       this.replaceIfChanged(AIR_LABEL_LAYER, 'marker', this.districtLabels(data)),
-      // 点阵流光只换颜色；没有效果总包（或创建失败）时用普通面
-      this.regions
+      // 连续场只改顶点颜色并插值过渡；点阵流光只换颜色；都没有时用普通面
+      this.airField
+        ? this.airField.show(this.airFieldAt(data))
+        : this.regions
         ? this.regions.setColors(colors)
         : this.replaceIfChanged('air', 'polygon', this.geo.districts.map(d => area({ id: 'air-' + d.id, groupId: 'sc_environment_air', ring: d.ring, color: colors[d.id], fill: 0.16 }))),
       this.replaceIfChanged(
@@ -273,7 +362,7 @@ export class EnvironmentScene extends ModuleScene {
     else this.hidden.add(layer)
     await super.setLayerVisible(layer, visible)
     // 「空气质量」开关同时控制片区着色和片区标注
-    if (layer === 'air') await super.setLayerVisible(AIR_LABEL_LAYER, visible)
+    if (layer === 'air') await Promise.all([super.setLayerVisible(AIR_LABEL_LAYER, visible), this.airField?.setVisible(visible)])
   }
 
   /** 飞到某个位置 */
