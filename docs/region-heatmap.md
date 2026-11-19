@@ -55,8 +55,9 @@
 DTS 的场景坐标是投影坐标（米）。一次请求把所有经纬度投影过去：
 
 ```ts
-const res = await __xapi.coord.gcs2pcs(lonlatList)   // [[lon, lat], ...]
-const xy = res.coordinates                            // [[x, y], ...]
+const res = await __xapi.coord.gcs2pcs(lonlatList, 1)   // [[lon, lat], ...]；第二个参数照本项目 DtsSceneApi 传 1
+if (res.result !== 0) throw new Error(res.resultMessage)
+const xy = res.coordinates                               // [[x, y], ...]
 ```
 
 每个片区记下投影后的外环和外包框（bbox），后面判断「格点落在哪个片区」时先比外包框再做点在多边形内判断，速度够用（40 万格点、100 个片区在 1 秒内）。
