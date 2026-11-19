@@ -71,7 +71,8 @@ const LEVELS = [
 
 const data = ref<SecurityData | null>(null)
 /** 当前真实时刻，取整到半小时；警情时间、今日趋势都相对它 */
-const nowHour = Math.round(currentHour() * 2) / 2
+// 警情时间按精确的当前时刻往回推（四舍五入到半小时会推到时钟前面，出现「未来」的处置步骤）
+const nowHour = currentHour()
 const period = ref<SecurityPeriod>('today')
 const layers = ref(SECURITY_LAYERS.filter(l => l.on).map(l => l.key))
 const activeIncident = ref<string | null>(null)

@@ -413,3 +413,13 @@ describe('视频智能告警', () => {
     expect(new Set(alarms.map(a => a.status))).toEqual(new Set(['待确认', '已派单', '已办结']))
   })
 })
+
+describe('incident times never run ahead of the clock', () => {
+  it('has every finished step at or before now, for a now between half hours', () => {
+    const now = 14.75 // 14:45
+    const clockMinutes = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
+    for (const inc of buildSecurityData(geo, now).incidents) {
+      for (const step of inc.timeline.filter(s => s.done)) expect(clockMinutes(step.time)).toBeLessThanOrEqual(now * 60)
+    }
+  })
+})
