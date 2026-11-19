@@ -2,13 +2,14 @@
   <TwinPlayer></TwinPlayer>
   <div id="layout-container" ref="container" :class="{ 'pre-enter': preEnter, 'left-collapsed': collapsed.left, 'right-collapsed': collapsed.right }">
     <!-- 氛围层：屏幕四周压暗，两侧面板落在暗色托底上，中间场景保持通透 -->
-    <div class="atmosphere" aria-hidden="true"></div>
-    <AppHeader></AppHeader>
+    <!-- bare 页面（路由 meta.bare，例如片区热力演示）只有三维场景：不要顶栏、压暗、告警通知和面板把手 -->
+    <div v-if="!bare" class="atmosphere" aria-hidden="true"></div>
+    <AppHeader v-if="!bare"></AppHeader>
     <router-view />
-    <AlarmToast />
+    <AlarmToast v-if="!bare" />
     <!-- 两侧面板的收起把手：收起后场景几乎整屏，工具栏、图例、时间轴跟着移到边上 -->
     <button
-      v-for="side in SIDES"
+      v-for="side in bare ? [] : SIDES"
       :key="side"
       type="button"
       class="edge-handle"
@@ -33,7 +34,7 @@ import AlarmToast from '@/components/panel/AlarmToast.vue'
 import LoadingSplash from '@/components/panel/LoadingSplash.vue'
 import { useLiveAlarms } from '@/composables/useLiveAlarms'
 import { installRipple, panelsEnter } from '@/utils/motion'
-import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 // 模拟实时告警推送（顶部通知 + 城市总览的实时告警列表）
@@ -44,6 +45,7 @@ const container = ref<HTMLElement>()
 const SIDES = ['left', 'right'] as const
 const collapsed = reactive({ left: false, right: false })
 const route = useRoute()
+const bare = computed(() => !!route.meta.bare)
 let uninstall: (() => void) | null = null
 
 /** 等模块的两侧面板渲染出来（模块要先加载数据），再播放入场动效；最多等 3 秒 */

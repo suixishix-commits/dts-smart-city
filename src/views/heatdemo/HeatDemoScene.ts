@@ -1,5 +1,5 @@
 import { pointInRing } from '@/scene/geo'
-import { area, labelWidth, pin, plainLine, staggerLabels } from '@/scene/kit'
+import { labelWidth, pin, plainLine, staggerLabels } from '@/scene/kit'
 import { ModuleScene } from '@/scene/ModuleScene'
 import type { SceneApi } from '@/scene/SceneApi'
 
@@ -41,8 +41,32 @@ export const PALETTES: Palette[] = [
   { key: 'risk', name: '紫到深红', ramp: ['#5A35A5', '#B5368A', '#F04A3E', '#C8102E'] }
 ]
 
-/** 片区填充的不透明度：底图（路网、建筑）要透得出来 */
-const FILL_ALPHA = 0.55
+/**
+ * 热力的画法和配色照搬 POPInspection（Inspection-POC/src/dts/heatmap.ts 的 full 模式）：
+ * DTS heatmap3d 体积，贴花显示（displayMode 3、blendMode 1、亮度 8），贴在地面和屋顶上；
+ * 色带四色转线性再乘 0.35（引擎自动曝光会把亮色洗成粉彩），透明度从低到高 0.35 / 0.55 / 0.75 / 0.95，值为 0 全透明。
+ */
+const LOOK = { displayMode: 3, blendMode: 1, brightness: 8 }
+const INTENSITY = 0.35
+const STOPS = [0.01, 0.4, 0.7, 1]
+/** 体积的层数、底面和高度（米），同 POPInspection */
+const LAYERS = 4
+const FLOOR = -50
+const HEIGHT = 500
+/** 栅格间距（米）和每块体积的边长（格）：全酋长国约 610 × 665 格，按 64 × 64 分块，只发有值的块 */
+const CELL = 200
+const TILE = 64
+const VOLUME_PREFIX = 'heatdemo-volume-'
+
+/** POPInspection 的色带：0 透明，其后四色（线性、压暗），透明度递增 */
+export function volumeColors(ramp: readonly string[]) {
+  const linear = (hex: string) => [0, 2, 4].map(i => INTENSITY * (parseInt(hex.slice(1 + i, 3 + i), 16) / 255) ** 2.2)
+  return {
+    gradient: true,
+    invalidColor: [0, 0, 0, 0],
+    colorStops: [{ value: 0, color: [0, 0, 0, 0] }, ...STOPS.map((value, i) => ({ value, color: [...linear(ramp[i]), 0.35 + i * 0.2] }))]
+  }
+}
 /** 标注几个：绝对值最大的几个片区 */
 const LABELS = 10
 
@@ -152,14 +176,80 @@ export class HeatDemoScene extends ModuleScene {
     return t === null ? null : rampColorAt(this.palette.ramp, t)
   }
 
-  /** 片区填色面（每个外环一个面；值为 0 的片区不出面）。id 带色板，换色板时先建后删不闪 */
-  private fills(): { id: string }[] {
-    return this.regions.flatMap(r => {
-      const color = this.colorOf(r.value)
-      if (!color) return []
-      return r.ringsXY.map((ring, i) => area({ id: `heatdemo-fill-${this.palette.key}-${r.code}-${i}`, groupId: 'sc_heatdemo_fill', ring, color, fill: FILL_ALPHA, frame: 0, frameWidth: 0 }))
-    })
+  /**
+   * 栅格：每格取所在片区数值在色板里的位置（0.01–1；值为 0 或在片区外为 0，不着色）。
+   * 按 64 × 64 格分块，只留有值的块，每块一个 heatmap3d 体积。
+   */
+  volumes(): { id: string }[] {
+    const x0 = Math.floor(Math.min(...this.regions.map(r => r.bbox[0])) / CELL) * CELL
+    const y0 = Math.floor(Math.min(...this.regions.map(r => r.bbox[1])) / CELL) * CELL
+    const nx = Math.ceil((Math.max(...this.regions.map(r => r.bbox[2])) - x0) / CELL)
+    const ny = Math.ceil((Math.max(...this.regions.map(r => r.bbox[3])) - y0) / CELL)
+    const grid = new Float32Array(nx * ny)
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const r = this.regionAt([x0 + (i + 0.5) * CELL, y0 + (j + 0.5) * CELL])
+        const t = r ? rampPosition(r.value, this.range) : null
+        if (t !== null) grid[j * nx + i] = 0.01 + 0.99 * t
+      }
+    }
+    const colors = volumeColors(this.palette.ramp)
+    const out: { id: string }[] = []
+    for (let tj = 0; tj < ny; tj += TILE) {
+      for (let ti = 0; ti < nx; ti += TILE) {
+        const w = Math.min(TILE, nx - ti)
+        const h = Math.min(TILE, ny - tj)
+        const values = new Array<number>(w * h * LAYERS).fill(0)
+        let any = false
+        for (let j = 0; j < h; j++) {
+          for (let i = 0; i < w; i++) {
+            const v = grid[(tj + j) * nx + ti + i]
+            if (!v) continue
+            any = true
+            const t = Math.round(v * 1000) / 1000
+            // 纹理的行和投影坐标的北向相反
+            for (let l = 0; l < LAYERS; l++) values[(l * h + (h - 1 - j)) * w + i] = t
+          }
+        }
+        if (!any) continue
+        const [wm, hm] = [w * CELL, h * CELL]
+        out.push({
+          id: `${VOLUME_PREFIX}${ti / TILE}-${tj / TILE}`,
+          groupId: 'sc_heatdemo_volume',
+          heatValues: { size: [w, h, LAYERS], values },
+          bbox: [0, 0, 0, wm, hm, HEIGHT],
+          volumeBoxLocation: [x0 + ti * CELL + wm / 2, y0 + tj * CELL + hm / 2, FLOOR],
+          volumeBoxSize: [wm, hm, HEIGHT],
+          volumeBoxRotation: [0, 0, 0],
+          ...LOOK,
+          heatValueMode: 0,
+          heatValueRange: [0, 1],
+          updateTime: 0,
+          colors
+        } as { id: string })
+      }
+    }
+    return out
   }
+
+  /** 画（或按当前色板重画）热力体积：先删本页的旧体积，再一次发全部 */
+  private async drawVolumes(): Promise<void> {
+    const next = this.volumes()
+    await this.removeVolumes()
+    this.volumeIds = next.map(v => v.id)
+    const res = await __xapi.heatmap3d.addByVoxels(next)
+    if (res?.result) console.warn('[片区热力] 热力体积创建失败', res)
+    if (!this.volumeVisible) await __xapi.heatmap3d.hide?.(this.volumeIds)
+  }
+
+  private async removeVolumes(): Promise<void> {
+    const ids = this.volumeIds
+    this.volumeIds = []
+    if (ids.length) await __xapi.heatmap3d.delete(ids).catch(() => null)
+  }
+
+  private volumeIds: string[] = []
+  private volumeVisible = true
 
   /** 标注：绝对值最大的几个片区 */
   private labels(): { id: string }[] {
@@ -176,7 +266,8 @@ export class HeatDemoScene extends ModuleScene {
     this.camera = this.fitCamera()
     await this.api.setCamera(this.camera)
     if (!this.isCurrent(token)) return
-    await this.add(token, 'polygon', this.fills(), 'fill')
+    await this.drawVolumes()
+    if (!this.isCurrent(token)) return
     await this.add(
       token,
       'polyline',
@@ -189,6 +280,18 @@ export class HeatDemoScene extends ModuleScene {
 
   protected async onLeave(): Promise<void> {
     this.entered = false
+    await this.removeVolumes()
+  }
+
+  protected onAbandon(): void {
+    if (this.volumeIds.length) void __xapi.heatmap3d.delete(this.volumeIds).catch(() => null)
+    this.volumeIds = []
+  }
+
+  async setLayerVisible(layer: string, visible: boolean): Promise<void> {
+    if (layer !== 'fill') return super.setLayerVisible(layer, visible)
+    this.volumeVisible = visible
+    if (this.volumeIds.length) await (visible ? __xapi.heatmap3d.show?.(this.volumeIds) : __xapi.heatmap3d.hide?.(this.volumeIds))
   }
 
   /** 换色板：填色面和标注整层替换（新 id 先建后删） */
@@ -197,7 +300,7 @@ export class HeatDemoScene extends ModuleScene {
     if (!next || next === this.palette) return
     this.palette = next
     if (!this.entered) return
-    await Promise.all([this.replaceLayer('fill', 'polygon', this.fills()), this.replaceLayer('label', 'marker', this.labels())])
+    await Promise.all([this.drawVolumes(), this.replaceLayer('label', 'marker', this.labels())])
   }
 
   /** 飞到某个片区 */

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { adaptRegionHeat, simplify, type RegionHeatResponse } from '@/api/regionHeat'
-import { aed, magnitudeRange, PALETTES, rampColorAt, rampPosition, title } from '../HeatDemoScene'
+import { aed, magnitudeRange, PALETTES, rampColorAt, rampPosition, title, volumeColors } from '../HeatDemoScene'
 
 const sample: RegionHeatResponse = JSON.parse(readFileSync('public/data/heatmap-demo/region-heat.json', 'utf-8'))
 
@@ -72,5 +72,15 @@ describe('heat demo colouring', () => {
     expect(title('AL REEM EAST ISLAND')).toBe('Al Reem East Island')
     expect(aed(-1.195e10)).toBe('AED 11.95B')
     expect(aed(5e7)).toBe('AED 50M')
+  })
+})
+
+describe('POPInspection heat look', () => {
+  it('leaves 0 clear and steps the four ramp colours, linear and dimmed, with rising alpha', () => {
+    const c = volumeColors(['#ffffff', '#ff0000', '#00ff00', '#0000ff'])
+    expect(c.colorStops[0]).toEqual({ value: 0, color: [0, 0, 0, 0] })
+    expect(c.colorStops.map(s => s.value)).toEqual([0, 0.01, 0.4, 0.7, 1])
+    expect(c.colorStops[1].color).toEqual([0.35, 0.35, 0.35, 0.35])
+    expect(c.colorStops[4].color.map(v => Math.round(v * 100) / 100)).toEqual([0, 0, 0.35, 0.95])
   })
 })
