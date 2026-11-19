@@ -225,3 +225,34 @@ describe('introHome', () => {
     vi.unstubAllGlobals()
   })
 })
+
+describe('retrying', () => {
+  it('retries a step that never answers, then gives up with an error', async () => {
+    vi.useFakeTimers()
+    const { retrying } = await import('../CityBase')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let calls = 0
+    const hung = retrying(() => {
+      calls++
+      return new Promise<number>(() => {})
+    }, 'hung', 1000)
+    const caught = hung.catch(e => e as Error)
+    await vi.advanceTimersByTimeAsync(2100)
+    expect(calls).toBe(2)
+    expect(((await caught) as Error).message).toContain('hung')
+    warn.mockRestore()
+    vi.useRealTimers()
+  })
+
+  it('returns the value when a retry answers', async () => {
+    vi.useFakeTimers()
+    const { retrying } = await import('../CityBase')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let calls = 0
+    const p = retrying(() => (calls++ ? Promise.resolve(7) : new Promise<number>(() => {})), 'flaky', 1000)
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(await p).toBe(7)
+    warn.mockRestore()
+    vi.useRealTimers()
+  })
+})

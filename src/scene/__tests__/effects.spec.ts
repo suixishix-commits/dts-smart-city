@@ -47,65 +47,85 @@ describe('effects', () => {
     document.body.innerHTML = ''
   })
 
-  describe('mountEffectsPak', () => {
-    it('returns false without touching the scene when no pak path is configured', async () => {
+  describe('effect resources: check first, then mount', () => {
+    const RES = 'D:/Resource/dts-resource.pak'
+    /** 渲染端的材质表：getMaterial 查得到的路径；挂包后把 provides 里的路径加进去 */
+    function scene(initial: string[] = [], provides: Record<string, string[]> = {}) {
+      const present = new Set(initial)
       const xapi = stubXapi()
-      vi.stubGlobal('gVar', { smartCity: { effectsPak: '' } })
+      ;(xapi as Record<string, unknown>).misc = { getMaterial: vi.fn(async (m: string) => ({ data: present.has(m) ? [{ params: [{ name: 'Brightness' }] }] : [] })) }
+      xapi.customObject.add.mockImplementation((async (o: { pakFilePath?: string }) => {
+        for (const m of provides[o.pakFilePath ?? ''] ?? []) present.add(m)
+        return { result: 0 }
+      }) as never)
+      return xapi
+    }
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
+    const settle = async <T>(p: Promise<T>) => {
+      await vi.runAllTimersAsync()
+      return p
+    }
+
+    it('uses resources that are already in the scene without mounting anything', async () => {
+      const { EFFECTS_PROBE } = await load()
+      const xapi = scene([EFFECTS_PROBE])
+      vi.stubGlobal('gVar', { smartCity: { resourcePak: RES, effectsPak: PAK } })
       const { mountEffectsPak } = await load()
-      expect(await mountEffectsPak()).toBe(false)
+      expect(await settle(mountEffectsPak())).toBe(true)
       expect(xapi.customObject.add).not.toHaveBeenCalled()
     })
 
-    it('returns false when smart-city.js is not loaded at all', async () => {
-      stubXapi()
-      vi.stubGlobal('gVar', {})
-      const { mountEffectsPak } = await load()
-      expect(await mountEffectsPak()).toBe(false)
+    it('mounts the resource bundle once when missing and does not touch the old packs', async () => {
+      const { EFFECTS_PROBE } = await load()
+      const { HEAT_FIELD_MATERIAL } = await import('../heatField')
+      const xapi = scene([], { [RES]: [EFFECTS_PROBE, HEAT_FIELD_MATERIAL] })
+      vi.stubGlobal('gVar', { smartCity: { resourcePak: RES, effectsPak: PAK, heatFieldPak: 'D:/old/fx.pak' } })
+      const fx = await load()
+      expect(await settle(fx.mountEffectsPak())).toBe(true)
+      expect(await settle(fx.mountHeatFieldPak())).toBe(true)
+      const paths = xapi.customObject.add.mock.calls.map(c => (c[0] as { pakFilePath?: string }).pakFilePath)
+      expect(paths).toEqual([RES])
+      // 挂载对象放在地下，挂完删掉
+      expect(((xapi.customObject.add.mock.calls[0][0] as { location: number[] }).location)[2]).toBeLessThan(0)
     })
 
-    it('mounts the pak through an invisible loader custom object', async () => {
-      const xapi = stubXapi()
-      vi.stubGlobal('gVar', { smartCity: { effectsPak: PAK } })
+    it('falls back to the old single pack when the bundle does not have the resource', async () => {
+      const { EFFECTS_PROBE } = await load()
+      const xapi = scene([], { [PAK]: [EFFECTS_PROBE] })
+      vi.stubGlobal('gVar', { smartCity: { resourcePak: RES, effectsPak: PAK } })
       const { mountEffectsPak } = await load()
-      expect(await mountEffectsPak()).toBe(true)
-      // 先删后加：页面刷新后上一次的加载器还在渲染实例里
-      expect(xapi.customObject.delete).toHaveBeenCalledWith(['sc_pak_loader'])
-      expect(xapi.customObject.delete.mock.invocationCallOrder[0]).toBeLessThan(xapi.customObject.add.mock.invocationCallOrder[0])
-      const loader = (xapi.customObject.add.mock.calls[0] as unknown[])[0] as Record<string, unknown>
-      expect(loader).toMatchObject({ id: 'sc_pak_loader', pakFilePath: PAK, coordinateType: 0 })
-      expect(typeof loader.assetPath).toBe('string')
-      // 放在地下，画面里看不到
-      expect((loader.location as number[])[2]).toBeLessThan(0)
-      expect(xapi.customObject.getBPFunction).toHaveBeenCalledWith('sc_pak_loader')
-      expect(warn).not.toHaveBeenCalled()
+      expect(await settle(mountEffectsPak())).toBe(true)
+      const paths = xapi.customObject.add.mock.calls.map(c => (c[0] as { pakFilePath?: string }).pakFilePath)
+      expect(paths[0]).toBe(RES)
+      expect(paths.at(-1)).toBe(PAK)
     })
 
-    it('reports false and warns when the loader has no blueprint functions (pak not found)', async () => {
-      const xapi = stubXapi()
-      xapi.customObject.getBPFunction.mockResolvedValue({ data: [] } as never)
-      vi.stubGlobal('gVar', { smartCity: { effectsPak: PAK } })
+    it('reports false when nothing provides the resource and nothing is configured', async () => {
+      const xapi = scene()
+      vi.stubGlobal('gVar', { smartCity: {} })
       const { mountEffectsPak } = await load()
-      expect(await mountEffectsPak()).toBe(false)
-      expect(warn).toHaveBeenCalledTimes(1)
-      expect(warn.mock.calls[0]).toContain(PAK)
+      expect(await settle(mountEffectsPak())).toBe(false)
+      expect(xapi.customObject.add).not.toHaveBeenCalled()
     })
 
-    it('reports false instead of throwing when the SDK call fails', async () => {
-      const xapi = stubXapi()
-      xapi.customObject.add.mockRejectedValue(new Error('boom'))
-      vi.stubGlobal('gVar', { smartCity: { effectsPak: PAK } })
+    it('reports false instead of throwing when the scene calls fail', async () => {
+      const xapi = scene()
+      ;(xapi as unknown as { misc: { getMaterial: ReturnType<typeof vi.fn> } }).misc.getMaterial.mockRejectedValue(new Error('Not connected!'))
+      xapi.customObject.delete.mockRejectedValue(new Error('Not connected!'))
+      vi.stubGlobal('gVar', { smartCity: { resourcePak: RES } })
       const { mountEffectsPak } = await load()
-      expect(await mountEffectsPak()).toBe(false)
-      expect(warn).toHaveBeenCalledTimes(1)
+      expect(await settle(mountEffectsPak())).toBe(false)
     })
 
-    it('mounts only once', async () => {
-      const xapi = stubXapi()
-      vi.stubGlobal('gVar', { smartCity: { effectsPak: PAK } })
+    it('checks only once', async () => {
+      const { EFFECTS_PROBE } = await load()
+      const xapi = scene([EFFECTS_PROBE])
+      vi.stubGlobal('gVar', { smartCity: { resourcePak: RES } })
       const { mountEffectsPak } = await load()
-      const [a, b] = await Promise.all([mountEffectsPak(), mountEffectsPak()])
-      expect([a, b, await mountEffectsPak()]).toEqual([true, true, true])
-      expect(xapi.customObject.add).toHaveBeenCalledTimes(1)
+      const [a, b] = await settle(Promise.all([mountEffectsPak(), mountEffectsPak()]))
+      expect([a, b]).toEqual([true, true])
+      expect((xapi as unknown as { misc: { getMaterial: ReturnType<typeof vi.fn> } }).misc.getMaterial).toHaveBeenCalledTimes(1)
     })
   })
 

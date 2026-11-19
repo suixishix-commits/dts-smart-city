@@ -1,12 +1,12 @@
 // 场景相关配置。换场景时只改这里和 public/data/smart-city 下的数据文件。
 Object.assign(gVar, {
   smartCity: {
-    // UE 效果包统一放在渲染端资源目录 E:/Dts-Optimize/工程/demo_files/Resource 下，场景就绪后按绝对路径挂载，不需要改 Cloud 安装目录。
-    // 效果总包：流动线材质、点阵流光、电子围栏、摄像头视域。留空则不挂载，依赖它的效果退回内置样式或不显示。
+    // UE 效果资源「先查后挂」（scene/effects.ts）：资源已经在渲染端（别的项目挂过）就直接用，不挂任何包；
+    // 查不到先挂资源总包 resourcePak，还查不到才挂下面各效果的单独包。同一插件的包挂两个会互相顶掉，所以单独包只作兜底。
+    // 资源总包：收齐了本项目用到的全部效果材质和蓝图（热力场、交通流光、流光线、分级点位、流动线、点阵流光、电子围栏、视域）
+    resourcePak: 'E:/Dts-Optimize/工程/demo_files/Resource/dts-resource-v1.0.6.pak',
+    // 兜底的单独包（旧配置）：总包可用时不会被挂；文件移走后留空即可
     effectsPak: 'E:/Dts-Optimize/工程/demo_files/Resource/DTS-Effects-Bundle.pak',
-    // 智慧城市效果材质（dts-effect-kit/projects/SmartCityFx_20261117）：热力场、交通流光、分级点位合在一个包里。
-    // 分开打的包都带同一个插件的资源索引，后挂的会让先挂的包里没在用的材质按路径找不到，所以只挂这一个。
-    // 三项可以分别留空；挂载失败时各自退回 DTS 自带热力图 / 效果总包流动线 / DTS 扩散波纹
     heatFieldPak: 'E:/Dts-Optimize/工程/demo_files/Resource/SmartCityFx-V2-20261118-WindowsNoEditor.pak',
     trafficFlowPak: 'E:/Dts-Optimize/工程/demo_files/Resource/SmartCityFx-V2-20261118-WindowsNoEditor.pak',
     lineFlowPak: 'E:/Dts-Optimize/工程/demo_files/Resource/SmartCityFx-V2-20261118-WindowsNoEditor.pak',

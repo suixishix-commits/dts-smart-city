@@ -51,90 +51,125 @@ export function loadLib(name: EffectLib): Promise<any> {
   return p
 }
 
-const LOADER_ID = 'sc_pak_loader'
-const LOADER_ASSET = '/JC_CustomAssets/ObjectLibrary/Exhibition/ElectronicFenceV1/BP_ElectronicFence_V1'
-let mounted: Promise<boolean> | null = null
+/**
+ * 效果资源的「先查后挂」。
+ *
+ * 渲染端资源目录里有一个资源总包（smart-city.js 的 resourcePak，例如 dts-resource-v1.0.6.pak），收齐了各项目的效果材质和蓝图，
+ * 可能已经被别的项目挂上。从同一个插件打出的包再挂第二个，会让先挂的包里没在用的资源按路径查不到，所以：
+ *   1. 先查：资源已经在（别人挂过、或者渲染端自带）就直接用，不挂任何包；
+ *   2. 查不到就挂资源总包（只挂一次，各效果共用），再查；
+ *   3. 还查不到，才退回各效果自己的单独包（effectsPak、heatFieldPak 等，旧配置，可以留空）。
+ * 查法：材质用 misc.getMaterial 能列出参数；效果总包里取一个流动线材质代表整包。
+ */
 
-/** 挂载材质包：整体尝试次数；每次挂载后确认材质可用的查询次数和间隔 */
+/** 挂载用的不可见对象（放在地下）。用 pakFilePath 创建对象时渲染端会先挂整个包；资源不是蓝图时生成会报错，但包已经挂上 */
+const LOADER_ID = 'sc_pak_loader'
+const RESOURCE_LOADER_ID = 'sc_resource_loader'
+/** 效果总包的代表资源：在它就说明流动线、点阵流光、电子围栏、视域都可用 */
+export const EFFECTS_PROBE = '/JC_CustomAssets/PolylineLibrary/Exhibition/AIStudio/MI_StreamFlow_V4_0'
+/** 挂资源总包时作为生成目标的蓝图 */
+const RESOURCE_LOADER_ASSET = '/JC_CustomAssets/ObjectLibrary/Exhibition/ElectronicFenceV1/BP_ElectronicFence_V1'
+
+/** 挂载包：整体尝试次数；每次挂载后确认资源可用的查询次数和间隔（渲染端忙时挂载要好几秒才生效） */
 const MOUNT_ATTEMPTS = 3
 const MOUNT_CHECKS = 6
 const MOUNT_RETRY_MS = 1000
 
-/**
- * 挂载只有材质的 PAK（没有蓝图）。customObject 用 pakFilePath 创建时渲染端会先挂载整个包，
- * 再按 assetPath 生成对象——材质不是蓝图，生成会报错，但包已经挂上了。用 misc.getMaterial 能列出参数来确认。
- */
-async function mountMaterialPak(id: string, path: string, material: string): Promise<boolean> {
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+/** 材质现在能不能按路径查到 */
+async function hasMaterial(material: string): Promise<boolean> {
+  const res = await __xapi.misc.getMaterial(material).catch(() => null)
+  return !!res?.data?.[0]?.params?.length
+}
+
+/** 用 pakFilePath 挂一个包，挂完等到 material 可查；返回是否可用 */
+async function mountPak(id: string, path: string, asset: string, material: string): Promise<boolean> {
   if (!path) return false
   // 渲染端忙（启动、刚重启）时请求可能超时，连挂载请求本身都可能丢：挂载 + 确认整体重试几次，免得误判后整页退回旧画法
   for (let attempt = 0; attempt < MOUNT_ATTEMPTS; attempt++) {
     try {
       await __xapi.customObject.delete([id])
-      await __xapi.customObject.add({ id, pakFilePath: path, assetPath: material, location: [0, 0, -10000], coordinateType: 0, rotation: [0, 0, 0], scale: [1, 1, 1] })
+      await __xapi.customObject.add({ id, pakFilePath: path, assetPath: asset, location: [0, 0, -10000], coordinateType: 0, rotation: [0, 0, 0], scale: [1, 1, 1] }).catch(() => null)
       await __xapi.customObject.delete([id])
       for (let check = 0; check < MOUNT_CHECKS; check++) {
-        const res = await __xapi.misc.getMaterial(material).catch(() => null)
-        if (res?.data?.[0]?.params?.length) return true
-        await new Promise(resolve => setTimeout(resolve, MOUNT_RETRY_MS))
+        if (await hasMaterial(material)) return true
+        await sleep(MOUNT_RETRY_MS)
       }
     } catch (e) {
-      console.warn('[effects] 挂载材质包出错，重试', path, e)
+      console.warn('[effects] 挂载资源包出错，重试', path, e)
     }
   }
-  console.warn('[effects] 材质包没有挂载上：', path)
+  console.warn('[effects] 资源包没有挂载上：', path)
   return false
 }
 
+let resourceMounted: Promise<boolean> | null = null
+/** 挂资源总包（只挂一次，各效果共用）。没配置时返回 false */
+function mountResourcePak(material: string): Promise<boolean> {
+  resourceMounted ??= mountPak(RESOURCE_LOADER_ID, gVar?.smartCity?.resourcePak ?? '', RESOURCE_LOADER_ASSET, material)
+  return resourceMounted
+}
+
+/** 先查后挂：已有就用；否则挂资源总包再查；还没有才挂单独的旧包 */
+async function ensure(material: string, legacy: { id: string; path: string; asset: string }): Promise<boolean> {
+  try {
+    const name = material.split('/').pop()
+    if (await hasMaterial(material)) {
+      console.info(`[effects] ${name}：渲染端已有，不挂包`)
+      return true
+    }
+    if (gVar?.smartCity?.resourcePak) {
+      await mountResourcePak(material)
+      if (await hasMaterial(material)) {
+        console.info(`[effects] ${name}：来自资源总包`)
+        return true
+      }
+    }
+    const ok = await mountPak(legacy.id, legacy.path, legacy.asset, material)
+    if (ok) console.info(`[effects] ${name}：来自单独包 ${legacy.path}`)
+    return ok
+  } catch (e) {
+    console.warn('[effects] 检查效果资源失败', material, e)
+    return false
+  }
+}
+
 let trafficMounted: Promise<boolean> | null = null
-/** 挂载交通流光材质包（smart-city.js 的 trafficFlowPak）；返回是否可用 */
+/** 交通流光材质是否可用（先查后挂；旧配置 trafficFlowPak） */
 export function mountTrafficFlowPak(): Promise<boolean> {
-  trafficMounted ??= mountMaterialPak('sc_traffic_loader', gVar?.smartCity?.trafficFlowPak ?? '', ROAD_FLOW_MATERIAL)
+  trafficMounted ??= ensure(ROAD_FLOW_MATERIAL, { id: 'sc_traffic_loader', path: gVar?.smartCity?.trafficFlowPak ?? '', asset: ROAD_FLOW_MATERIAL })
   return trafficMounted
 }
 
 let lineMounted: Promise<boolean> | null = null
-/** 挂载通用流光线材质包（smart-city.js 的 lineFlowPak）；返回是否可用 */
+/** 通用流光线材质是否可用（先查后挂；旧配置 lineFlowPak） */
 export function mountLineFlowPak(): Promise<boolean> {
-  lineMounted ??= mountMaterialPak('sc_line_loader', gVar?.smartCity?.lineFlowPak ?? '', LINE_FLOW_MATERIAL)
+  lineMounted ??= ensure(LINE_FLOW_MATERIAL, { id: 'sc_line_loader', path: gVar?.smartCity?.lineFlowPak ?? '', asset: LINE_FLOW_MATERIAL })
   return lineMounted
 }
 
 let heatMounted: Promise<boolean> | null = null
-/** 挂载热力场材质包（smart-city.js 的 heatFieldPak）；返回是否可用 */
+/** 热力场材质是否可用（先查后挂；旧配置 heatFieldPak） */
 export function mountHeatFieldPak(): Promise<boolean> {
-  heatMounted ??= mountMaterialPak('sc_heat_loader', gVar?.smartCity?.heatFieldPak ?? '', HEAT_FIELD_MATERIAL)
+  heatMounted ??= ensure(HEAT_FIELD_MATERIAL, { id: 'sc_heat_loader', path: gVar?.smartCity?.heatFieldPak ?? '', asset: HEAT_FIELD_MATERIAL })
   return heatMounted
 }
 
 let beaconMounted: Promise<boolean> | null = null
-/** 挂载分级点位效果的材质包（smart-city.js 的 pointBeaconPak）；返回是否可用 */
+/** 分级点位材质是否可用（先查后挂；旧配置 pointBeaconPak） */
 export function mountPointBeaconPak(): Promise<boolean> {
-  beaconMounted ??= mountMaterialPak('sc_beacon_loader', gVar?.smartCity?.pointBeaconPak ?? '', BEACON_MATERIAL)
+  beaconMounted ??= ensure(BEACON_MATERIAL, { id: 'sc_beacon_loader', path: gVar?.smartCity?.pointBeaconPak ?? '', asset: BEACON_MATERIAL })
   return beaconMounted
 }
 
+let mounted: Promise<boolean> | null = null
 /**
- * 挂载效果总包。原理：用 pakFilePath 创建一个不可见的蓝图对象，渲染端会把整个 pak 挂载进来，
- * 之后包里的材质、蓝图都能按资源路径使用，不需要改 Cloud 的安装目录。
- * 返回是否挂载成功；没配置路径或挂载失败返回 false，调用方应退回内置样式。
+ * 效果总包（流动线材质、点阵流光、电子围栏、摄像头视域）是否可用：先查后挂，旧配置 effectsPak。
+ * 返回 false 时调用方退回内置样式。
  */
 export function mountEffectsPak(): Promise<boolean> {
-  mounted ??= (async () => {
-    const path: string = gVar?.smartCity?.effectsPak ?? ''
-    if (!path) return false
-    try {
-      await __xapi.customObject.delete([LOADER_ID])
-      await __xapi.customObject.add({ id: LOADER_ID, pakFilePath: path, assetPath: LOADER_ASSET, location: [0, 0, -10000], coordinateType: 0, rotation: [0, 0, 0], scale: [1, 1, 1] })
-      // add 返回成功不代表资源存在：能列出蓝图函数才说明挂载上了
-      const fns = await __xapi.customObject.getBPFunction(LOADER_ID)
-      const ok = !!fns?.data?.[0]?.params?.length
-      if (!ok) console.warn('[effects] 效果总包没有挂载上，请检查 smart-city.js 里的 effectsPak 路径：', path)
-      return ok
-    } catch (e) {
-      console.warn('[effects] 挂载效果总包失败', e)
-      return false
-    }
-  })()
+  mounted ??= ensure(EFFECTS_PROBE, { id: LOADER_ID, path: gVar?.smartCity?.effectsPak ?? '', asset: RESOURCE_LOADER_ASSET })
   return mounted
 }
 

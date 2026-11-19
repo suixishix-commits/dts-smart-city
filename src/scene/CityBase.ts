@@ -32,6 +32,25 @@ const smartCityConfig = (): { cameras?: Record<string, number[]>; intro?: boolea
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
+/** 启动步骤的超时，毫秒：渲染端刚起来时偶尔丢回应，SDK 只打一条超时警告、Promise 永远不结束，启动就卡死 */
+const STEP_TIMEOUT = 15000
+
+/** 带超时执行一步，超时重试一次；仍超时就抛错（页面退回无场景状态，而不是一直白屏） */
+export async function retrying<T>(step: () => Promise<T>, name: string, ms = STEP_TIMEOUT, tries = 2): Promise<T> {
+  for (let i = 1; ; i++) {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error(`启动步骤 ${name} 超时`)), ms)))
+    try {
+      return await Promise.race([step(), timeout])
+    } catch (e) {
+      if (i >= tries) throw e
+      console.warn(`[CityBase] ${name} 失败，重试`, e)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+}
+
 /** 当前路由对应模块在 smart-city.js 里配置的默认机位，没有配置时为 undefined */
 export function introHome(hash = location.hash): number[] | undefined {
   const cameras = smartCityConfig().cameras ?? {}
@@ -90,15 +109,21 @@ class CityBase {
     const api = new DtsSceneApi()
     // 场景对象存在渲染实例里，页面刷新后不会消失。启动时先清掉上一次页面留下的全部接口对象
     // （逐类 clear：实测 reset(ClearObjects) 清不掉热力图）
-    await Promise.all(CLEARABLE.map(type => __xapi[type].clear()))
-    await applyAmbience()
+    await retrying(() => Promise.all(CLEARABLE.map(type => __xapi[type].clear())), 'clear')
+    await retrying(() => applyAmbience(), 'ambience')
     this.pak = await mountEffectsPak()
     this.beacons = await mountPointBeaconPak()
     this.heatField = await mountHeatFieldPak()
     this.trafficFlow = await mountTrafficFlowPak()
     this.lineFlow = await mountLineFlowPak()
-    this.geo = await buildCityGeo(await getGeoData(), ll => api.project(ll))
-    await this.drawRoads(api)
+    const data = await getGeoData()
+    this.geo = await retrying(() => buildCityGeo(data, ll => api.project(ll)), 'project')
+    // 重试前先清掉折线：超时的那次可能其实已经加上了（此时模块还没进入，场景里只有底座路网）
+    let roadTries = 0
+    await retrying(async () => {
+      if (roadTries++) await __xapi.polyline.clear()
+      await this.drawRoads(api)
+    }, 'roads')
     lineScaler.start()
     // 开场动画不阻塞模块进入：模块在相机飞行的同时画自己的图层
     this.intro(api).catch(e => console.warn('[CityBase] 开场动画失败', e))
