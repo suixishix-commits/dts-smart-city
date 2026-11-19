@@ -18,7 +18,12 @@
   → 高斯模糊（σ ≈ 1.2 km）：片区之间平滑过渡、外缘渐隐，< 0.15 清零
   → 整张一个 heatmap3d 体积（不分块，分块会有接缝网格）
   → heatmap3d.addByVoxels（用回调拿回应）：贴花模式画在地面和屋顶上
+  → 数值变化：heatmap3d.update 原地换热力值，引擎在 updateTime 秒内过渡，不删不建、不闪
+  → （可选）热力值的线：在同一张栅格上用 marching squares 求等值线，画成细折线
 ```
+
+为什么用 heatmap3d 贴花，而不是自定义热力材质（customMesh）：贴花只贴在陆地和屋顶上，海面干净；
+自定义材质是一张平面网格，模糊后的外缘会漫到海上、形成一圈光晕，颜色也偏浑。两种都试过，贴花效果明显更好。
 
 ## 2. 数据格式（接口原样）
 
@@ -115,7 +120,7 @@ const volume = {
   brightness: 8,       // 亮度高了颜色只会发灰
   heatValueMode: 0,
   heatValueRange: [0, 1],
-  updateTime: 0,
+  updateTime: 1,        // 之后用 update 换热力值时的过渡时长，秒
   colors                // 见下一节
 }
 ```
@@ -136,7 +141,29 @@ if (r?.result === 6) {   // IDExists：页面刷新后上一次的体积还在�
 }
 ```
 
-删除：`answer(done => __xapi.heatmap3d.delete(ids, done))`。重画（换色板、换数据）时先删再加。
+删除：`answer(done => __xapi.heatmap3d.delete(ids, done))`。换色板时先删再加（色带只能在创建时给）。
+
+### 数值变化：原地过渡
+
+数据刷新（例如接口轮询）时**不要删了重建**（会闪一下）。片区不变时栅格大小不变，重新算出热力值，用 `update` 原地替换，
+`updateTime` 让引擎在这段时间里从旧值过渡到新值：
+
+```ts
+// 重新算 grid（第 4 节），按同样的方式填 values（同样要翻转行序）
+await answer(done => __xapi.heatmap3d.update([{
+  id: 'heat-volume',
+  heatValues: { size: [nx, ny, LAYERS], values },
+  updateTime: 1
+}], done))
+```
+
+注意 `range`（最小非零绝对值、最大绝对值）要按新数据重算，否则新的最大值会超出色带。
+
+### 热力值的线（可选）
+
+heatmap3d 贴花本身没有等值线。需要时在同一张栅格上自己算：marching squares 求色带各档（0.3 / 0.45 / 0.6 / 0.75 / 0.9）的等值线，
+按端点把线段首尾相接成折线，每档用色板里对应位置的颜色画细线（`polyline`，宽 30 m、离地 10 m）。
+格点下标换回场景坐标：`[x0 + (i + 0.5) * CELL, y0 + (j + 0.5) * CELL]`。数值变化时等值线跟着重算。代码见 `HeatDemoScene.ts` 的 `contour`。
 
 ## 6. 配色
 
@@ -202,6 +229,17 @@ await __xapi.settings.setBloomIntensity(0.2)
 
 前端只依赖第 2 节的返回格式。本项目里地址取配置 `smart-city.js` 的 `regionHeatApi`，留空时读本地示例
 `public/data/heatmap-demo/region-heat.json`（和接口同格式）。换接口只改地址。
+接口轮询到新数据时调场景的 `setValues({ 片区编码: 新值 })`，按第 5 节原地过渡。
+
+### 本项目的演示页
+
+`http://localhost:8670/#/heatmap`：只有三维场景，没有任何面板。地址参数：
+
+| 参数 | 作用 |
+|---|---|
+| `palette=warm` / `ocean` / `risk` | 色板，默认 warm 绿到红 |
+| `lines=1` | 显示热力值的线（默认不显示） |
+| `animate=1` | 每 6 秒随机改一次各片区数值（原值的 0.5–1.5 倍），看过渡效果 |
 
 ## 9. 踩过的坑
 
@@ -214,7 +252,9 @@ await __xapi.settings.setBloomIntensity(0.2)
 | 页面卡住、后面的步骤不执行 | `addByVoxels` 的 Promise 不结束；用回调拿回应，见第 5 节 |
 | 南北颠倒 | 纹理行序和北向相反，写值时行号翻转 `h-1-j` |
 | 片区一块一块、边界生硬 | 不是热力图；栅格后做高斯模糊（第 4 节） |
-| 有等值线 | 自定义热力场材质（HeatField）自带 1 像素等值线；这里用 heatmap3d 贴花，没有 |
+| 有等值线 | 自定义热力场材质（HeatField）自带 1 像素等值线；这里用 heatmap3d 贴花，没有；需要时自己算（第 5 节） |
+| 换数值时闪一下 | 删了重建；改用 `heatmap3d.update` + `updateTime`（第 5 节） |
+| 海面上一圈光晕、颜色发浑 | 用自定义热力材质（平面网格）时会这样；贴花只贴陆地，见第 1 节 |
 | 渲染实例上别的客户端的热力盖住自己的 | 渲染实例是共享的，所有客户端的对象都在同一个场景里；测试时只开一个客户端 |
 | 刚重启的渲染端偶尔不回应，页面卡住 | SDK 只打 `API response timeout` 警告、Promise 不结束；关键调用加超时重试 |
 
