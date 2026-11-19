@@ -8,6 +8,7 @@ import DtsFacade from '@/components/dts/DtsFacade'
 import EventDispatcher from '@/components/dts/event/EventDispatcher'
 import store from '@/stores/index'
 import LocalStorage from '@/utils/LocalStorage'
+import { resetDisconnectWarning } from '@/utils/sceneErrors'
 import { ElMessage } from 'element-plus'
 import { onBeforeUnmount, onMounted, onUnmounted, ref } from 'vue'
 
@@ -172,6 +173,7 @@ let _onReady = async (e: any) => {
   if (props.playerVariable === '__xapi') {
     await DtsFacade.getLayerTree()
     store.dtsStore.sceneState = 'ready'
+    resetDisconnectWarning()
   }
   syncResolution()
 

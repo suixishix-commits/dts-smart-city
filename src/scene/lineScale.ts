@@ -63,7 +63,7 @@ class LineScaler {
 
   private refresh(delay: number): void {
     clearTimeout(this.timer)
-    this.timer = setTimeout(() => void this.apply(), delay)
+    this.timer = setTimeout(() => void this.apply().catch(e => console.warn('[lineScale] 调整线宽失败', e)), delay)
   }
 
   private async apply(): Promise<void> {

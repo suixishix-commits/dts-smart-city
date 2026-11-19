@@ -12,6 +12,7 @@ import { i18n } from './i18n'
 import router from './router'
 import { vPop } from './utils/motion'
 import { ModuleScene } from './scene/ModuleScene'
+import { installSceneErrorHandling } from './utils/sceneErrors'
 
 const app = createApp(App)
 const pinia = createPinia()
@@ -23,6 +24,8 @@ app.use(i18n)
 app.use(ElementPlus)
 // 弹窗卡片的弹出动效（GSAP）
 app.directive('pop', vPop)
+// 渲染端断开后各处场景调用的失败只记一条警告，不作为未处理错误抛到界面上
+installSceneErrorHandling(app)
 app.mount('#app')
 
 // 页面关闭或刷新时删掉当前模块画的场景对象：它们存在共享的渲染实例里，不删会出现在下一个打开的页面上
