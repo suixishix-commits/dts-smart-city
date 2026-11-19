@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { adaptRegionHeat, simplify, type RegionHeatResponse } from '@/api/regionHeat'
-import { aed, magnitudeRange, PALETTES, rampColorAt, rampPosition, title, fieldColors, gaussianBlur } from '../HeatDemoScene'
+import { aed, magnitudeRange, PALETTES, rampColorAt, rampPosition, title, volumeColors, contour, gaussianBlur } from '../HeatDemoScene'
 
 const sample: RegionHeatResponse = JSON.parse(readFileSync('public/data/heatmap-demo/region-heat.json', 'utf-8'))
 
@@ -75,12 +75,30 @@ describe('heat demo colouring', () => {
   })
 })
 
-describe('heat field palette', () => {
-  it('fills the six material colour slots for every palette, warm running green to red', () => {
-    for (const p of PALETTES) expect(fieldColors(p)).toHaveLength(6)
-    const warm = fieldColors(PALETTES[0])
-    expect(warm[0]).toBe('#73cc40')
-    expect(warm[5]).toBe('#eb2400')
+describe('POPInspection heat look', () => {
+  it('is clear below 0.15 and turns from a thin green glaze to solid red', () => {
+    const warm = volumeColors(PALETTES[0])
+    expect(warm.colorStops.map(s => s.value)).toEqual([0, 0.15, 0.26, 0.38, 0.5, 0.64, 0.78, 1])
+    expect(warm.colorStops.map(s => s.color[3])).toEqual([0, 0, 0.3, 0.45, 0.6, 0.75, 0.85, 0.92])
+  })
+})
+
+describe('contour', () => {
+  it('draws one closed ring round a single hot cell', () => {
+    const g = new Float32Array(5 * 5)
+    g[2 * 5 + 2] = 1
+    const rings = contour(g, 5, 5, 0.5)
+    expect(rings).toHaveLength(1)
+    const ring = rings[0]
+    expect(ring[0]).toEqual(ring[ring.length - 1])
+    // 四条边上各一个交点，都在格点 (2,2) 和邻格的正中
+    expect(ring.length).toBe(5)
+    for (const [x, y] of ring) expect(Math.abs(x - 2) + Math.abs(y - 2)).toBeCloseTo(0.5)
+  })
+
+  it('draws nothing when the whole grid is on one side of the level', () => {
+    expect(contour(new Float32Array(9).fill(1), 3, 3, 0.5)).toEqual([])
+    expect(contour(new Float32Array(9), 3, 3, 0.5)).toEqual([])
   })
 })
 
