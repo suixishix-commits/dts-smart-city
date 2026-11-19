@@ -233,6 +233,18 @@ export async function setAmbienceEnabled(enabled: boolean): Promise<void> {
 }
 
 /**
+ * 干净的底图：影像原色、白天、无云、泛光关小。不做智慧城市的黄昏色调（片区热力演示页用）。
+ */
+export async function plainMap(): Promise<void> {
+  const ids = await terrainLayerIds()
+  if (ids.length) await __xapi.tileLayer.setStyle(ids, 0, [1, 1, 1, 1], 1, 1, 1, 0.18)
+  await setSceneTime(false)
+  await __xapi.weather.setCloudDensity(0)
+  await __xapi.weather.setDarkMode(false)
+  await __xapi.settings.setBloomIntensity(0.2)
+}
+
+/**
  * 切换夜景：把场景时间拨到入夜 / 白天，再按昼夜换底图参数。
  * ambience 为 false（用户在图层面板关了底图风格）时只拨时间，不改影像。
  */

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { adaptRegionHeat, simplify, type RegionHeatResponse } from '@/api/regionHeat'
-import { aed, magnitudeRange, PALETTES, rampColorAt, rampPosition, title, volumeColors } from '../HeatDemoScene'
+import { aed, magnitudeRange, PALETTES, rampColorAt, rampPosition, title, volumeColors, gaussianBlur } from '../HeatDemoScene'
 
 const sample: RegionHeatResponse = JSON.parse(readFileSync('public/data/heatmap-demo/region-heat.json', 'utf-8'))
 
@@ -70,17 +70,44 @@ describe('heat demo colouring', () => {
 
   it('formats names and amounts by magnitude', () => {
     expect(title('AL REEM EAST ISLAND')).toBe('Al Reem East Island')
-    expect(aed(-1.195e10)).toBe('AED 11.95B')
-    expect(aed(5e7)).toBe('AED 50M')
+    expect(aed(-1.195e10)).toBe('119.5 亿迪拉姆')
+    expect(aed(5e7)).toBe('5000 万迪拉姆')
   })
 })
 
 describe('POPInspection heat look', () => {
-  it('leaves 0 clear and steps the four ramp colours, linear and dimmed, with rising alpha', () => {
+  it('leaves 0 clear and steps the four ramp colours, linear and dimmed, with rising alpha (dimmer and more see-through than POPInspection)', () => {
     const c = volumeColors(['#ffffff', '#ff0000', '#00ff00', '#0000ff'])
     expect(c.colorStops[0]).toEqual({ value: 0, color: [0, 0, 0, 0] })
     expect(c.colorStops.map(s => s.value)).toEqual([0, 0.01, 0.4, 0.7, 1])
-    expect(c.colorStops[1].color).toEqual([0.35, 0.35, 0.35, 0.35])
-    expect(c.colorStops[4].color.map(v => Math.round(v * 100) / 100)).toEqual([0, 0, 0.35, 0.95])
+    expect(c.colorStops[1].color).toEqual([0.16, 0.16, 0.16, 0.28])
+    expect(c.colorStops[4].color.map(v => Math.round(v * 100) / 100)).toEqual([0, 0, 0.16, 0.52])
+  })
+})
+
+describe('district names', () => {
+  it('shows Chinese names and falls back to the English one', async () => {
+    const { districtZh } = await import('../names')
+    expect(districtZh('ZAYED PORT')).toBe('扎耶德港')
+    expect(districtZh('AL REEM EAST ISLAND')).toBe('东里姆岛')
+    expect(districtZh('NEW PLACE')).toBe('New Place')
+  })
+
+  it('has a Chinese name for every district in the sample', async () => {
+    const { DISTRICT_ZH } = await import('../names')
+    const missing = adaptRegionHeat(sample).regions.filter(r => !DISTRICT_ZH[r.name])
+    expect(missing.map(r => r.name)).toEqual([])
+  })
+})
+
+describe('heat blur', () => {
+  it('spreads a hot cell smoothly and keeps the total', () => {
+    const src = new Float32Array(21 * 21)
+    src[10 * 21 + 10] = 1
+    const out = gaussianBlur(src, 21, 21, 2)
+    const total = out.reduce((a, b) => a + b, 0)
+    expect(total).toBeCloseTo(1, 3)
+    expect(out[10 * 21 + 10]).toBeGreaterThan(out[10 * 21 + 12])
+    expect(out[10 * 21 + 12]).toBeGreaterThan(out[10 * 21 + 15])
   })
 })

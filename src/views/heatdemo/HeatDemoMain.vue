@@ -7,6 +7,8 @@
 import { getRegionHeat } from '@/api/regionHeat'
 import { cityBase } from '@/scene/CityBase'
 import { DtsSceneApi } from '@/scene/DtsSceneApi'
+import { applyAmbience, plainMap } from '@/scene/effects'
+import { whenSceneReady } from '@/scene/sceneReady'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { HeatDemoScene, PALETTES } from './HeatDemoScene'
@@ -34,7 +36,16 @@ onMounted(async () => {
     error.value = (e as Error).message ?? String(e)
     return
   }
-  if (!(await cityBase.start()) || unmounting.signal.aborted) return
+  // 不启动城市底座（黄昏色调、路网、开场动画）：干净的底图上只画热力
+  if (!(await whenSceneReady(unmounting.signal))) return
+  try {
+    if (cityBase.geo) await cityBase.setRoadsVisible(false)
+    else await Promise.all((['marker', 'polygon', 'polyline', 'customMesh', 'radiationPoint', 'heatmap'] as const).map(t => __xapi[t].clear()))
+    await plainMap()
+  } catch (e) {
+    console.warn('[片区热力] 底图准备失败', e)
+  }
+  if (unmounting.signal.aborted) return
   scene = new HeatDemoScene(new DtsSceneApi(), data)
   await scene.setPalette(paletteKey())
   // 渲染端断开时场景调用会抛错：只记日志
@@ -45,6 +56,8 @@ onBeforeUnmount(async () => {
   unmounting.abort()
   const leaving = scene?.leave()
   scene = null
+  // 回到其它模块时恢复底座路网和色调
+  if (cityBase.geo) void Promise.all([cityBase.setRoadsVisible(true), applyAmbience()]).catch(() => {})
   await leaving?.catch(e => console.warn('[片区热力] 场景图层清理失败', e))
 })
 </script>
