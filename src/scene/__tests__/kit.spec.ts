@@ -530,6 +530,15 @@ function focusTarget(c: number[]): number[] {
   return [c[0] + Math.cos(yaw) * d, c[1] - Math.sin(yaw) * d]
 }
 
+describe('focusView leftPx', () => {
+  it('puts the target that many pixels left of the screen centre', () => {
+    const p = [230000, 2705000]
+    const at = screenOf(focusView(p, 4000, 170), [p[0], p[1], 0]) as number[]
+    expect(at[0]).toBeCloseTo(960 - 170, -1)
+    expect(Math.abs(at[1] - 540)).toBeLessThan(5)
+  })
+})
+
 describe('staggerLabels', () => {
   const camera = [225780, 2698610, 9600, -38, -38]
   const c = focusTarget(camera)
@@ -547,6 +556,13 @@ describe('staggerLabels', () => {
 
   it('takes the next free level when two lower ones are taken', () => {
     expect(staggerLabels([{ at: c, width: 160 }, { at: right(700), width: 160 }, { at: right(1400), width: 160 }], 56, 34, { camera })).toEqual([56, 90, 124])
+  })
+
+  it('keeps fixed labels where they are and moves the others around them', () => {
+    // 固定的在 90：另一个的 56 档和它上下错开一档，不重叠
+    expect(staggerLabels([{ at: c, width: 160, lead: 90 }, { at: right(700), width: 160 }], 56, 34, { camera })).toEqual([90, 56])
+    // 固定的占了 56，移动的让到 90
+    expect(staggerLabels([{ at: c, width: 160, lead: 56 }, { at: right(700), width: 160 }], 56, 34, { camera })).toEqual([56, 90])
   })
 
   it('estimates wider boxes for longer text', () => {

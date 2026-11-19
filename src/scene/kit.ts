@@ -56,10 +56,15 @@ const DEFAULT_CAMERA = [225780, 2698610, 9600, -38, -38]
 /** 点位定位的默认相机高度，米 */
 export const FOCUS_HEIGHT = 1700
 
-export function focusView(p: number[], height = FOCUS_HEIGHT): number[] {
-  const d = height / Math.tan((-FOCUS_PITCH * Math.PI) / 180)
+export function focusView(p: number[], height = FOCUS_HEIGHT, leftPx = 0): number[] {
+  const pitch = (-FOCUS_PITCH * Math.PI) / 180
+  const d = height / Math.tan(pitch)
   const yaw = (FOCUS_YAW * Math.PI) / 180
-  return [p[0] - Math.cos(yaw) * d, p[1] + Math.sin(yaw) * d, height, FOCUS_PITCH, FOCUS_YAW]
+  // leftPx：让目标落在画面中心偏左这么多像素（右侧有详情卡片时用）。屏幕中心处 1 像素约合 视距 / 960 米
+  const shift = (leftPx * (height / Math.sin(pitch))) / (SCREEN[0] / 2)
+  const tx = p[0] - Math.sin(yaw) * shift
+  const ty = p[1] - Math.cos(yaw) * shift
+  return [tx - Math.cos(yaw) * d, ty + Math.sin(yaw) * d, height, FOCUS_PITCH, FOCUS_YAW]
 }
 
 const FAR: [number, number] = [1, 1000000]
@@ -273,9 +278,10 @@ export function screenOf(camera: number[], p: number[]): [number, number] | null
  * 按屏幕上会不会叠在一起来错开标注的引线高度。
  * 用模块的主页机位把落点投到屏幕上，再按标注框宽高判断重叠：按传入顺序（重要的在前）逐个放，
  * 每个取不和已放标注重叠的最低一档；都重叠时取最高一档。没有机位时按全城默认机位估算。
- * items[i].width 是标注框宽度（像素，见 labelWidth），返回每个标注的 lineHeight。
+ * items[i].width 是标注框宽度（像素，见 labelWidth）；带 lead 的是已经定好高度的标注（只占位，不重新挑），
+ * 用来让随时间移动的标注避开固定标注。返回每个标注的 lineHeight。
  */
-export function staggerLabels(items: { at: number[]; width: number }[], base: number, step: number, o: { camera?: number[] | null; levels?: number } = {}): number[] {
+export function staggerLabels(items: { at: number[]; width: number; lead?: number }[], base: number, step: number, o: { camera?: number[] | null; levels?: number } = {}): number[] {
   const camera = o.camera ?? DEFAULT_CAMERA
   const levels = o.levels ?? 6
   const placed: { x: number; y: number; w: number }[] = []
@@ -283,6 +289,10 @@ export function staggerLabels(items: { at: number[]; width: number }[], base: nu
     const s = screenOf(camera, item.at)
     if (!s) return base
     const [x, ground] = s
+    if (item.lead !== undefined) {
+      placed.push({ x, y: ground - item.lead, w: item.width })
+      return item.lead
+    }
     let chosen = base + step * (levels - 1)
     for (let k = 0; k < levels; k++) {
       const h = base + step * k

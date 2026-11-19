@@ -54,6 +54,8 @@ const OD_TOP = 3
 const DETOUR_FLOW: Omit<LineFlowStyle, 'color'> = { period: 320, speed: 0.55, light: 1.4, lightLen: 0.14, brightness: 1.1, coreWidth: 0.14 }
 /** 车辆轨迹：整条一个周期，尾部渐隐，光点流向车辆当前位置 */
 const TRAIL_FLOW: Omit<LineFlowStyle, 'color'> = { period: 'whole', speed: 0.6, light: 1.1, lightLen: 0.3, tail: 1, brightness: 1 }
+/** 绕行路线的机位让路线落在画面中心偏左多少像素：右侧是事件详情卡片 */
+const DETOUR_LEFT_PX = 170
 const VEHICLE_LAYER = 'vehicle'
 const VEHICLE_TRAIL_LAYER = 'vehicleTrail'
 const DETOUR_LAYER = 'detour'
@@ -87,6 +89,8 @@ export class TrafficScene extends ModuleScene {
   private drawn: { road: string | null; od: string | null; vehicle: string | null } = { road: null, od: null, vehicle: null }
   /** 当前画出的绕行方案对应的事件 id */
   private detourId: string | null = null
+  /** 位置固定的标注（事件、异常信号）及其引线高度：车辆标注错开时避开它们 */
+  private fixedLabels: { at: number[]; width: number; lead: number }[] = []
 
   constructor(
     api: SceneApi,
@@ -137,7 +141,9 @@ export class TrafficScene extends ModuleScene {
     })
     await this.add(token, marks.type, marks.objects, 'incident')
     // 西侧老城的事件挨得很近，引线错开高度，文字框才不叠在一起
-    const heights = staggerLabels(incidents.map(i => ({ at: this.xy.get(i.intersectionId) as number[], width: labelWidth(i.title, { tag: INCIDENT_TEXT[i.type] }) })), 56, 34, { camera: this.options.cameraView })
+    const incidentItems = incidents.map(i => ({ at: this.xy.get(i.intersectionId) as number[], width: labelWidth(i.title, { tag: INCIDENT_TEXT[i.type] }) }))
+    const heights = staggerLabels(incidentItems, 56, 34, { camera: this.options.cameraView })
+    this.fixedLabels = incidentItems.map((item, k) => ({ ...item, lead: heights[k] }))
     await this.add(
       token,
       'marker',
@@ -154,13 +160,15 @@ export class TrafficScene extends ModuleScene {
       signals.map(s => ripple({ id: 'signal-' + s.id, groupId: 'sc_traffic_signal_ripple', at: this.xy.get(s.id) as number[], radius: s.status === 'normal' ? 250 : 320, rings: 2, color: SIGNAL_COLOR[s.status], brightness: s.status === 'normal' ? 0.5 : 0.9 })),
       'signal'
     )
-    // 36 个路口都加标注会超过一屏 30 个的上限，只标异常的
+    // 36 个路口都加标注会超过一屏 30 个的上限，只标异常的；避开事件标注
+    const abnormal = signals.filter(s => s.status !== 'normal')
+    const signalItems = abnormal.map(s => ({ at: this.xy.get(s.id) as number[], width: labelWidth('信号' + SIGNAL_TEXT[s.status], { icon: true }) }))
+    const signalLeads = staggerLabels([...this.fixedLabels, ...signalItems], 28, 34, { camera: this.options.cameraView }).slice(this.fixedLabels.length)
+    this.fixedLabels = [...this.fixedLabels, ...signalItems.map((item, k) => ({ ...item, lead: signalLeads[k] }))]
     await this.add(
       token,
       'marker',
-      signals
-        .filter(s => s.status !== 'normal')
-        .map(s => pin({ id: 'signal-pin-' + s.id, groupId: 'sc_traffic_signal', at: this.xy.get(s.id) as number[], text: '信号' + SIGNAL_TEXT[s.status], icon: 'signal', color: SIGNAL_COLOR[s.status], userId: s.id, lineHeight: 28, fontSize: 11 })),
+      abnormal.map((s, k) => pin({ id: 'signal-pin-' + s.id, groupId: 'sc_traffic_signal', at: this.xy.get(s.id) as number[], text: '信号' + SIGNAL_TEXT[s.status], icon: 'signal', color: SIGNAL_COLOR[s.status], userId: s.id, lineHeight: signalLeads[k], fontSize: 11 })),
       'signal'
     )
 
@@ -228,10 +236,21 @@ export class TrafficScene extends ModuleScene {
     return road ? pointAt(road.line, vehicleStateAt(v, this.data?.segments ?? [], hour).ratio) : null
   }
 
-  /** 车辆标注 + 身后的轨迹线。标注不常显，交给引擎避让，不和事件标注抢位置 */
+  /** 车辆标注 + 身后的轨迹线。车辆标注每个时刻都重新错开，避开位置固定的事件、信号标注 */
   private buildVehicles(data: TrafficData): { pins: { id: string }[]; trails: { id: string }[] } {
     const pins: { id: string }[] = []
     const trails: { id: string }[] = []
+    const placed = data.vehicles.flatMap(v => {
+      const at = this.vehiclePoint(v, this.hour)
+      return at ? [{ v, at, speed: vehicleStateAt(v, data.segments, this.hour).speed }] : []
+    })
+    const leads = staggerLabels(
+      [...this.fixedLabels, ...placed.map(p => ({ at: p.at, width: labelWidth(p.v.name, { value: `${p.speed} km/h`, icon: true }) }))],
+      30,
+      34,
+      { camera: this.options.cameraView }
+    ).slice(this.fixedLabels.length)
+    const leadOf = new Map(placed.map((p, k) => [p.v.id, leads[k]]))
     for (const v of data.vehicles) {
       const state = vehicleStateAt(v, data.segments, this.hour)
       const at = this.vehiclePoint(v, this.hour)
@@ -243,7 +262,7 @@ export class TrafficScene extends ModuleScene {
         const mesh = lineFlowMesh(`vehicle-trail-${v.id}-${Math.round(this.hour * 2)}`, [{ id: v.id, path: trail, width: 70 }], { ...TRAIL_FLOW, color }, { groupId: 'sc_traffic_vehicle_trail', z: 16 })
         if (mesh) trails.push(mesh)
       } else trails.push(flowLine({ id: 'vehicle-trail-' + v.id, groupId: 'sc_traffic_vehicle_trail', path: trail, color, width: 56, style: 'pulse', brightness: 1.1, speed: 0.3, height: 16 }))
-      pins.push(pin({ id: 'vehicle-' + v.id, groupId: 'sc_traffic_vehicle', at, text: v.name, value: `${state.speed} km/h`, icon: 'vehicle', color, userId: v.id, lineHeight: 30, fontSize: 12, priority: 5 }))
+      pins.push(pin({ id: 'vehicle-' + v.id, groupId: 'sc_traffic_vehicle', at, text: v.name, value: `${state.speed} km/h`, icon: 'vehicle', color, userId: v.id, lineHeight: leadOf.get(v.id) ?? 30, fontSize: 12, priority: 5 }))
     }
     return { pins, trails }
   }
@@ -261,21 +280,31 @@ export class TrafficScene extends ModuleScene {
     this.detourId = incidentId
     const start = path[0]
     const end = path[path.length - 1]
+    // 机位对准路线外包框的中心，范围越大拉得越高；右侧有事件详情卡片，路线放在画面中心偏左
+    const xs = path.map(p => p[0])
+    const ys = path.map(p => p[1])
+    const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys))
+    const center = [(Math.max(...xs) + Math.min(...xs)) / 2, (Math.max(...ys) + Math.min(...ys)) / 2]
+    const camera = focusView(center, Math.min(6000, Math.max(3600, span * 1.4)), DETOUR_LEFT_PX)
+    // 起终点标注按这个机位和事件、信号标注一起错开
+    const fromText = '绕行起点 · ' + plan.fromName
+    const toText = '汇入点 · ' + plan.toName
+    const leads = staggerLabels(
+      [...this.fixedLabels, { at: start, width: labelWidth(fromText) }, { at: end, width: labelWidth(toText) }],
+      40,
+      34,
+      { camera }
+    ).slice(this.fixedLabels.length)
     await Promise.all([
       this.options.lineFlow
         ? this.replaceLayer(DETOUR_LAYER, 'customMesh', [lineFlowMesh('detour-' + incidentId, [{ id: incidentId, path, width: 150 }], { ...DETOUR_FLOW, color: DETOUR_COLOR }, { groupId: 'sc_traffic_detour', z: 20 })].filter(m => m !== null))
         : this.replaceLayer(DETOUR_LAYER, 'polyline', [flowLine({ id: 'detour-' + incidentId, groupId: 'sc_traffic_detour', path, color: DETOUR_COLOR, width: 84, style: 'pulse', brightness: 1.2, height: 20 })]),
       this.replaceLayer(DETOUR_PIN_LAYER, 'marker', [
-        pin({ id: 'detour-from-' + incidentId, groupId: 'sc_traffic_detour_pin', at: start, text: '绕行起点 · ' + plan.fromName, color: DETOUR_COLOR, lineHeight: 40, fontSize: 12 }),
-        pin({ id: 'detour-to-' + incidentId, groupId: 'sc_traffic_detour_pin', at: end, text: '汇入点 · ' + plan.toName, color: DETOUR_COLOR, lineHeight: 40, fontSize: 12 })
+        pin({ id: 'detour-from-' + incidentId, groupId: 'sc_traffic_detour_pin', at: start, text: fromText, color: DETOUR_COLOR, lineHeight: leads[0], fontSize: 12 }),
+        pin({ id: 'detour-to-' + incidentId, groupId: 'sc_traffic_detour_pin', at: end, text: toText, color: DETOUR_COLOR, lineHeight: leads[1], fontSize: 12 })
       ])
     ])
-    // 机位对准路线外包框的中心，范围越大拉得越高
-    const xs = path.map(p => p[0])
-    const ys = path.map(p => p[1])
-    const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys))
-    const center = [(Math.max(...xs) + Math.min(...xs)) / 2, (Math.max(...ys) + Math.min(...ys)) / 2]
-    await this.api.setCamera(focusView(center, Math.min(6000, Math.max(3600, span * 1.4))), 1.5)
+    await this.api.setCamera(camera, 1.5)
     return true
   }
 
