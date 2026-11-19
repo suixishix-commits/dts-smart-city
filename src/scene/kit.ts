@@ -181,10 +181,10 @@ export function ripple(o: { id: string; groupId?: string; at: number[]; radius: 
 }
 
 /**
- * 标注按优先级分档显示（相机高度，米）：重点（≥ 10）始终显示；一般（3–9）默认机位（约 9600 米）就能看到；
+ * 标注按优先级分档显示（相机高度，米）：重点（≥ 10）始终显示；一般（3–9）各模块主页机位（9600–11600 米）都能看到；
  * 次要（< 3，摄像头编号、巡逻单位、状态正常的设施）拉近到 6000 米以下才出现，免得全城视角下挤成一片。
  */
-export const LABEL_TIERS = { normal: 11000, minor: 6000 } as const
+export const LABEL_TIERS = { normal: 12000, minor: 6000 } as const
 export function labelTier(priority: number): { viewHeightRange?: number[]; rangeRatio?: number } {
   if (priority >= 10) return {}
   return { viewHeightRange: [1, priority >= 3 ? LABEL_TIERS.normal : LABEL_TIERS.minor], rangeRatio: 0.01 }

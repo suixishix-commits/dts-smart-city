@@ -52,6 +52,10 @@ const FIELD_STEP = 160
 /** 波纹半径按警情等级，米 */
 const RIPPLE_RADIUS: Record<number, number> = { 1: 700, 2: 560, 3: 420, 4: 300 }
 const GUARD_TEXT: Record<number, string> = { 1: '一级防护', 2: '二级防护', 3: '三级防护' }
+/** 防护区标注 */
+function zoneText(z: { name: string; guardLevel: number }): string {
+  return `${z.name} · ${GUARD_TEXT[z.guardLevel]}`
+}
 /** 摄像头镜头离地高度，米 */
 const CAMERA_HEIGHT = 60
 /** 视域长度，米 */
@@ -100,6 +104,8 @@ export class SecurityScene extends ModuleScene {
   /** 每次投射或取消都 +1，丢弃过期的视锥创建 */
   private projectionToken = 0
   private incidentXY = new Map<string, XY>()
+  /** 警情、防护区标注的引线高度（'incident:id' / 'zone:id'），进入时按位置算好 */
+  private leads = new Map<string, number>()
   private zoneXY = new Map<string, XY>()
   private cameraXY = new Map<string, XY>()
   private grid: { xy: number[]; districtId: string }[] = []
@@ -141,6 +147,7 @@ export class SecurityScene extends ModuleScene {
     if (!this.isCurrent(token)) return
     await this.options.dimBaseRoads?.(true)
 
+    this.leads = this.labelLeads(data)
     await this.addZones(token, data)
     await this.addIncidents(token, data)
     await this.addPatrols(token, data)
@@ -171,6 +178,19 @@ export class SecurityScene extends ModuleScene {
     await this.heatField?.clear()
   }
 
+  /**
+   * 警情和防护区的标注一起错开引线高度（分图层各自错开的话彼此还会叠）：警情按等级在前，防护区随后。
+   * 返回 '类别:id' → lineHeight
+   */
+  private labelLeads(data: SecurityData): Map<string, number> {
+    const items = [
+      ...[...data.incidents].sort((a, b) => a.level - b.level).map(i => ({ key: 'incident:' + i.id, at: this.incidentXY.get(i.id) as XY, width: labelWidth(i.title, { tag: LEVEL_TEXT[i.level] }) })),
+      ...data.zones.map(z => ({ key: 'zone:' + z.id, at: this.zoneXY.get(z.id) as XY, width: labelWidth(zoneText(z), { icon: true }) }))
+    ]
+    const heights = staggerLabels(items, 44, 34, { camera: this.options.cameraView })
+    return new Map(items.map((item, k) => [item.key, heights[k]]))
+  }
+
   private async addZones(token: number, data: SecurityData): Promise<void> {
     const rings = data.zones.map(z => ({ zone: z, ring: circleRing(this.zoneXY.get(z.id) as XY, z.radius) }))
     if (this.options.pak) {
@@ -183,7 +203,7 @@ export class SecurityScene extends ModuleScene {
     await this.add(
       token,
       'marker',
-      data.zones.map(z => pin({ id: 'zone-' + z.id, icon: 'shield', groupId: SECURITY_GROUP.zone, at: this.zoneXY.get(z.id) as XY, text: `${z.name} · ${GUARD_TEXT[z.guardLevel]}`, color: COLOR.accent, userId: z.id, lineHeight: 44, fontSize: 12, priority: 5 })),
+      data.zones.map(z => pin({ id: 'zone-' + z.id, icon: 'shield', groupId: SECURITY_GROUP.zone, at: this.zoneXY.get(z.id) as XY, text: zoneText(z), color: COLOR.accent, userId: z.id, lineHeight: this.leads.get('zone:' + z.id), fontSize: 12, priority: 5 })),
       'fence'
     )
   }
@@ -197,14 +217,11 @@ export class SecurityScene extends ModuleScene {
     })
     await this.add(token, marks.type, marks.objects, 'incident')
     // 等级小标签同右侧「实时警情」列表；挨得近的错开引线高度，级别高的排最低一档
-    const bySeverity = [...data.incidents].sort((a, b) => a.level - b.level)
-    const heights = staggerLabels(bySeverity.map(i => ({ at: this.incidentXY.get(i.id) as XY, width: labelWidth(i.title, { tag: LEVEL_TEXT[i.level] }) })), 60, 34, { camera: this.options.cameraView })
-    const lead = new Map(bySeverity.map((i, k) => [i.id, heights[k]]))
     await this.add(
       token,
       'marker',
       data.incidents.map(i =>
-        pin({ id: 'incident-' + i.id, groupId: SECURITY_GROUP.incident, at: this.incidentXY.get(i.id) as XY, tag: LEVEL_TEXT[i.level], text: i.title, color: LEVEL_COLOR[i.level], userId: i.id, lineHeight: lead.get(i.id), priority: isActive(i) && i.level <= 2 ? 15 - i.level : 8 - i.level })
+        pin({ id: 'incident-' + i.id, groupId: SECURITY_GROUP.incident, at: this.incidentXY.get(i.id) as XY, tag: LEVEL_TEXT[i.level], text: i.title, color: LEVEL_COLOR[i.level], userId: i.id, lineHeight: this.leads.get('incident:' + i.id), priority: isActive(i) && i.level <= 2 ? 15 - i.level : 8 - i.level })
       ),
       'incident'
     )
