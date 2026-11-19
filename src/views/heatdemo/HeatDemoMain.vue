@@ -1,5 +1,5 @@
 <template>
-  <!-- 只有三维场景：不放任何面板。色板从地址里取：#/heatmap?palette=warm | ocean | risk -->
+  <!-- 只有三维场景：不放任何面板。地址参数：palette=warm|ocean|risk 色板；lines=1 显示热力值的线（等值线）；animate=1 每 6 秒随机改一次数值，看过渡效果 -->
   <div class="heatdemo-main"><p v-if="error" class="error">{{ error }}</p></div>
 </template>
 
@@ -23,10 +23,26 @@ const paletteKey = () => {
   return PALETTES.some(p => p.key === q) ? q : PALETTES[0].key
 }
 
+const linesOn = () => route.query.lines === '1'
+
 watch(
   () => route.query.palette,
   () => scene?.setPalette(paletteKey())
 )
+watch(
+  () => route.query.lines,
+  () => scene?.setLines(linesOn())
+)
+
+/** 演示数值变化：每个片区在原值的 0.5–1.5 倍之间随机浮动，热力原地平滑过渡 */
+let animTimer = 0
+function startAnimate(base: { code: string; value: number }[]) {
+  window.clearInterval(animTimer)
+  if (route.query.animate !== '1') return
+  animTimer = window.setInterval(() => {
+    void scene?.setValues(Object.fromEntries(base.map(r => [r.code, r.value * (0.5 + Math.random())])))
+  }, 6000)
+}
 
 onMounted(async () => {
   let data
@@ -48,12 +64,15 @@ onMounted(async () => {
   if (unmounting.signal.aborted) return
   scene = new HeatDemoScene(new DtsSceneApi(), data)
   await scene.setPalette(paletteKey())
+  await scene.setLines(linesOn())
   // 渲染端断开时场景调用会抛错：只记日志
   await scene.enter().catch(e => console.warn('[片区热力] 场景图层创建失败', e))
+  startAnimate(data.regions.map(r => ({ code: r.code, value: r.value })))
 })
 
 onBeforeUnmount(async () => {
   unmounting.abort()
+  window.clearInterval(animTimer)
   const leaving = scene?.leave()
   scene = null
   // 回到其它模块时恢复底座路网和色调

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { adaptRegionHeat, simplify, type RegionHeatResponse } from '@/api/regionHeat'
-import { aed, magnitudeRange, PALETTES, rampColorAt, rampPosition, title, volumeColors, gaussianBlur } from '../HeatDemoScene'
+import { aed, magnitudeRange, PALETTES, rampColorAt, rampPosition, title, fieldColors, gaussianBlur } from '../HeatDemoScene'
 
 const sample: RegionHeatResponse = JSON.parse(readFileSync('public/data/heatmap-demo/region-heat.json', 'utf-8'))
 
@@ -75,20 +75,12 @@ describe('heat demo colouring', () => {
   })
 })
 
-describe('POPInspection heat look', () => {
-  it('is clear below 0.15 and turns from a thin green glaze to solid red, as POPInspection draws its heat', () => {
-    const warm = volumeColors(PALETTES[0])
-    expect(warm.colorStops.map(s => s.value)).toEqual([0, 0.15, 0.26, 0.38, 0.5, 0.64, 0.78, 1])
-    expect(warm.colorStops[1].color[3]).toBe(0)
-    expect(warm.colorStops.map(s => s.color[3])).toEqual([0, 0, 0.3, 0.45, 0.6, 0.75, 0.85, 0.92])
-    // 颜色线性化并乘 0.22：红 0.92 → 0.22 * 0.92^2.2
-    expect(warm.colorStops[6].color[0]).toBeCloseTo(0.22 * 0.92 ** 2.2)
-  })
-
-  it('puts the other palette colours at the same stops, ocean dimmer', () => {
-    const ocean = volumeColors(PALETTES[1])
-    expect(ocean.colorStops[7].color[2]).toBeCloseTo(0.14 * (0xbf / 255) ** 2.2)
-    expect(ocean.colorStops[7].color[3]).toBe(0.92)
+describe('heat field palette', () => {
+  it('fills the six material colour slots for every palette, warm running green to red', () => {
+    for (const p of PALETTES) expect(fieldColors(p)).toHaveLength(6)
+    const warm = fieldColors(PALETTES[0])
+    expect(warm[0]).toBe('#73cc40')
+    expect(warm[5]).toBe('#eb2400')
   })
 })
 

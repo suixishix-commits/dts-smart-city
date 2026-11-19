@@ -75,8 +75,10 @@ class FakeApi implements SceneApi {
   }
   async update(type: SceneObjectType, objects: { id: string }[]) {
     for (const o of objects) {
-      const colors = (o as unknown as { colors: number[][] }).colors
-      this.log.push(`update ${o.id} max=${Math.max(...colors.map(c => c[3])).toFixed(2)}`)
+      const p = o as unknown as { colors?: number[][]; scalarParameters?: { name: string; value: number }[]; vectorParameters?: unknown[] }
+      if (p.colors) this.log.push(`update ${o.id} max=${Math.max(...p.colors.map(c => c[3])).toFixed(2)}`)
+      if (p.scalarParameters) this.log.push(`params ${o.id} ${p.scalarParameters.map(x => x.name + '=' + x.value).join(',')}`)
+      if (p.vectorParameters) this.log.push(`colors ${o.id} ${p.vectorParameters.length}`)
     }
   }
   async setVisible(type: SceneObjectType, ids: string[], visible: boolean) {
@@ -167,5 +169,24 @@ describe('sampleHeatField options', () => {
       if (x < 0) expect(f.covered[i]).toBe(0)
     }
     expect([...f.covered].some(c => c === 1)).toBe(true)
+  })
+})
+
+describe('HeatFieldLayer.setParams', () => {
+  it('turns the iso lines on and off and swaps the ramp in place, without rebuilding', async () => {
+    const api = new FakeApi()
+    const layer = new HeatFieldLayer(api, { id: 'h', tweenMs: 0, levels: 0.5 })
+    await layer.show(field(1))
+    api.log = []
+    await layer.setParams({ levels: 8 })
+    await layer.setParams({ colors: ['#000000', '#111111', '#222222', '#333333', '#444444', '#555555'] })
+    expect(api.log).toEqual(['params h-b Levels=8', 'colors h-b 6'])
+  })
+
+  it('remembers parameters set before the mesh exists', async () => {
+    const api = new FakeApi()
+    const layer = new HeatFieldLayer(api, { id: 'h', tweenMs: 0 })
+    await layer.setParams({ levels: 6 })
+    expect(api.log).toEqual([])
   })
 })

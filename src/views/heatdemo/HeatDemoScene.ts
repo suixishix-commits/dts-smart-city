@@ -1,5 +1,6 @@
 import { pointInRing } from '@/scene/geo'
 import { labelWidth, pin, staggerLabels } from '@/scene/kit'
+import { HEAT_LINES_OFF, HeatFieldLayer, type HeatField } from '@/scene/heatField'
 import { ModuleScene } from '@/scene/ModuleScene'
 import { districtZh } from './names'
 import type { SceneApi } from '@/scene/SceneApi'
@@ -49,51 +50,28 @@ export const PALETTES: Palette[] = [
  */
 const LOOK = { displayMode: 3, blendMode: 1, brightness: 8 }
 /**
- * 色带照搬 POPInspection 默认热力（heatmap.ts 的 RAMP，参考图）：低于 0.15 全透明；之后从薄薄一层绿（透明度 0.3）
- * 逐渐加厚到黄、橙，0.78 起是红（0.85–0.92）。warm 用原色；ocean / risk 在同样的位置换成各自色板的四色。
- * 颜色转线性再乘强度（引擎自动曝光会把亮色洗成粉彩）：warm、risk 0.22，ocean 同亮度下发光更强，压到 0.14。
+ * 热力用自研热力场材质（customMesh，见 scene/heatField.ts）：网格只建一次，换数值时原地改顶点颜色并插值过渡，不闪；
+ * 等值线（热力值的线）由材质参数 Levels 控制，可以随时开关；色带是材质的六个色位 C0–C5（密度 0.35 / 0.55 / 0.68 / 0.8 / 0.9 / 1.0）。
+ *
+ * 颜色取 POPInspection 默认热力（heatmap.ts 的 RAMP）：低端一层浅绿、往上黄、橙，高端红；
+ * ocean / risk 在同样的色位换成各自色板的四色。材质低于 0.2 透明、往上逐渐变实。
  */
-const RAMP: [number, number[]][] = [
-  [0, [0.45, 0.8, 0.25, 0]],
-  [0.15, [0.45, 0.8, 0.25, 0]],
-  [0.26, [0.45, 0.8, 0.25, 0.3]],
-  [0.38, [0.8, 0.85, 0.15, 0.45]],
-  [0.5, [1, 0.75, 0.1, 0.6]],
-  [0.64, [1, 0.42, 0.03, 0.75]],
-  [0.78, [0.92, 0.14, 0, 0.85]],
-  [1, [0.78, 0.05, 0, 0.92]]
-]
-/** 每个 RAMP 档位用色板的第几色 */
-const PALETTE_STOP = [0, 0, 0, 0, 1, 2, 3, 3]
-const PALETTE_INTENSITY: Record<string, number> = { warm: 0.22, ocean: 0.14, risk: 0.22 }
-/** 体积的层数、底面和高度（米），同 POPInspection */
-const LAYERS = 4
-const FLOOR = -50
-const HEIGHT = 500
-/** 栅格间距（米）和每块体积的边长（格） */
-const CELL = 300
-/**
- * 不分块：整张热力一个体积。分块时引擎在块与块的交界处过渡不连续，会画出一圈圈细线（网格）。
- * 300 米一格，全酋长国约 430 × 470 格，一个体积装得下；高斯模糊 1.2 公里，格子大小看不出来。
- */
-const TILE = 100000
-const VOLUME_PREFIX = 'heatdemo-volume-'
-/** heatmap3d 的回应最多等多久，毫秒（体积建得慢） */
-const ANSWER_MS = 45000
-
-/**
- * 用回调拿 heatmap3d 的回应：这一版 SDK 的 addByVoxels 返回的 Promise 永远不结束（POPInspection heatmap.ts 实测），
- * await 它会把后续步骤全卡住。超时按没有回应处理（返回 undefined）。
- */
-function answer(send: (done: (r: { result?: number } | undefined) => void) => void): Promise<{ result?: number } | undefined> {
-  return new Promise(resolve => {
-    const timer = window.setTimeout(() => resolve(undefined), ANSWER_MS)
-    send(r => {
-      window.clearTimeout(timer)
-      resolve(r)
-    })
-  })
+const FIELD_COLORS: Record<string, readonly string[]> = {
+  warm: ['#73cc40', '#9ad13a', '#ccd926', '#ffbf1a', '#ff6b08', '#eb2400'],
+  ocean: ['#0a1f5c', '#0a1f5c', '#0d4a8f', '#1688b8', '#2aa9bb', '#3fc9bf'],
+  risk: ['#5a35a5', '#5a35a5', '#b5368a', '#f04a3e', '#dc2d36', '#c8102e']
 }
+/** 色板 → 热力场材质的六个色位 */
+export function fieldColors(palette: Palette): readonly string[] {
+  return FIELD_COLORS[palette.key] ?? FIELD_COLORS.warm
+}
+/** 等值线开着时的条数 */
+export const HEAT_LINE_LEVELS = 8
+/** 格距，米：顶点颜色插值本身是平滑的，500 米一格全酋长国约 2.6 × 2.8 百格，每次换值只发几十万个数 */
+const CELL = 500
+/** 换值的过渡时长，毫秒 */
+const TWEEN_MS = 900
+
 /** 热力的扩散：高斯核的标准差，米 */
 const BLUR_SIGMA = 1200
 
@@ -128,19 +106,6 @@ export function gaussianBlur(src: Float32Array, nx: number, ny: number, sigma: n
   return out
 }
 
-/** POPInspection 的色带（见 RAMP）：warm 用参考图原色，其余色板在同样的档位换成自己的四色；透明度沿用 RAMP */
-export function volumeColors(palette: Palette) {
-  const hex = (h: string) => [1, 3, 5].map(k => parseInt(h.slice(k, k + 2), 16) / 255)
-  const intensity = PALETTE_INTENSITY[palette.key] ?? 0.22
-  return {
-    gradient: true,
-    invalidColor: [0, 0, 0, 0],
-    colorStops: RAMP.map(([value, color], k) => ({
-      value,
-      color: (palette.key === 'warm' ? color : [...hex(palette.ramp[PALETTE_STOP[k]]), color[3]]).map((v, c) => (c < 3 ? intensity * v ** 2.2 : v))
-    }))
-  }
-}
 /** 标注几个：绝对值最大的几个片区 */
 const LABELS = 10
 
@@ -248,90 +213,56 @@ export class HeatDemoScene extends ModuleScene {
     return t === null ? null : rampColorAt(this.palette.ramp, t)
   }
 
-  /**
-   * 栅格：每格取所在片区数值在色板里的位置（0.01–1；值为 0 或在片区外为 0，不着色）。
-   * 按 64 × 64 格分块，只留有值的块，每块一个 heatmap3d 体积。
-   */
-  volumes(): { id: string }[] {
+  /** 覆盖范围（只和片区位置有关，换数值时不变，网格拓扑不变才能原地过渡） */
+  private grid: { x0: number; y0: number; nx: number; ny: number; covered: Uint8Array } | null = null
+
+  private gridFrame() {
+    if (this.grid) return this.grid
     // 外扩一圈，模糊后的外缘有地方渐隐
     const pad = BLUR_SIGMA * 3
     const x0 = Math.floor((Math.min(...this.regions.map(r => r.bbox[0])) - pad) / CELL) * CELL
     const y0 = Math.floor((Math.min(...this.regions.map(r => r.bbox[1])) - pad) / CELL) * CELL
-    const nx = Math.ceil((Math.max(...this.regions.map(r => r.bbox[2])) + pad - x0) / CELL)
-    const ny = Math.ceil((Math.max(...this.regions.map(r => r.bbox[3])) + pad - y0) / CELL)
-    const raw = new Float32Array(nx * ny)
+    const nx = Math.ceil((Math.max(...this.regions.map(r => r.bbox[2])) + pad - x0) / CELL) + 1
+    const ny = Math.ceil((Math.max(...this.regions.map(r => r.bbox[3])) + pad - y0) / CELL) + 1
+    const inside = new Float32Array(nx * ny)
+    this.cellRegion = new Array(nx * ny).fill(null)
     for (let j = 0; j < ny; j++) {
       for (let i = 0; i < nx; i++) {
-        const r = this.regionAt([x0 + (i + 0.5) * CELL, y0 + (j + 0.5) * CELL])
-        const t = r ? rampPosition(r.value, this.range) : null
-        if (t !== null) raw[j * nx + i] = 0.3 + 0.7 * t
-      }
-    }
-    // 热力：高斯模糊后片区之间平滑过渡，外缘渐隐；太弱的（< 0.03）不着色
-    const grid = gaussianBlur(raw, nx, ny, BLUR_SIGMA / CELL)
-    for (let k = 0; k < grid.length; k++) if (grid[k] < 0.15) grid[k] = 0
-    const colors = volumeColors(this.palette)
-    const out: { id: string }[] = []
-    for (let tj = 0; tj < ny; tj += TILE) {
-      for (let ti = 0; ti < nx; ti += TILE) {
-        const w = Math.min(TILE, nx - ti)
-        const h = Math.min(TILE, ny - tj)
-        const values = new Array<number>(w * h * LAYERS).fill(0)
-        let any = false
-        for (let j = 0; j < h; j++) {
-          for (let i = 0; i < w; i++) {
-            const v = grid[(tj + j) * nx + ti + i]
-            if (!v) continue
-            any = true
-            const t = Math.round(v * 1000) / 1000
-            // 纹理的行和投影坐标的北向相反
-            for (let l = 0; l < LAYERS; l++) values[(l * h + (h - 1 - j)) * w + i] = t
-          }
+        const r = this.regionAt([x0 + i * CELL, y0 + j * CELL])
+        if (r) {
+          inside[j * nx + i] = 1
+          this.cellRegion[j * nx + i] = r
         }
-        if (!any) continue
-        const [wm, hm] = [w * CELL, h * CELL]
-        out.push({
-          id: `${VOLUME_PREFIX}${ti / TILE}-${tj / TILE}`,
-          groupId: 'sc_heatdemo_volume',
-          heatValues: { size: [w, h, LAYERS], values },
-          bbox: [0, 0, 0, wm, hm, HEIGHT],
-          volumeBoxLocation: [x0 + ti * CELL + wm / 2, y0 + tj * CELL + hm / 2, FLOOR],
-          volumeBoxSize: [wm, hm, HEIGHT],
-          volumeBoxRotation: [0, 0, 0],
-          ...LOOK,
-          heatValueMode: 0,
-          heatValueRange: [0, 1],
-          updateTime: 0,
-          colors
-        } as { id: string })
       }
     }
-    return out
+    const reach = gaussianBlur(inside, nx, ny, BLUR_SIGMA / CELL)
+    const covered = Uint8Array.from(reach, v => (v > 0.02 ? 1 : 0))
+    this.grid = { x0, y0, nx, ny, covered }
+    return this.grid
   }
 
-  /** 画（或按当前色板重画）热力体积：先删本页的旧体积，再一次发全部 */
-  private async drawVolumes(): Promise<void> {
-    const next = this.volumes()
-    await this.removeVolumes()
-    this.volumeIds = next.map(v => v.id)
-    let res = await answer(done => __xapi.heatmap3d.addByVoxels(next, done))
-    // 6 = IDExists：上一次页面留下的同 id 体积还在渲染实例里，删掉再加一次
-    if (res?.result === 6) {
-      await answer(done => __xapi.heatmap3d.delete(this.volumeIds, done))
-      res = await answer(done => __xapi.heatmap3d.addByVoxels(next, done))
+  /** 每个格点所在的片区（算一次） */
+  private cellRegion: (ProjectedRegion | null)[] = []
+
+  /**
+   * 热力场：每格取所在片区数值的强度（0.3–1，值为 0 不着色），高斯模糊成连续的热力，外缘渐隐。
+   * 拓扑（覆盖范围）固定，所以换数值时 HeatFieldLayer 原地插值过渡。
+   */
+  buildField(): HeatField {
+    const { x0, y0, nx, ny, covered } = this.gridFrame()
+    const raw = new Float32Array(nx * ny)
+    for (let k = 0; k < raw.length; k++) {
+      const r = this.cellRegion[k]
+      const t = r ? rampPosition(r.value, this.range) : null
+      if (t !== null) raw[k] = 0.3 + 0.7 * t
     }
-    if (!res || res.result) console.warn('[片区热力] 热力体积创建失败', res ?? '渲染端没有回应')
-    if (!this.volumeVisible) await __xapi.heatmap3d.hide?.(this.volumeIds)
+    const values = gaussianBlur(raw, nx, ny, BLUR_SIGMA / CELL)
+    for (let k = 0; k < values.length; k++) values[k] = Math.min(1, values[k])
+    return { origin: [x0, y0], step: CELL, cols: nx, rows: ny, values, covered }
   }
 
-  private async removeVolumes(): Promise<void> {
-    const ids = this.volumeIds
-    this.volumeIds = []
-    if (ids.length) await answer(done => __xapi.heatmap3d.delete(ids, done))
-  }
-
-  private volumeIds: string[] = []
-  private volumeVisible = true
+  private field: HeatFieldLayer | null = null
+  private lines = false
 
   /** 标注：绝对值最大的几个片区 */
   private labels(): { id: string }[] {
@@ -342,39 +273,64 @@ export class HeatDemoScene extends ModuleScene {
     )
   }
 
+  private makeField(): HeatFieldLayer {
+    return new HeatFieldLayer(this.api, {
+      id: 'heatdemo-field',
+      groupId: 'sc_heatdemo_field',
+      colors: fieldColors(this.palette),
+      levels: this.lines ? HEAT_LINE_LEVELS : HEAT_LINES_OFF,
+      brightness: 0.85,
+      opacity: 1,
+      speed: 0,
+      tweenMs: TWEEN_MS,
+      tweenSteps: 8
+    })
+  }
+
   protected async onEnter(token: number): Promise<void> {
     if (!this.regions.length) await this.project()
     if (!this.isCurrent(token)) return
     // 不动镜头：用户自己控制视角；fitCamera 只留给需要「框住全部」的场合
     this.camera = this.fitCamera()
-    await this.drawVolumes()
+    this.field ??= this.makeField()
+    await this.field.show(this.buildField())
     if (!this.isCurrent(token)) return
     this.entered = true
   }
 
   protected async onLeave(): Promise<void> {
     this.entered = false
-    await this.removeVolumes()
+    await this.field?.clear()
   }
 
   protected onAbandon(): void {
-    if (this.volumeIds.length) void __xapi.heatmap3d.delete(this.volumeIds).catch(() => null)
-    this.volumeIds = []
+    this.field?.abandon()
   }
 
   async setLayerVisible(layer: string, visible: boolean): Promise<void> {
     if (layer !== 'fill') return super.setLayerVisible(layer, visible)
-    this.volumeVisible = visible
-    if (this.volumeIds.length) await (visible ? __xapi.heatmap3d.show?.(this.volumeIds) : __xapi.heatmap3d.hide?.(this.volumeIds))
+    await this.field?.setVisible(visible)
   }
 
-  /** 换色板：填色面和标注整层替换（新 id 先建后删） */
+  /** 换色板：原地改材质色位，不重建、不闪 */
   async setPalette(key: string): Promise<void> {
     const next = PALETTES.find(p => p.key === key)
     if (!next || next === this.palette) return
     this.palette = next
-    if (!this.entered) return
-    await this.drawVolumes()
+    await this.field?.setParams({ colors: fieldColors(next) })
+  }
+
+  /** 热力值的线（等值线）开关：原地改材质参数 */
+  async setLines(on: boolean): Promise<void> {
+    this.lines = on
+    await this.field?.setParams({ levels: on ? HEAT_LINE_LEVELS : HEAT_LINES_OFF })
+  }
+
+  /** 换数据（接口刷新）：片区不变时原地插值过渡到新值 */
+  async setValues(values: Record<string, number>): Promise<void> {
+    for (const r of this.regions) if (r.code in values) r.value = values[r.code]
+    this.range = magnitudeRange(this.regions)
+    if (this.entered) await this.field?.show(this.buildField())
   }
 
   /** 飞到某个片区 */

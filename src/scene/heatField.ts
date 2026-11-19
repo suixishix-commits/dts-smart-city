@@ -12,6 +12,8 @@ import { linearColor } from './lineFlow'
 import type { SceneApi } from './SceneApi'
 
 export const HEAT_FIELD_MATERIAL = '/JC_CustomAssets/HeatField/MI_HeatField_V1_FX'
+/** 关掉等值线时的 Levels：密度在 0–1，条数小于 1 时没有整数等值线落在范围里 */
+export const HEAT_LINES_OFF = 0.5
 
 export interface HeatSource {
   /** 投影坐标 [x, y]（米） */
@@ -119,7 +121,7 @@ export function heatFieldColors(field: HeatField, layout: HeatFieldLayout, value
 export function heatFieldMesh(
   id: string,
   field: HeatField,
-  o: { groupId?: string; brightness?: number; levels?: number; colors?: readonly string[]; opacity?: number } = {}
+  o: { groupId?: string; brightness?: number; levels?: number; colors?: readonly string[]; opacity?: number; speed?: number } = {}
 ): { mesh: Record<string, unknown> & { id: string }; layout: HeatFieldLayout } | null {
   const { cols, rows, covered, step } = field
   const [x0, y0] = field.origin
@@ -166,6 +168,7 @@ export function heatFieldMesh(
   const scalarParameters = [{ name: 'Opacity', value: o.opacity ?? 1 }]
   if (o.brightness !== undefined) scalarParameters.push({ name: 'Brightness', value: o.brightness })
   if (o.levels !== undefined) scalarParameters.push({ name: 'Levels', value: o.levels })
+  if (o.speed !== undefined) scalarParameters.push({ name: 'Speed', value: o.speed })
   return {
     mesh: {
       id,
@@ -207,8 +210,23 @@ export class HeatFieldLayer {
 
   constructor(
     private readonly api: SceneApi,
-    private readonly o: { id: string; groupId?: string; brightness?: number; levels?: number; colors?: readonly string[]; opacity?: number; tweenMs?: number; tweenSteps?: number }
+    private readonly o: { id: string; groupId?: string; brightness?: number; levels?: number; colors?: readonly string[]; opacity?: number; speed?: number; tweenMs?: number; tweenSteps?: number }
   ) {}
+
+  /**
+   * 原地改材质参数（等值线条数、色带），不重建网格、不闪。没建好时只记下，建网格时用。
+   * 等值线：材质在密度 0–1 上画 Levels 条，Levels 小于 1 就一条都没有（见 HEAT_LINES_OFF）。
+   */
+  async setParams(p: { levels?: number; colors?: readonly string[] }): Promise<void> {
+    if (p.levels !== undefined) this.o.levels = p.levels
+    if (p.colors) this.o.colors = p.colors
+    await this.running
+    if (!this.id || !this.api.update) return
+    const patch: Record<string, unknown> = { id: this.id }
+    if (p.levels !== undefined) patch.scalarParameters = [{ name: 'Levels', value: p.levels }]
+    if (p.colors) patch.vectorParameters = p.colors.map((c, i) => ({ name: 'C' + i, value: linearColor(c) }))
+    await this.api.update('customMesh', [patch as { id: string }])
+  }
 
   show(field: HeatField): Promise<void> {
     this.cleared = false
@@ -271,7 +289,7 @@ export class HeatFieldLayer {
   }
 
   private async apply(field: HeatField): Promise<void> {
-    const built = heatFieldMesh(`${this.o.id}-${this.slot ? 'a' : 'b'}`, field, { groupId: this.o.groupId, brightness: this.o.brightness, levels: this.o.levels, colors: this.o.colors, opacity: this.o.opacity })
+    const built = heatFieldMesh(`${this.o.id}-${this.slot ? 'a' : 'b'}`, field, { groupId: this.o.groupId, brightness: this.o.brightness, levels: this.o.levels, colors: this.o.colors, opacity: this.o.opacity, speed: this.o.speed })
     const sameShape = !!built && !!this.id && !!this.layout && built.layout.key === this.layout.key
     if (sameShape && this.api.update && this.shown) {
       await this.tween(field)
