@@ -49,20 +49,51 @@ export const PALETTES: Palette[] = [
  */
 const LOOK = { displayMode: 3, blendMode: 1, brightness: 8 }
 /**
- * 颜色强度和透明度比 POPInspection 低：它画的是零散的热点，这里是成片铺满的片区，原样会把卫星底图整片盖死、
- * 颜色发荧光（用户 2026-11-19：配色太丑）。压暗、半透明后底图的地块和道路透得出来，接近参考图的效果。
+ * 色带照搬 POPInspection 默认热力（heatmap.ts 的 RAMP，参考图）：低于 0.15 全透明；之后从薄薄一层绿（透明度 0.3）
+ * 逐渐加厚到黄、橙，0.78 起是红（0.85–0.92）。warm 用原色；ocean / risk 在同样的位置换成各自色板的四色。
+ * 颜色转线性再乘强度（引擎自动曝光会把亮色洗成粉彩）：warm、risk 0.22，ocean 同亮度下发光更强，压到 0.14。
  */
-const INTENSITY = 0.16
-const ALPHAS = [0.28, 0.36, 0.44, 0.52]
-const STOPS = [0.01, 0.4, 0.7, 1]
+const RAMP: [number, number[]][] = [
+  [0, [0.45, 0.8, 0.25, 0]],
+  [0.15, [0.45, 0.8, 0.25, 0]],
+  [0.26, [0.45, 0.8, 0.25, 0.3]],
+  [0.38, [0.8, 0.85, 0.15, 0.45]],
+  [0.5, [1, 0.75, 0.1, 0.6]],
+  [0.64, [1, 0.42, 0.03, 0.75]],
+  [0.78, [0.92, 0.14, 0, 0.85]],
+  [1, [0.78, 0.05, 0, 0.92]]
+]
+/** 每个 RAMP 档位用色板的第几色 */
+const PALETTE_STOP = [0, 0, 0, 0, 1, 2, 3, 3]
+const PALETTE_INTENSITY: Record<string, number> = { warm: 0.22, ocean: 0.14, risk: 0.22 }
 /** 体积的层数、底面和高度（米），同 POPInspection */
 const LAYERS = 4
 const FLOOR = -50
 const HEIGHT = 500
-/** 栅格间距（米）和每块体积的边长（格）：全酋长国约 610 × 665 格，按 64 × 64 分块，只发有值的块 */
-const CELL = 200
-const TILE = 64
+/** 栅格间距（米）和每块体积的边长（格） */
+const CELL = 300
+/**
+ * 不分块：整张热力一个体积。分块时引擎在块与块的交界处过渡不连续，会画出一圈圈细线（网格）。
+ * 300 米一格，全酋长国约 430 × 470 格，一个体积装得下；高斯模糊 1.2 公里，格子大小看不出来。
+ */
+const TILE = 100000
 const VOLUME_PREFIX = 'heatdemo-volume-'
+/** heatmap3d 的回应最多等多久，毫秒（体积建得慢） */
+const ANSWER_MS = 45000
+
+/**
+ * 用回调拿 heatmap3d 的回应：这一版 SDK 的 addByVoxels 返回的 Promise 永远不结束（POPInspection heatmap.ts 实测），
+ * await 它会把后续步骤全卡住。超时按没有回应处理（返回 undefined）。
+ */
+function answer(send: (done: (r: { result?: number } | undefined) => void) => void): Promise<{ result?: number } | undefined> {
+  return new Promise(resolve => {
+    const timer = window.setTimeout(() => resolve(undefined), ANSWER_MS)
+    send(r => {
+      window.clearTimeout(timer)
+      resolve(r)
+    })
+  })
+}
 /** 热力的扩散：高斯核的标准差，米 */
 const BLUR_SIGMA = 1200
 
@@ -97,13 +128,17 @@ export function gaussianBlur(src: Float32Array, nx: number, ny: number, sigma: n
   return out
 }
 
-/** POPInspection 的色带：0 透明，其后四色（线性、压暗），透明度递增 */
-export function volumeColors(ramp: readonly string[]) {
-  const linear = (hex: string) => [0, 2, 4].map(i => INTENSITY * (parseInt(hex.slice(1 + i, 3 + i), 16) / 255) ** 2.2)
+/** POPInspection 的色带（见 RAMP）：warm 用参考图原色，其余色板在同样的档位换成自己的四色；透明度沿用 RAMP */
+export function volumeColors(palette: Palette) {
+  const hex = (h: string) => [1, 3, 5].map(k => parseInt(h.slice(k, k + 2), 16) / 255)
+  const intensity = PALETTE_INTENSITY[palette.key] ?? 0.22
   return {
     gradient: true,
     invalidColor: [0, 0, 0, 0],
-    colorStops: [{ value: 0, color: [0, 0, 0, 0] }, ...STOPS.map((value, i) => ({ value, color: [...linear(ramp[i]), ALPHAS[i]] }))]
+    colorStops: RAMP.map(([value, color], k) => ({
+      value,
+      color: (palette.key === 'warm' ? color : [...hex(palette.ramp[PALETTE_STOP[k]]), color[3]]).map((v, c) => (c < 3 ? intensity * v ** 2.2 : v))
+    }))
   }
 }
 /** 标注几个：绝对值最大的几个片区 */
@@ -229,13 +264,13 @@ export class HeatDemoScene extends ModuleScene {
       for (let i = 0; i < nx; i++) {
         const r = this.regionAt([x0 + (i + 0.5) * CELL, y0 + (j + 0.5) * CELL])
         const t = r ? rampPosition(r.value, this.range) : null
-        if (t !== null) raw[j * nx + i] = 0.15 + 0.85 * t
+        if (t !== null) raw[j * nx + i] = 0.3 + 0.7 * t
       }
     }
     // 热力：高斯模糊后片区之间平滑过渡，外缘渐隐；太弱的（< 0.03）不着色
     const grid = gaussianBlur(raw, nx, ny, BLUR_SIGMA / CELL)
-    for (let k = 0; k < grid.length; k++) if (grid[k] < 0.03) grid[k] = 0
-    const colors = volumeColors(this.palette.ramp)
+    for (let k = 0; k < grid.length; k++) if (grid[k] < 0.15) grid[k] = 0
+    const colors = volumeColors(this.palette)
     const out: { id: string }[] = []
     for (let tj = 0; tj < ny; tj += TILE) {
       for (let ti = 0; ti < nx; ti += TILE) {
@@ -279,15 +314,20 @@ export class HeatDemoScene extends ModuleScene {
     const next = this.volumes()
     await this.removeVolumes()
     this.volumeIds = next.map(v => v.id)
-    const res = await __xapi.heatmap3d.addByVoxels(next)
-    if (res?.result) console.warn('[片区热力] 热力体积创建失败', res)
+    let res = await answer(done => __xapi.heatmap3d.addByVoxels(next, done))
+    // 6 = IDExists：上一次页面留下的同 id 体积还在渲染实例里，删掉再加一次
+    if (res?.result === 6) {
+      await answer(done => __xapi.heatmap3d.delete(this.volumeIds, done))
+      res = await answer(done => __xapi.heatmap3d.addByVoxels(next, done))
+    }
+    if (!res || res.result) console.warn('[片区热力] 热力体积创建失败', res ?? '渲染端没有回应')
     if (!this.volumeVisible) await __xapi.heatmap3d.hide?.(this.volumeIds)
   }
 
   private async removeVolumes(): Promise<void> {
     const ids = this.volumeIds
     this.volumeIds = []
-    if (ids.length) await __xapi.heatmap3d.delete(ids).catch(() => null)
+    if (ids.length) await answer(done => __xapi.heatmap3d.delete(ids, done))
   }
 
   private volumeIds: string[] = []
@@ -305,9 +345,8 @@ export class HeatDemoScene extends ModuleScene {
   protected async onEnter(token: number): Promise<void> {
     if (!this.regions.length) await this.project()
     if (!this.isCurrent(token)) return
+    // 不动镜头：用户自己控制视角；fitCamera 只留给需要「框住全部」的场合
     this.camera = this.fitCamera()
-    await this.api.setCamera(this.camera)
-    if (!this.isCurrent(token)) return
     await this.drawVolumes()
     if (!this.isCurrent(token)) return
     this.entered = true

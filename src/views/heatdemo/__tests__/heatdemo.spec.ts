@@ -76,12 +76,19 @@ describe('heat demo colouring', () => {
 })
 
 describe('POPInspection heat look', () => {
-  it('leaves 0 clear and steps the four ramp colours, linear and dimmed, with rising alpha (dimmer and more see-through than POPInspection)', () => {
-    const c = volumeColors(['#ffffff', '#ff0000', '#00ff00', '#0000ff'])
-    expect(c.colorStops[0]).toEqual({ value: 0, color: [0, 0, 0, 0] })
-    expect(c.colorStops.map(s => s.value)).toEqual([0, 0.01, 0.4, 0.7, 1])
-    expect(c.colorStops[1].color).toEqual([0.16, 0.16, 0.16, 0.28])
-    expect(c.colorStops[4].color.map(v => Math.round(v * 100) / 100)).toEqual([0, 0, 0.16, 0.52])
+  it('is clear below 0.15 and turns from a thin green glaze to solid red, as POPInspection draws its heat', () => {
+    const warm = volumeColors(PALETTES[0])
+    expect(warm.colorStops.map(s => s.value)).toEqual([0, 0.15, 0.26, 0.38, 0.5, 0.64, 0.78, 1])
+    expect(warm.colorStops[1].color[3]).toBe(0)
+    expect(warm.colorStops.map(s => s.color[3])).toEqual([0, 0, 0.3, 0.45, 0.6, 0.75, 0.85, 0.92])
+    // 颜色线性化并乘 0.22：红 0.92 → 0.22 * 0.92^2.2
+    expect(warm.colorStops[6].color[0]).toBeCloseTo(0.22 * 0.92 ** 2.2)
+  })
+
+  it('puts the other palette colours at the same stops, ocean dimmer', () => {
+    const ocean = volumeColors(PALETTES[1])
+    expect(ocean.colorStops[7].color[2]).toBeCloseTo(0.14 * (0xbf / 255) ** 2.2)
+    expect(ocean.colorStops[7].color[3]).toBe(0.92)
   })
 })
 
